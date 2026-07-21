@@ -1,0 +1,105 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# A newer push to the same branch supersedes an in-flight run.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: test (node ${{ matrix.node }} / ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # One red cell must not hide the state of the others.
+      fail-fast: false
+      matrix:
+        # The OSes workler manages clones and symlinks/junctions on, against
+        # every Node line it claims to support (package.json engines: >=18).
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        node: ['18', '20', '22', '24']
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run check
+
+      # The suite drives real `git clone`/`checkout` against temp repos and
+      # asserts on CLI output, so it is the check that actually exercises the
+      # platform (junctions on Windows, symlinks elsewhere).
+      - name: Test
+        run: npm test
+
+      - name: Smoke test
+        run: npm run smoke
+
+      - name: Check package contents
+        run: npm pack --dry-run
+
+  docs:
+    name: docs build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # deploy-docs.yml publishes this; building it on every PR keeps a broken
+      # link or a bad config from reaching the deploy workflow.
+      - name: Build docs
+        run: npm run docs:build
+
+  package:
+    name: package smoke
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Pack
+        run: npm pack
+
+      # `npm pack --dry-run` only lists the tarball. This installs it the way a
+      # user would and runs the shipped bin, which is what catches a missing
+      # dist/, a bad "files" list, or a broken bin shim.
+      - name: Install the tarball globally and run the CLI
+        run: |
+          npm install -g ./workler-*.tgz
+          workler --version
+          workler help
+          test "$(workler --version)" = "$(node -p 'require("./package.json").version')"

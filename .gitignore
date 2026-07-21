@@ -1,0 +1,9 @@
+.worktrees/
+node_modules/
+dist/
+docs/.vitepress/dist/
+docs/.vitepress/cache/
+pnpm-lock.yaml
+*.tgz
+*.log
+.DS_Store

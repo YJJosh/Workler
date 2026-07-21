@@ -1,0 +1,62 @@
+{
+  "name": "workler",
+  "version": "0.2.0",
+  "description": "Local workspace manager with copy/link rules for untracked project files.",
+  "bin": {
+    "workler": "dist/cli.js"
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "require": "./dist/index.js",
+      "import": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "check": "tsc --noEmit",
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
+    "dev": "npm run build --silent && node ./dist/cli.js",
+    "smoke": "node ./dist/cli.js help",
+    "test": "npm run build --silent && node test/run.js",
+    "docs:dev": "vitepress dev docs",
+    "docs:build": "vitepress build docs",
+    "docs:preview": "vitepress preview docs",
+    "prepare": "npm run build",
+    "prepack": "npm run clean && npm run build",
+    "prepublishOnly": "npm run check && npm test",
+    "postpack": "node -e \"const {spawnSync}=require('node:child_process');const r=spawnSync(process.execPath,['./dist/cli.js','help'],{stdio:'ignore'});process.exit(r.status===null?1:r.status)\""
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.8.0",
+    "vitepress": "^1.6.4"
+  },
+  "overrides": {
+    "vite": "^6.4.3",
+    "esbuild": "^0.25.0"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/YJJosh/Workler.git"
+  },
+  "bugs": {
+    "url": "https://github.com/YJJosh/Workler/issues"
+  },
+  "homepage": "https://github.com/YJJosh/Workler#readme",
+  "publishConfig": {
+    "access": "public"
+  }
+}
