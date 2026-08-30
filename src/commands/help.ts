@@ -23,8 +23,9 @@ Flags:
 
 Workler does not use git worktree: it creates normal local clones under
 ${WORKSPACES_DIR}/ and applies copy/link rules from an optional ${CONFIG_FILE} file.
-"sync" and "branch-sync" are fail-safe: dirty workspaces and diverged or
-checked-out branches are never touched.
+"sync" skips repositories with uncommitted tracked changes and only fast-forwards
+current branches. "branch-sync" can create branches and fast-forward non-checked-out
+branches, but leaves diverged or locally advanced branches unchanged.
 
 Run "${PACKAGE_NAME} init" to prepare a project, and "${PACKAGE_NAME} <command> --help"
 for details on each command.
