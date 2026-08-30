@@ -34,20 +34,24 @@ function removeIfPresent(file) {
   fs.rmSync(file, { force: true });
 }
 
-function createWindowsShims(binDir, target) {
+function createShellShim(binDir, target) {
   const shellShim = path.join(binDir, ALIAS);
-  const cmdShim = `${shellShim}.cmd`;
-  const powershellShim = `${shellShim}.ps1`;
-
-  for (const shim of [shellShim, cmdShim, powershellShim]) {
-    removeIfPresent(shim);
-  }
-
+  removeIfPresent(shellShim);
   fs.writeFileSync(
     shellShim,
     `#!/bin/sh\n${INVOKED_AS_ENV}=${ALIAS} exec node ${shellQuote(target)} "$@"\n`,
     { mode: 0o755 },
   );
+}
+
+function createWindowsShims(binDir, target) {
+  const cmdShim = path.join(binDir, `${ALIAS}.cmd`);
+  const powershellShim = path.join(binDir, `${ALIAS}.ps1`);
+
+  for (const shim of [cmdShim, powershellShim]) {
+    removeIfPresent(shim);
+  }
+  createShellShim(binDir, target);
 
   const cmdTarget = target.replace(/%/g, '%%');
   fs.writeFileSync(
@@ -79,10 +83,7 @@ function main() {
   if (process.platform === 'win32') {
     createWindowsShims(binDir, target);
   } else {
-    const aliasPath = path.join(binDir, ALIAS);
-    removeIfPresent(aliasPath);
-    fs.chmodSync(target, fs.statSync(target).mode | 0o111);
-    fs.symlinkSync(target, aliasPath);
+    createShellShim(binDir, target);
   }
 
   console.log(`linked ${ALIAS} -> ${target}`);
