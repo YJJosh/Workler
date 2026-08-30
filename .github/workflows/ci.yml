@@ -51,6 +51,13 @@ jobs:
       - name: Smoke test
         run: npm run smoke
 
+      # The development alias uses a symlink on POSIX and npm-style command
+      # shims on Windows; exercise both paths across the platform matrix.
+      - name: Development link smoke
+        run: |
+          npm run dev:link
+          devworkler --version
+
       - name: Check package contents
         run: npm pack --dry-run
 

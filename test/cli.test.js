@@ -127,6 +127,15 @@ test('shell-init preserves the invoked executable name', (t) => {
   assert.ok(result.stdout.includes(`dest="$(${aliasName} path "$1")"`));
 });
 
+test('shell-init accepts the executable name supplied by a platform shim', () => {
+  const result = spawnSync(process.execPath, [CLI, 'shell-init'], {
+    encoding: 'utf8',
+    env: { ...process.env, WORKLER_INVOKED_AS: 'devworkler' },
+  });
+  assert.strictEqual(result.status, 0, result.stderr);
+  assert.ok(result.stdout.includes('dest="$(devworkler path "$1")"'));
+});
+
 test('--version/-v/version print the package version', (t) => {
   const root = makeRepo(t);
   const { version } = require('../package.json');
