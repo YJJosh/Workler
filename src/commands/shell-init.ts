@@ -1,15 +1,15 @@
 import { assertNoArgs } from '../cli-utils';
-import type { CliContext } from '../types';
+import { PACKAGE_NAME } from '../constants';
 
-export function shellInitCommand(args: string[], context: CliContext): void {
-  if (assertNoArgs(args, 'shell-init', context)) return;
+export function shellInitCommand(args: string[]): void {
+  if (assertNoArgs(args, 'shell-init')) return;
   console.log(`wcd() {
   if [ "$#" -eq 0 ]; then
     echo "usage: wcd <workspace>" >&2
     return 2
   fi
   local dest
-  dest="$(${context.cliName} path "$1")" || return $?
+  dest="$(${PACKAGE_NAME} path "$1")" || return $?
   cd "$dest"
 }`);
 }

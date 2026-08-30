@@ -1,19 +1,18 @@
 import path from 'node:path';
 import { parseCommandArgs } from '../cli-utils';
-import { MAIN_WORKSPACE_NAME } from '../constants';
+import { MAIN_WORKSPACE_NAME, PACKAGE_NAME } from '../constants';
 import { withProjectLock } from '../lock';
 import { applyRules } from '../rules';
 import { findWorklerRoot, findWorkspace, listWorkspaces, parentProject } from '../workspaces';
 import { printRuleResult, printRuleSummary } from './rule-output';
-import type { CliContext } from '../types';
 
 function applyAndPrint(root: string, workspacePath: string, force: boolean, dryRun: boolean): void {
   const outcome = applyRules(root, workspacePath, { force, dryRun, onResult: printRuleResult });
   printRuleSummary(outcome);
 }
 
-export function applyCommand(args: string[], context: CliContext): void {
-  const usage = `${context.cliName} apply [name] [--all] [--force] [--dry-run]`;
+export function applyCommand(args: string[]): void {
+  const usage = `${PACKAGE_NAME} apply [name] [--all] [--force] [--dry-run]`;
   const parsed = parseCommandArgs(args, {
     command: 'apply',
     usage,
@@ -33,7 +32,7 @@ export function applyCommand(args: string[], context: CliContext): void {
     throw new Error('apply cannot combine a name with --all');
   }
 
-  const root = findWorklerRoot(process.cwd(), context.cliName);
+  const root = findWorklerRoot(process.cwd());
   if (dryRun) {
     console.log('dry run: nothing will be changed');
   }

@@ -1,12 +1,12 @@
 import { parseCommandArgs } from '../cli-utils';
+import { PACKAGE_NAME } from '../constants';
 import { ensureGitRepo } from '../git';
 import { withProjectLock } from '../lock';
 import { fetchOrigin, listSyncTargets, nameWidth } from '../multi-git';
 import { findWorklerRoot } from '../workspaces';
-import type { CliContext } from '../types';
 
-export function fetchCommand(args: string[], context: CliContext): void {
-  const usage = `${context.cliName} fetch`;
+export function fetchCommand(args: string[]): void {
+  const usage = `${PACKAGE_NAME} fetch`;
   const parsed = parseCommandArgs(args, {
     command: 'fetch',
     usage,
@@ -21,7 +21,7 @@ Workspaces without an origin remote are skipped with a note.`);
     return;
   }
 
-  const root = findWorklerRoot(process.cwd(), context.cliName);
+  const root = findWorklerRoot(process.cwd());
   ensureGitRepo(root, 'fetch');
 
   withProjectLock(root, 'fetch', () => {

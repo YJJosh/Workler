@@ -1,11 +1,10 @@
 import { assertNoArgs } from '../cli-utils';
 import { listWorkspaceInfos } from '../core/list';
 import { findWorklerRoot } from '../workspaces';
-import type { CliContext } from '../types';
 
-export function listCommand(args: string[], context: CliContext): void {
-  if (assertNoArgs(args, 'list', context)) return;
-  const root = findWorklerRoot(process.cwd(), context.cliName);
+export function listCommand(args: string[]): void {
+  if (assertNoArgs(args, 'list')) return;
+  const root = findWorklerRoot(process.cwd());
   const rows = listWorkspaceInfos(root)
     // Plain directories under .worktrees/ have never shown up in `list`;
     // clones stay listed even when git cannot read them (branch shows '?').

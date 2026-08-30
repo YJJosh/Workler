@@ -9,7 +9,7 @@ import type { Workspace } from './types';
 // Discovers the nearest enclosing workler project from `startDir` (the CLI
 // passes process.cwd(); the programmatic API takes explicit roots instead
 // but exports this for callers that want CLI-style discovery).
-export function findWorklerRoot(startDir: string, cliName: string = PACKAGE_NAME): string {
+export function findWorklerRoot(startDir: string): string {
   const cwd = path.resolve(startDir);
 
   // The nearest Git repository is a Workler project automatically; `.workler`
@@ -51,7 +51,7 @@ export function findWorklerRoot(startDir: string, cliName: string = PACKAGE_NAME
   throw new WorklerError(
     'ROOT_NOT_FOUND',
     `could not find a Git repository or .workler config. Run this command inside a Git repository, ` +
-      `or run \`${cliName} init\` first.`,
+      `or run \`${PACKAGE_NAME} init\` first.`,
   );
 }
 

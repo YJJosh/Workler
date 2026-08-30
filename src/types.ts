@@ -1,7 +1,3 @@
-export interface CliContext {
-  cliName: string;
-}
-
 export type RuleAction = 'copy' | 'link';
 
 export interface WorklerRule {
