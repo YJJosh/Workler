@@ -25,6 +25,8 @@
     "check": "tsc --noEmit",
     "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
     "dev": "npm run build --silent && node ./dist/cli.js",
+    "dev:link": "npm run build --silent && node ./scripts/link-dev.cjs",
+    "dev:watch": "tsc --watch",
     "smoke": "node ./dist/cli.js help",
     "test": "npm run build --silent && node test/run.js",
     "docs:dev": "vitepress dev docs",

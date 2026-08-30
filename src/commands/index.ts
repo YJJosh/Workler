@@ -11,15 +11,15 @@ import { pathCommand } from './path';
 import { removeCommand } from './remove';
 import { shellInitCommand } from './shell-init';
 import { versionCommand } from './version';
-import type { CliContext } from '../types';
+import { PACKAGE_NAME } from '../constants';
 
-export function runCommand(command: string | undefined, args: string[], context: CliContext): void {
+export function runCommand(command: string | undefined, args: string[]): void {
   switch (command) {
     case undefined:
     case '-h':
     case '--help':
     case 'help':
-      helpCommand(context);
+      helpCommand();
       break;
     case '-v':
     case '--version':
@@ -27,41 +27,41 @@ export function runCommand(command: string | undefined, args: string[], context:
       versionCommand();
       break;
     case 'init':
-      initCommand(args, context);
+      initCommand(args);
       break;
     case 'add':
-      addCommand(args, context);
+      addCommand(args);
       break;
     case 'apply':
-      applyCommand(args, context);
+      applyCommand(args);
       break;
     case 'list':
     case 'ls':
-      listCommand(args, context);
+      listCommand(args);
       break;
     case 'path':
-      pathCommand(args, context);
+      pathCommand(args);
       break;
     case 'remove':
     case 'rm':
-      removeCommand(args, context);
+      removeCommand(args);
       break;
     case 'shell-init':
-      shellInitCommand(args, context);
+      shellInitCommand(args);
       break;
     case 'status':
-      statusCommand(args, context);
+      statusCommand(args);
       break;
     case 'fetch':
-      fetchCommand(args, context);
+      fetchCommand(args);
       break;
     case 'sync':
-      syncCommand(args, context);
+      syncCommand(args);
       break;
     case 'branch-sync':
-      branchSyncCommand(args, context);
+      branchSyncCommand(args);
       break;
     default:
-      throw new Error(`unknown command: ${command}\nRun: ${context.cliName} help`);
+      throw new Error(`unknown command: ${command}\nRun: ${PACKAGE_NAME} help`);
   }
 }
