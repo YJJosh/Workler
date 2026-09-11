@@ -1,6 +1,8 @@
 name: ci
 
 on:
+  # prepare explicitly starts CI for its GITHUB_TOKEN-created version PR.
+  workflow_dispatch:
   pull_request:
   push:
     branches: [main]
