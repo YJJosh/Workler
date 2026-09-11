@@ -1,6 +1,6 @@
 {
   "name": "workler",
-  "version": "0.2.1",
+  "version": "0.2.0",
   "description": "Local workspace manager with copy/link rules for untracked project files.",
   "bin": {
     "workler": "dist/cli.js"
