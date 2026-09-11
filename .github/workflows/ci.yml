@@ -51,6 +51,15 @@ jobs:
       - name: Smoke test
         run: npm run smoke
 
+      # Exercise the POSIX launcher and Windows command shims, including a
+      # clean rebuild that replaces the compiled CLI after the alias is made.
+      - name: Development link smoke
+        run: |
+          npm run dev:link
+          npm run clean
+          npm run build
+          devworkler --version
+
       - name: Check package contents
         run: npm pack --dry-run
 

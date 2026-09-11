@@ -4,7 +4,7 @@
 workler <command> [arguments] [flags]
 ```
 
-Every command also accepts `-h`/`--help`. `workler help` prints the full built-in reference.
+Every command also accepts `-h`/`--help`. `workler help` prints a concise command overview; the command pages below provide the full reference.
 
 ## Workspace commands
 
@@ -33,7 +33,7 @@ These operate on the main project **and every workspace** at once:
 | Command | What it does |
 | --- | --- |
 | [`workler shell-init`](/reference/cli/shell-init) | Print the `wcd` shell function |
-| `workler help` | Print the built-in reference |
+| `workler help` | Print the command overview and documentation link |
 | `workler --version` | Print the version and exit (also `-v`, `workler version`) |
 
 `--version` prints the bare version on one line (`0.2.0`), the way `npm --version` does, so it can be read by a script without stripping a prefix.

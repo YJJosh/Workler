@@ -53,15 +53,6 @@ See the [CLI reference](https://yjjosh.github.io/Workler/reference/cli/) for eve
 - **Nested workflows** — [nested workspaces](https://yjjosh.github.io/Workler/guide/nested-workspaces) support parallel features and coding agents.
 - **Programmatic use** — the package includes a typed [JavaScript and TypeScript API](https://yjjosh.github.io/Workler/reference/api).
 
-## Development
-
-```sh
-npm install
-npm run check
-npm test
-npm run docs:dev
-```
-
 ## License
 
 [MIT](LICENSE)

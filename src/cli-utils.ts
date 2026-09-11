@@ -1,4 +1,4 @@
-import type { CliContext } from './types';
+import { PACKAGE_NAME } from './constants';
 
 export function requireValue(args: string[], index: number, option: string): string {
   const value = args[index];
@@ -10,13 +10,13 @@ export function requireValue(args: string[], index: number, option: string): str
 
 // Returns true when help was printed so simple no-argument commands can stop
 // before doing any discovery or mutation.
-export function assertNoArgs(args: string[], command: string, context: CliContext): boolean {
+export function assertNoArgs(args: string[], command: string): boolean {
   if (args.length === 1 && (args[0] === '-h' || args[0] === '--help')) {
-    console.log(`usage: ${context.cliName} ${command}`);
+    console.log(`usage: ${PACKAGE_NAME} ${command}`);
     return true;
   }
   if (args.length > 0) {
-    throw new Error(`usage: ${context.cliName} ${command}`);
+    throw new Error(`usage: ${PACKAGE_NAME} ${command}`);
   }
   return false;
 }

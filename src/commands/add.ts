@@ -1,13 +1,13 @@
 import { parseCommandArgs } from '../cli-utils';
+import { PACKAGE_NAME } from '../constants';
 import { createWorkspace, planWorkspaceCreation } from '../core/create';
 import type { CheckoutPlan, CreateWorkspaceOptions } from '../core/create';
 import { applyRules } from '../rules';
 import { findWorklerRoot } from '../workspaces';
 import { printRuleResult, printRuleSummary } from './rule-output';
-import type { CliContext } from '../types';
 
-export function addCommand(args: string[], context: CliContext): void {
-  const usage = `${context.cliName} add <name> [base] [--branch <branch>] [--checkout <ref>] [--force] [--dry-run]`;
+export function addCommand(args: string[]): void {
+  const usage = `${PACKAGE_NAME} add <name> [base] [--branch <branch>] [--checkout <ref>] [--force] [--dry-run]`;
   const parsed = parseCommandArgs(args, {
     command: 'add',
     usage,
@@ -30,7 +30,7 @@ export function addCommand(args: string[], context: CliContext): void {
   };
   const dryRun = parsed.flags['dry-run'] === true;
 
-  const root = findWorklerRoot(process.cwd(), context.cliName);
+  const root = findWorklerRoot(process.cwd());
 
   if (dryRun) {
     const plan = planWorkspaceCreation(root, options);

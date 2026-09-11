@@ -3,10 +3,11 @@
 // API but must keep their human output and exit codes.
 
 const assert = require('node:assert');
+const { spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 const { test } = require('node:test');
-const { makeRepo, makeTempDir, runCli } = require('./helpers');
+const { CLI, makeRepo, makeTempDir, runCli } = require('./helpers');
 
 test('init/add/list/path/remove round-trip via the CLI', (t) => {
   const root = makeRepo(t, { workler: 'copy .env\n' });
@@ -113,6 +114,26 @@ test('every documented command accepts -h/--help without requiring a project', (
       assert.strictEqual(result.stderr, '');
     }
   }
+});
+
+test('shell-init preserves the invoked executable name', (t) => {
+  const aliasName = 'devworkler-test';
+  const aliasPath = path.join(path.dirname(CLI), `${aliasName}.js`);
+  t.after(() => fs.rmSync(aliasPath, { force: true }));
+  fs.copyFileSync(CLI, aliasPath);
+
+  const result = spawnSync(process.execPath, [aliasPath, 'shell-init'], { encoding: 'utf8' });
+  assert.strictEqual(result.status, 0, result.stderr);
+  assert.ok(result.stdout.includes(`dest="$(${aliasName} path "$1")"`));
+});
+
+test('shell-init accepts the executable name supplied by a platform shim', () => {
+  const result = spawnSync(process.execPath, [CLI, 'shell-init'], {
+    encoding: 'utf8',
+    env: { ...process.env, WORKLER_INVOKED_AS: 'devworkler' },
+  });
+  assert.strictEqual(result.status, 0, result.stderr);
+  assert.ok(result.stdout.includes('dest="$(devworkler path "$1")"'));
 });
 
 test('--version/-v/version print the package version', (t) => {

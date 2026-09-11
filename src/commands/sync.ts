@@ -1,4 +1,5 @@
 import { parseCommandArgs } from '../cli-utils';
+import { PACKAGE_NAME } from '../constants';
 import { ensureGitRepo, git } from '../git';
 import { withProjectLock } from '../lock';
 import {
@@ -10,11 +11,10 @@ import {
   trackedChanges,
 } from '../multi-git';
 import { findWorklerRoot } from '../workspaces';
-import type { CliContext } from '../types';
 import type { SyncTarget } from '../multi-git';
 
-export function syncCommand(args: string[], context: CliContext): void {
-  const usage = `${context.cliName} sync`;
+export function syncCommand(args: string[]): void {
+  const usage = `${PACKAGE_NAME} sync`;
   const parsed = parseCommandArgs(args, {
     command: 'sync',
     usage,
@@ -31,7 +31,7 @@ merged or rebased - both are skipped with a note.`);
     return;
   }
 
-  const root = findWorklerRoot(process.cwd(), context.cliName);
+  const root = findWorklerRoot(process.cwd());
   ensureGitRepo(root, 'sync');
   withProjectLock(root, 'sync', () => syncAll(root));
 }

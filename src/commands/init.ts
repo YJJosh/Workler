@@ -3,10 +3,9 @@ import { initProject } from '../core/project';
 import { relativeToCwd } from '../fs-utils';
 import { findGitTopLevel } from '../git';
 import { assertNoArgs } from '../cli-utils';
-import type { CliContext } from '../types';
 
-export function initCommand(args: string[], context: CliContext): void {
-  if (assertNoArgs(args, 'init', context)) return;
+export function initCommand(args: string[]): void {
+  if (assertNoArgs(args, 'init')) return;
 
   const root = findGitTopLevel(process.cwd()) || process.cwd();
   const result = initProject(root);

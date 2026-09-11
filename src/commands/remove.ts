@@ -1,10 +1,10 @@
 import { parseCommandArgs } from '../cli-utils';
+import { PACKAGE_NAME } from '../constants';
 import { removeWorkspace } from '../core/remove';
 import { findWorklerRoot } from '../workspaces';
-import type { CliContext } from '../types';
 
-export function removeCommand(args: string[], context: CliContext): void {
-  const usage = `${context.cliName} remove <name> [--force]`;
+export function removeCommand(args: string[]): void {
+  const usage = `${PACKAGE_NAME} remove <name> [--force]`;
   const parsed = parseCommandArgs(args, {
     command: 'remove',
     usage,
@@ -17,7 +17,7 @@ export function removeCommand(args: string[], context: CliContext): void {
     return;
   }
 
-  const root = findWorklerRoot(process.cwd(), context.cliName);
+  const root = findWorklerRoot(process.cwd());
   const result = removeWorkspace(root, parsed.positionals[0], { force: parsed.flags.force === true });
   console.log(`removed ${result.name}`);
 }

@@ -1,11 +1,11 @@
 import { parseCommandArgs } from '../cli-utils';
+import { PACKAGE_NAME } from '../constants';
 import { ensureGitRepo } from '../git';
 import { aheadBehindUpstream, branchInfo, describeAheadBehind, listSyncTargets, trackedChanges } from '../multi-git';
 import { findWorklerRoot } from '../workspaces';
-import type { CliContext } from '../types';
 
-export function statusCommand(args: string[], context: CliContext): void {
-  const usage = `${context.cliName} status`;
+export function statusCommand(args: string[]): void {
+  const usage = `${PACKAGE_NAME} status`;
   const parsed = parseCommandArgs(args, {
     command: 'status',
     usage,
@@ -20,7 +20,7 @@ project and every workspace. Broken or missing clones are flagged.`);
     return;
   }
 
-  const root = findWorklerRoot(process.cwd(), context.cliName);
+  const root = findWorklerRoot(process.cwd());
   ensureGitRepo(root, 'status');
 
   let failures = 0;
