@@ -9,6 +9,7 @@ import {
   isCorrectSymlink,
   pathsHaveSameContent,
   pathsReferToSameLocation,
+  rebaseInternalLinks,
 } from './fs-utils';
 import type { RuleAction, WorklerRule } from './types';
 
@@ -348,17 +349,22 @@ function applyCopy(source: string, destination: string, rule: WorklerRule, optio
   }
 
   fs.mkdirSync(path.dirname(destination), { recursive: true });
-  const copy = (target: string): void => fs.cpSync(content, target, {
-    recursive: true,
-    errorOnExist: true,
-    force: false,
-    preserveTimestamps: true,
-    // Without this Node rewrites relative symlinks inside the tree (every
-    // node_modules/.bin entry) into absolute paths back into the SOURCE, so
-    // the "copy" would still run the main project's files and would never
-    // compare equal to its source on the next apply.
-    verbatimSymlinks: true,
-  });
+  const copy = (target: string): void => {
+    fs.cpSync(content, target, {
+      recursive: true,
+      errorOnExist: true,
+      force: false,
+      preserveTimestamps: true,
+      // Without this Node rewrites relative symlinks inside the tree (every
+      // node_modules/.bin entry) into absolute paths back into the SOURCE, so
+      // the "copy" would still run the main project's files and would never
+      // compare equal to its source on the next apply.
+      verbatimSymlinks: true,
+    });
+    // Verbatim also keeps links that were ABSOLUTE to begin with aimed at the
+    // source; `target` may be a staging name, `destination` is where it lands.
+    rebaseInternalLinks(content, target, destination);
+  };
   if (replaced) {
     replaceDestination(destination, copy);
   } else {

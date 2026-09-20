@@ -132,7 +132,107 @@ function filesHaveSameContent(left: string, right: string): boolean {
   }
 }
 
+// Both spellings of a tree's root: an absolute link written before the tree
+// was reached through an alias (macOS /var -> /private/var, a linked
+// node_modules) may use either one.
+function rootSpellings(root: string): string[] {
+  return [...new Set([path.resolve(root), canonicalPath(root)])];
+}
+
+// For an absolute symlink target that stays inside its own tree, the
+// equivalent target relative to the link's directory; undefined for relative
+// targets and for targets outside the tree. Containment is lexical on purpose:
+// resolving the target could follow further links out of the tree.
+function internalLinkTarget(roots: string[], relativeLinkPath: string, target: string): string | undefined {
+  if (!path.isAbsolute(target)) {
+    return undefined;
+  }
+  for (const root of roots) {
+    const inside = path.relative(root, target);
+    if (inside !== '..' && !inside.startsWith(`..${path.sep}`) && !path.isAbsolute(inside)) {
+      return path.relative(path.dirname(relativeLinkPath), inside) || '.';
+    }
+  }
+  return undefined;
+}
+
+// Copying symlinks verbatim keeps an ABSOLUTE link into the copied tree aimed
+// at the source, so the "independent" copy would still read and write the
+// original files. Re-aim every such link inside `copyRoot` at its own copy.
+// `finalRoot` is where the tree ends up (it may still be staged under another
+// name): Windows junctions only store absolute targets, so they have to name
+// the final location rather than the staging one.
+export function rebaseInternalLinks(sourceRoot: string, copyRoot: string, finalRoot: string): void {
+  if (!fs.lstatSync(copyRoot).isDirectory()) {
+    return;
+  }
+  const roots = rootSpellings(sourceRoot);
+
+  const visit = (relativeDir: string): void => {
+    const dir = path.join(copyRoot, relativeDir);
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const relativePath = path.join(relativeDir, entry.name);
+      if (entry.isDirectory()) {
+        visit(relativePath);
+        continue;
+      }
+      if (!entry.isSymbolicLink()) {
+        continue;
+      }
+
+      const linkPath = path.join(copyRoot, relativePath);
+      const rebased = internalLinkTarget(roots, relativePath, fs.readlinkSync(linkPath));
+      if (rebased === undefined) {
+        continue;
+      }
+
+      let target = rebased;
+      let type: fs.symlink.Type | undefined;
+      if (process.platform === 'win32') {
+        let isDirectory = false;
+        try {
+          isDirectory = fs.statSync(path.resolve(dir, rebased)).isDirectory();
+        } catch (_) {
+          // Broken link: nothing to tell a directory from a file by.
+        }
+        if (isDirectory) {
+          type = 'junction';
+          target = path.resolve(path.join(finalRoot, relativeDir), rebased);
+        }
+      }
+
+      // Replacing the entry touches the directory; keep the mtime the copy
+      // preserved from the source.
+      const dirStat = fs.statSync(dir);
+      fs.unlinkSync(linkPath);
+      fs.symlinkSync(target, linkPath, type);
+      fs.utimesSync(dir, dirStat.atime, dirStat.mtime);
+    }
+  };
+  visit('');
+}
+
+// A link that points inside its own tree compares by where it lands in that
+// tree, so a source's absolute internal link equals the rebased link in its
+// copy (see rebaseInternalLinks). Every other link compares by its raw text.
+function comparableLinkTarget(roots: string[], relativeLinkPath: string, linkPath: string): string {
+  const target = fs.readlinkSync(linkPath);
+  return internalLinkTarget(roots, relativeLinkPath, target) ?? target;
+}
+
 export function pathsHaveSameContent(left: string, right: string): boolean {
+  return treesHaveSameContent(left, right, '', rootSpellings(left), rootSpellings(right));
+}
+
+function treesHaveSameContent(
+  leftRoot: string,
+  rightRoot: string,
+  relativePath: string,
+  leftRoots: string[],
+  rightRoots: string[],
+): boolean {
+  const left = path.join(leftRoot, relativePath);
+  const right = path.join(rightRoot, relativePath);
   let leftStat: fs.Stats;
   let rightStat: fs.Stats;
 
@@ -144,9 +244,14 @@ export function pathsHaveSameContent(left: string, right: string): boolean {
   }
 
   if (leftStat.isSymbolicLink() || rightStat.isSymbolicLink()) {
-    return leftStat.isSymbolicLink()
-      && rightStat.isSymbolicLink()
-      && fs.readlinkSync(left) === fs.readlinkSync(right);
+    if (!leftStat.isSymbolicLink() || !rightStat.isSymbolicLink()) {
+      return false;
+    }
+    // The compared roots themselves have no enclosing tree to be inside of.
+    if (relativePath === '') {
+      return fs.readlinkSync(left) === fs.readlinkSync(right);
+    }
+    return comparableLinkTarget(leftRoots, relativePath, left) === comparableLinkTarget(rightRoots, relativePath, right);
   }
 
   if (leftStat.isFile() || rightStat.isFile()) {
@@ -177,7 +282,8 @@ export function pathsHaveSameContent(left: string, right: string): boolean {
       if (leftEntries[index] !== rightEntries[index]) {
         return false;
       }
-      if (!pathsHaveSameContent(path.join(left, leftEntries[index]), path.join(right, rightEntries[index]))) {
+      const entryPath = path.join(relativePath, leftEntries[index]);
+      if (!treesHaveSameContent(leftRoot, rightRoot, entryPath, leftRoots, rightRoots)) {
         return false;
       }
     }

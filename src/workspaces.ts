@@ -3,7 +3,7 @@ import path from 'node:path';
 import { CONFIG_FILE, MAIN_WORKSPACE_NAME, PACKAGE_NAME, WORKSPACES_DIR } from './constants';
 import { WorklerError } from './errors';
 import { canonicalPath, pathsReferToSameLocation } from './fs-utils';
-import { findGitTopLevel, git, gitMaybe, isGitTopLevel } from './git';
+import { findGitTopLevel, git, gitConfigUnset, gitMaybe, isGitTopLevel } from './git';
 import type { Workspace } from './types';
 
 // Discovers the nearest enclosing workler project from `startDir` (the CLI
@@ -216,9 +216,7 @@ export function setWorkspaceCopiesLinks(workspacePath: string, copyLinks: boolea
   if (copyLinks) {
     git(workspacePath, ['config', '--local', 'workler.copyLinks', 'true']);
   } else {
-    // --unset-all exits non-zero when the key is absent; that is already the
-    // desired state.
-    gitMaybe(workspacePath, ['config', '--local', '--unset-all', 'workler.copyLinks']);
+    gitConfigUnset(workspacePath, 'workler.copyLinks');
   }
 }
 

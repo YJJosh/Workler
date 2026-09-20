@@ -154,6 +154,79 @@ test('copied links keep relative symlinks inside the tree relative', (t) => {
   assert.match(again.stdout, /destination matches source/);
 });
 
+test('copied links rebase absolute symlinks that point inside the tree', (t) => {
+  const root = makeProject(t, { workler: 'link node_modules\n' });
+  const modules = path.join(root, 'node_modules');
+  const outside = path.join(root, 'README.md');
+  fs.mkdirSync(path.join(modules, 'pkg'));
+  fs.writeFileSync(path.join(modules, 'pkg', 'index.js'), 'original\n');
+  fs.mkdirSync(path.join(modules, '.bin'));
+  try {
+    fs.symlinkSync(path.join(modules, 'pkg', 'index.js'), path.join(modules, '.bin', 'pkg'));
+    fs.symlinkSync(path.join(modules, 'pkg'), path.join(modules, 'alias'));
+    fs.symlinkSync(outside, path.join(modules, 'outside'));
+  } catch (error) {
+    if (process.platform === 'win32' && error.code === 'EPERM') {
+      t.skip('creating a symlink is unavailable on this Windows host');
+      return;
+    }
+    throw error;
+  }
+
+  const assertIndependent = (ws, label) => {
+    const copied = path.join(ws.path, 'node_modules');
+    assert.strictEqual(
+      fs.realpathSync(path.join(copied, '.bin', 'pkg')),
+      fs.realpathSync(path.join(copied, 'pkg', 'index.js')),
+      `${label}: a file link must resolve inside the copy`,
+    );
+    assert.strictEqual(
+      fs.realpathSync(path.join(copied, 'alias')),
+      fs.realpathSync(path.join(copied, 'pkg')),
+      `${label}: a directory link must resolve inside the copy`,
+    );
+    assert.strictEqual(fs.readlinkSync(path.join(copied, 'outside')), outside, `${label}: other absolute links stay verbatim`);
+
+    fs.writeFileSync(path.join(copied, 'alias', 'index.js'), 'changed in workspace\n');
+    assert.strictEqual(fs.readFileSync(path.join(modules, 'pkg', 'index.js'), 'utf8'), 'original\n', label);
+    fs.writeFileSync(path.join(copied, 'alias', 'index.js'), 'original\n');
+
+    const again = runCli(root, 'apply', ws.name);
+    assert.strictEqual(again.status, 0, again.stderr);
+    assert.match(again.stdout, /destination matches source/, label);
+  };
+
+  assertIndependent(api.createWorkspace(root, { name: 'fresh', copyLinks: true }), 'fresh copy');
+
+  // Converting goes through a staged sibling that is renamed into place; the
+  // links must follow the tree there rather than name the staging path.
+  const linked = api.createWorkspace(root, { name: 'converted' });
+  const converted = runCli(root, 'apply', 'converted', '--copy-links');
+  assert.strictEqual(converted.status, 0, converted.stderr);
+  assertIndependent(linked, 'converted copy');
+});
+
+test('apply --no-copy-links fails when the mode cannot be cleared', (t) => {
+  const root = makeProject(t, { workler: 'link node_modules\n' });
+  const ws = api.createWorkspace(root, { name: 'solo', copyLinks: true });
+  const destination = path.join(ws.path, 'node_modules');
+  const lock = `${path.resolve(ws.path, git(ws.path, 'rev-parse', '--git-path', 'config'))}.lock`;
+  fs.writeFileSync(lock, '');
+
+  const blocked = runCli(root, 'apply', 'solo', '--no-copy-links', '--force');
+  assert.strictEqual(blocked.status, 1);
+  assert.match(blocked.stderr, /config --local --unset-all workler\.copyLinks failed/);
+  assert.ok(isRealDirectory(destination), 'the copies must stay while the mode is still recorded');
+
+  fs.rmSync(lock);
+  const forced = runCli(root, 'apply', 'solo', '--no-copy-links', '--force');
+  assert.strictEqual(forced.status, 0, forced.stderr);
+  assert.ok(fs.lstatSync(destination).isSymbolicLink());
+  // Clearing an already absent key is not a failure.
+  const repeated = runCli(root, 'apply', 'solo', '--no-copy-links');
+  assert.strictEqual(repeated.status, 0, repeated.stderr);
+});
+
 test('a nested workspace copies through its parent\'s link', (t) => {
   const root = makeProject(t, { workler: 'link node_modules\n' });
   const parent = api.createWorkspace(root, { name: 'parent' });
