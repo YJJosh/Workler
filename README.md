@@ -33,6 +33,8 @@ copy .env
 
 `workler init` can create a commented starter file, but it is not required. Apply new rules to an existing workspace with `workler apply feature-a`.
 
+For a workspace that shares nothing, `workler add feature-b --copy-links` copies what the `link` rules would symlink, and `workler apply feature-a --copy-links` converts an existing workspace's links into copies.
+
 Useful commands:
 
 ```sh

@@ -6,8 +6,8 @@ export function helpCommand(): void {
 Usage:
   ${PACKAGE_NAME} --version
   ${PACKAGE_NAME} init
-  ${PACKAGE_NAME} add <name> [base] [--branch <branch>] [--checkout <ref>] [--force] [--dry-run]
-  ${PACKAGE_NAME} apply [name] [--all] [--force] [--dry-run]
+  ${PACKAGE_NAME} add <name> [base] [--branch <branch>] [--checkout <ref>] [--copy-links] [--force] [--dry-run]
+  ${PACKAGE_NAME} apply [name] [--all] [--copy-links | --no-copy-links] [--force] [--dry-run]
   ${PACKAGE_NAME} list
   ${PACKAGE_NAME} path <name>
   ${PACKAGE_NAME} remove <name> [--force]
@@ -18,8 +18,11 @@ Usage:
   ${PACKAGE_NAME} branch-sync
 
 Flags:
-  --dry-run  print what would be copied/linked/replaced without changing anything
-  --force    replace destinations that already exist and differ
+  --copy-links     copy what "link" rules would symlink, so the workspace shares
+                   nothing; "apply --copy-links" converts existing links to copies
+  --no-copy-links  apply only: go back to symlinks (existing copies need --force)
+  --dry-run        print what would be copied/linked/replaced without changing anything
+  --force          replace destinations that already exist and differ
 
 Workler does not use git worktree: it creates normal local clones under
 ${WORKSPACES_DIR}/ and applies copy/link rules from an optional ${CONFIG_FILE} file.

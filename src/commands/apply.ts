@@ -3,20 +3,42 @@ import { parseCommandArgs } from '../cli-utils';
 import { MAIN_WORKSPACE_NAME, PACKAGE_NAME } from '../constants';
 import { withProjectLock } from '../lock';
 import { applyRules } from '../rules';
-import { findWorklerRoot, findWorkspace, listWorkspaces, parentProject } from '../workspaces';
+import {
+  findWorklerRoot,
+  findWorkspace,
+  listWorkspaces,
+  parentProject,
+  setWorkspaceCopiesLinks,
+  workspaceCopiesLinks,
+} from '../workspaces';
 import { printRuleResult, printRuleSummary } from './rule-output';
 
-function applyAndPrint(root: string, workspacePath: string, force: boolean, dryRun: boolean): void {
-  const outcome = applyRules(root, workspacePath, { force, dryRun, onResult: printRuleResult });
+interface ApplyFlags {
+  force: boolean;
+  dryRun: boolean;
+  // --copy-links / --no-copy-links; undefined keeps the workspace's own mode.
+  copyLinks?: boolean;
+}
+
+function applyAndPrint(root: string, workspacePath: string, flags: ApplyFlags): void {
+  const { force, dryRun } = flags;
+  const copyLinks = flags.copyLinks ?? workspaceCopiesLinks(workspacePath);
+  // Record the mode BEFORE applying: rules are not one transaction, and after
+  // a conflict halfway through a plain re-run must keep converting instead of
+  // tripping over the destinations that were already switched.
+  if (flags.copyLinks !== undefined && !dryRun) {
+    setWorkspaceCopiesLinks(workspacePath, flags.copyLinks);
+  }
+  const outcome = applyRules(root, workspacePath, { force, dryRun, copyLinks, onResult: printRuleResult });
   printRuleSummary(outcome);
 }
 
 export function applyCommand(args: string[]): void {
-  const usage = `${PACKAGE_NAME} apply [name] [--all] [--force] [--dry-run]`;
+  const usage = `${PACKAGE_NAME} apply [name] [--all] [--copy-links | --no-copy-links] [--force] [--dry-run]`;
   const parsed = parseCommandArgs(args, {
     command: 'apply',
     usage,
-    booleanFlags: ['--all', '--force', '--dry-run'],
+    booleanFlags: ['--all', '--copy-links', '--no-copy-links', '--force', '--dry-run'],
     minPositionals: 0,
     maxPositionals: 1,
   });
@@ -31,6 +53,14 @@ export function applyCommand(args: string[]): void {
   if (all && parsed.positionals.length > 0) {
     throw new Error('apply cannot combine a name with --all');
   }
+  if (parsed.flags['copy-links'] === true && parsed.flags['no-copy-links'] === true) {
+    throw new Error('apply cannot combine --copy-links with --no-copy-links');
+  }
+  const flags: ApplyFlags = {
+    force,
+    dryRun,
+    copyLinks: parsed.flags['copy-links'] === true ? true : parsed.flags['no-copy-links'] === true ? false : undefined,
+  };
 
   const root = findWorklerRoot(process.cwd());
   if (dryRun) {
@@ -46,7 +76,7 @@ export function applyCommand(args: string[]): void {
       }
       for (const workspace of workspaces) {
         console.log(`applying ${workspace.name}`);
-        applyAndPrint(root, workspace.path, force, dryRun);
+        applyAndPrint(root, workspace.path, flags);
       }
     });
     return;
@@ -60,7 +90,7 @@ export function applyCommand(args: string[]): void {
     const parent = parentProject(root);
     if (parent) {
       runWithOptionalLock(parent, `apply ${path.basename(root)}`, dryRun, () => {
-        applyAndPrint(parent, root, force, dryRun);
+        applyAndPrint(parent, root, flags);
       });
       return;
     }
@@ -71,7 +101,7 @@ export function applyCommand(args: string[]): void {
 
   runWithOptionalLock(root, `apply ${name}`, dryRun, () => {
     const workspace = findWorkspace(root, name);
-    applyAndPrint(root, workspace.path, force, dryRun);
+    applyAndPrint(root, workspace.path, flags);
   });
 }
 

@@ -3,7 +3,7 @@
 (Re-)apply the copy/link rules from `.workler` to workspaces. If the optional file is absent or empty, there are no rules to apply.
 
 ```bash
-workler apply [name] [--all] [--force] [--dry-run]
+workler apply [name] [--all] [--copy-links | --no-copy-links] [--force] [--dry-run]
 ```
 
 ## Behavior
@@ -19,11 +19,24 @@ For each rule, an up-to-date destination is reported `ok` and left alone; a miss
 
 Typical reasons to re-run `apply`: you edited `.workler`, `.env` changed in the main project, or a rule was skipped earlier because its source didn't exist yet.
 
+## Converting links to copies
+
+`workler apply <name> --copy-links` turns a workspace that was created with symlinks into one with its own files:
+
+```text
+copied node_modules (link rule, copied instead) (replaced existing symlink to the source)
+ok     copy .env (destination matches source)
+```
+
+A symlink that still points at its source holds no data, so it is converted without `--force`; the copy is staged next to the link and swapped in, so a failed copy leaves the link in place. Anything else in the way (a directory, a symlink pointing elsewhere) is still a conflict. The mode is stored in the workspace, so later plain `apply` and `apply --all` runs keep the copies. See [Copying instead of linking](/guide/rules#copying-instead-of-linking).
+
 ## Options
 
 | Flag | Description |
 | --- | --- |
 | `--all` | Every workspace; cannot be combined with `[name]` |
+| `--copy-links` | Apply `link` rules as copies and remember that for the workspace. Existing symlinks to the source are converted to copies without `--force` |
+| `--no-copy-links` | Go back to symlinks. The existing copies are data, so replacing them needs `--force` |
 | `--force` | Replace destinations that already exist and differ |
 | `--dry-run` | Print what would happen without changing anything |
 
@@ -53,6 +66,7 @@ ok     link node_modules (already linked)
 
 - No workspace named `<name>`.
 - `--all` combined with a workspace name.
+- `--copy-links` combined with `--no-copy-links`.
 - Bare `apply` outside a workspace.
 - A conflicting destination without `--force` — the error shows source, destination, and what is currently there.
 
@@ -63,5 +77,7 @@ workler apply feature-a                 # one workspace
 workler apply --all                     # everything
 workler apply --all --dry-run           # what would change anywhere?
 workler apply feature-a --force         # take the main project's .env again
+workler apply feature-a --copy-links    # convert its symlinks into independent copies
+workler apply feature-a --no-copy-links --force   # and back to symlinks
 cd "$(workler path feature-a)" && workler apply   # refresh from inside
 ```

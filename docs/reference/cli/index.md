@@ -43,6 +43,7 @@ These operate on the main project **and every workspace** at once:
 | Flag | On | Meaning |
 | --- | --- | --- |
 | `--dry-run` | `add`, `apply` | Print what would be copied/linked/replaced without changing anything |
+| `--copy-links` | `add`, `apply` | Apply `link` rules as independent copies; on `apply`, converts existing symlinks (`--no-copy-links` reverts) |
 | `--force` | `add`, `apply` | Replace destinations that already exist and differ |
 | `--force` | `remove` | Remove even with uncommitted changes |
 
