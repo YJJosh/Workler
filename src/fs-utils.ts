@@ -135,8 +135,8 @@ function filesHaveSameContent(left: string, right: string): boolean {
 // Both spellings of a tree's root: an absolute link written before the tree
 // was reached through an alias (macOS /var -> /private/var, a linked
 // node_modules) may use either one.
-function rootSpellings(root: string): string[] {
-  return [...new Set([path.resolve(root), canonicalPath(root)])];
+function rootSpellings(...roots: string[]): string[] {
+  return [...new Set(roots.flatMap((root) => [path.resolve(root), canonicalPath(root)]))];
 }
 
 // For an absolute symlink target that stays inside its own tree, the
@@ -162,11 +162,16 @@ function internalLinkTarget(roots: string[], relativeLinkPath: string, target: s
 // `finalRoot` is where the tree ends up (it may still be staged under another
 // name): Windows junctions only store absolute targets, so they have to name
 // the final location rather than the staging one.
-export function rebaseInternalLinks(sourceRoot: string, copyRoot: string, finalRoot: string): void {
+export function rebaseInternalLinks(
+  sourceRoot: string,
+  copyRoot: string,
+  finalRoot: string,
+  sourceAlias: string = sourceRoot,
+): void {
   if (!fs.lstatSync(copyRoot).isDirectory()) {
     return;
   }
-  const roots = rootSpellings(sourceRoot);
+  const roots = rootSpellings(sourceAlias, sourceRoot);
 
   const visit = (relativeDir: string): void => {
     const dir = path.join(copyRoot, relativeDir);
@@ -223,7 +228,7 @@ function comparableLinkTarget(roots: string[], relativeLinkPath: string, linkPat
 // If the caller dereferenced `left`, keep its original alias for classifying
 // internal links, while inspecting the resolved content itself with lstat.
 export function pathsHaveSameContent(left: string, right: string, leftAlias: string = left): boolean {
-  return treesHaveSameContent(left, right, '', rootSpellings(leftAlias), rootSpellings(right));
+  return treesHaveSameContent(left, right, '', rootSpellings(leftAlias, left), rootSpellings(right));
 }
 
 function treesHaveSameContent(

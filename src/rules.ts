@@ -355,6 +355,11 @@ function applyCopy(source: string, destination: string, rule: WorklerRule, optio
       errorOnExist: true,
       force: false,
       preserveTimestamps: true,
+      // Newer Node versions use a native directory-copy fast path that treats
+      // Windows junctions as directories. A filter selects the lstat-based JS
+      // path, preserving junctions as links for rebasing rather than following
+      // them (including any that point outside the copied tree).
+      filter: process.platform === 'win32' ? () => true : undefined,
       // Without this Node rewrites relative symlinks inside the tree (every
       // node_modules/.bin entry) into absolute paths back into the SOURCE, so
       // the "copy" would still run the main project's files and would never
@@ -365,7 +370,7 @@ function applyCopy(source: string, destination: string, rule: WorklerRule, optio
     // source; `target` may be a staging name, `destination` is where it lands.
     // Keep the original source alias so links written through it are internal
     // too, not just links written through the resolved content path.
-    rebaseInternalLinks(source, target, destination);
+    rebaseInternalLinks(content, target, destination, source);
   };
   if (replaced) {
     replaceDestination(destination, copy);

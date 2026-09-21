@@ -212,6 +212,8 @@ test('copied links rebase absolute targets through a symlinked source alias', (t
   const actual = path.join(root, 'actual-cache');
   // Similar spelling, but genuinely outside the copied tree.
   const outside = path.join(root, 'linked-cache-other.txt');
+  const outsideDir = path.join(root, 'linked-cache-other');
+  fs.mkdirSync(outsideDir);
   fs.mkdirSync(path.join(actual, 'pkg'), { recursive: true });
   fs.mkdirSync(path.join(actual, '.bin'));
   fs.writeFileSync(path.join(actual, 'pkg', 'index.js'), 'original\n');
@@ -223,6 +225,7 @@ test('copied links rebase absolute targets through a symlinked source alias', (t
     fs.symlinkSync(path.join(source, 'pkg'), path.join(actual, 'alias-dir'), dirLinkType);
     fs.symlinkSync(path.join(actual, 'pkg', 'index.js'), path.join(actual, '.bin', 'canonical'));
     fs.symlinkSync(outside, path.join(actual, 'outside'));
+    fs.symlinkSync(outsideDir, path.join(actual, 'outside-dir'), dirLinkType);
   } catch (error) {
     if (process.platform === 'win32' && error.code === 'EPERM') {
       t.skip('creating a symlink is unavailable on this Windows host');
@@ -241,8 +244,11 @@ test('copied links rebase absolute targets through a symlinked source alias', (t
         `${ws.name}: ${name} file link must resolve inside the copy`,
       );
     }
+    assert.ok(fs.lstatSync(path.join(copied, 'alias-dir')).isSymbolicLink(), 'a junction must not be flattened');
     assert.strictEqual(fs.realpathSync(path.join(copied, 'alias-dir')), fs.realpathSync(path.join(copied, 'pkg')));
     assert.strictEqual(fs.readlinkSync(path.join(copied, 'outside')), outside);
+    assert.ok(fs.lstatSync(path.join(copied, 'outside-dir')).isSymbolicLink(), 'external junctions must stay links');
+    assert.strictEqual(fs.realpathSync(path.join(copied, 'outside-dir')), fs.realpathSync(outsideDir));
 
     for (const entry of [path.join('.bin', 'aliased'), path.join('alias-dir', 'index.js')]) {
       fs.writeFileSync(path.join(copied, entry), 'workspace only\n');
