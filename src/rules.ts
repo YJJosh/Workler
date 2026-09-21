@@ -328,7 +328,7 @@ function applyCopy(source: string, destination: string, rule: WorklerRule, optio
 
   let replaced: string | undefined;
   if (existing.kind !== 'none') {
-    if (pathsHaveSameContent(content, destination)) {
+    if (pathsHaveSameContent(content, destination, source)) {
       return { ...base, status: 'ok', note: 'destination matches source' };
     }
     const convertsLink = options.copyLinks === true && existing.kind === 'correct-link';
@@ -363,7 +363,9 @@ function applyCopy(source: string, destination: string, rule: WorklerRule, optio
     });
     // Verbatim also keeps links that were ABSOLUTE to begin with aimed at the
     // source; `target` may be a staging name, `destination` is where it lands.
-    rebaseInternalLinks(content, target, destination);
+    // Keep the original source alias so links written through it are internal
+    // too, not just links written through the resolved content path.
+    rebaseInternalLinks(source, target, destination);
   };
   if (replaced) {
     replaceDestination(destination, copy);

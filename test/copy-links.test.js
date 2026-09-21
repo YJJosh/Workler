@@ -206,6 +206,81 @@ test('copied links rebase absolute symlinks that point inside the tree', (t) => 
   assertIndependent(linked, 'converted copy');
 });
 
+test('copied links rebase absolute targets through a symlinked source alias', (t) => {
+  const root = makeProject(t, { workler: 'link linked-cache\n' });
+  const source = path.join(root, 'linked-cache');
+  const actual = path.join(root, 'actual-cache');
+  // Similar spelling, but genuinely outside the copied tree.
+  const outside = path.join(root, 'linked-cache-other.txt');
+  fs.mkdirSync(path.join(actual, 'pkg'), { recursive: true });
+  fs.mkdirSync(path.join(actual, '.bin'));
+  fs.writeFileSync(path.join(actual, 'pkg', 'index.js'), 'original\n');
+  fs.writeFileSync(outside, 'outside\n');
+  const dirLinkType = process.platform === 'win32' ? 'junction' : undefined;
+  try {
+    fs.symlinkSync(actual, source, dirLinkType);
+    fs.symlinkSync(path.join(source, 'pkg', 'index.js'), path.join(actual, '.bin', 'aliased'));
+    fs.symlinkSync(path.join(source, 'pkg'), path.join(actual, 'alias-dir'), dirLinkType);
+    fs.symlinkSync(path.join(actual, 'pkg', 'index.js'), path.join(actual, '.bin', 'canonical'));
+    fs.symlinkSync(outside, path.join(actual, 'outside'));
+  } catch (error) {
+    if (process.platform === 'win32' && error.code === 'EPERM') {
+      t.skip('creating a symlink is unavailable on this Windows host');
+      return;
+    }
+    throw error;
+  }
+
+  const assertIndependent = (ws) => {
+    const copied = path.join(ws.path, 'linked-cache');
+    assert.ok(isRealDirectory(copied), 'the source alias must become a real directory');
+    for (const name of ['aliased', 'canonical']) {
+      assert.strictEqual(
+        fs.realpathSync(path.join(copied, '.bin', name)),
+        fs.realpathSync(path.join(copied, 'pkg', 'index.js')),
+        `${ws.name}: ${name} file link must resolve inside the copy`,
+      );
+    }
+    assert.strictEqual(fs.realpathSync(path.join(copied, 'alias-dir')), fs.realpathSync(path.join(copied, 'pkg')));
+    assert.strictEqual(fs.readlinkSync(path.join(copied, 'outside')), outside);
+
+    for (const entry of [path.join('.bin', 'aliased'), path.join('alias-dir', 'index.js')]) {
+      fs.writeFileSync(path.join(copied, entry), 'workspace only\n');
+      assert.strictEqual(fs.readFileSync(path.join(actual, 'pkg', 'index.js'), 'utf8'), 'original\n');
+      assert.strictEqual(fs.readFileSync(path.join(copied, 'pkg', 'index.js'), 'utf8'), 'workspace only\n');
+      fs.writeFileSync(path.join(copied, 'pkg', 'index.js'), 'original\n');
+    }
+
+    const again = runCli(root, 'apply', ws.name);
+    assert.strictEqual(again.status, 0, again.stderr);
+    assert.match(again.stdout, /destination matches source/);
+  };
+
+  // Exercise both direct creation and the staged replacement used to convert.
+  for (const name of ['fresh', 'converted']) {
+    const ws = api.createWorkspace(root, { name, copyLinks: name === 'fresh' });
+    if (name === 'converted') {
+      const convert = runCli(root, 'apply', name, '--copy-links');
+      assert.strictEqual(convert.status, 0, convert.stderr);
+    }
+    assertIndependent(ws);
+
+    // Simulate a copy made before this fix: identical link text must no longer
+    // count as identical content when the destination still points to source.
+    const stale = path.join(ws.path, 'linked-cache', '.bin', 'aliased');
+    fs.unlinkSync(stale);
+    fs.symlinkSync(path.join(source, 'pkg', 'index.js'), stale);
+    const refused = runCli(root, 'apply', name);
+    assert.strictEqual(refused.status, 1, refused.stdout);
+    assert.match(refused.stderr, /contents differ from source/);
+    assert.strictEqual(fs.readlinkSync(stale), path.join(source, 'pkg', 'index.js'));
+
+    const repaired = runCli(root, 'apply', name, '--force');
+    assert.strictEqual(repaired.status, 0, repaired.stderr);
+    assertIndependent(ws);
+  }
+});
+
 test('apply --no-copy-links fails when the mode cannot be cleared', (t) => {
   const root = makeProject(t, { workler: 'link node_modules\n' });
   const ws = api.createWorkspace(root, { name: 'solo', copyLinks: true });

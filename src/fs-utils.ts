@@ -220,8 +220,10 @@ function comparableLinkTarget(roots: string[], relativeLinkPath: string, linkPat
   return internalLinkTarget(roots, relativeLinkPath, target) ?? target;
 }
 
-export function pathsHaveSameContent(left: string, right: string): boolean {
-  return treesHaveSameContent(left, right, '', rootSpellings(left), rootSpellings(right));
+// If the caller dereferenced `left`, keep its original alias for classifying
+// internal links, while inspecting the resolved content itself with lstat.
+export function pathsHaveSameContent(left: string, right: string, leftAlias: string = left): boolean {
+  return treesHaveSameContent(left, right, '', rootSpellings(leftAlias), rootSpellings(right));
 }
 
 function treesHaveSameContent(
