@@ -219,10 +219,13 @@ export function rebaseInternalLinks(
 
 // A link that points inside its own tree compares by where it lands in that
 // tree, so a source's absolute internal link equals the rebased link in its
-// copy (see rebaseInternalLinks). Every other link compares by its raw text.
+// copy (see rebaseInternalLinks). Other links compare by text, except for
+// equivalent absolute Windows path spellings: older Node versions append a
+// trailing separator to junction targets that copied directory symlinks omit.
 function comparableLinkTarget(roots: string[], relativeLinkPath: string, linkPath: string): string {
   const target = fs.readlinkSync(linkPath);
-  return internalLinkTarget(roots, relativeLinkPath, target) ?? target;
+  return internalLinkTarget(roots, relativeLinkPath, target)
+    ?? (process.platform === 'win32' && path.isAbsolute(target) ? path.resolve(target) : target);
 }
 
 // If the caller dereferenced `left`, keep its original alias for classifying
