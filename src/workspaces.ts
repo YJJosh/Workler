@@ -3,7 +3,7 @@ import path from 'node:path';
 import { CONFIG_FILE, MAIN_WORKSPACE_NAME, PACKAGE_NAME, WORKSPACES_DIR } from './constants';
 import { WorklerError } from './errors';
 import { canonicalPath, pathsReferToSameLocation } from './fs-utils';
-import { findGitTopLevel, gitMaybe, isGitTopLevel } from './git';
+import { findGitTopLevel, git, gitConfigUnset, gitMaybe, isGitTopLevel } from './git';
 import type { Workspace } from './types';
 
 // Discovers the nearest enclosing workler project from `startDir` (the CLI
@@ -202,6 +202,22 @@ export function findWorkspace(root: string, name: string): Workspace {
     throw new WorklerError('WORKSPACE_NOT_FOUND', `workspace not found: ${name}`, { name });
   }
   return workspace;
+}
+
+// Whether the workspace materializes `link` rules as copies. Recorded in the
+// workspace's own git config (next to workler.root/workler.name) so a later
+// plain `apply` or `apply --all` keeps the copies instead of reporting every
+// one of them as a conflict with its link rule.
+export function workspaceCopiesLinks(workspacePath: string): boolean {
+  return gitMaybe(workspacePath, ['config', '--local', '--type=bool', '--get', 'workler.copyLinks']) === 'true';
+}
+
+export function setWorkspaceCopiesLinks(workspacePath: string, copyLinks: boolean): void {
+  if (copyLinks) {
+    git(workspacePath, ['config', '--local', 'workler.copyLinks', 'true']);
+  } else {
+    gitConfigUnset(workspacePath, 'workler.copyLinks');
+  }
 }
 
 export function validateWorkspaceName(name: string): void {

@@ -54,6 +54,18 @@ export function gitMaybe(repo: string | null, args: string[]): string | undefine
   return result.stdout?.trim() ?? '';
 }
 
+// `git config --unset-all` exits 5 when the key is already absent, which is
+// the desired state. Every other failure (a stale config.lock, a read-only
+// config) must surface: the caller is about to act on the key being gone.
+export function gitConfigUnset(repo: string, key: string): void {
+  const args = ['config', '--local', '--unset-all', key];
+  const result = runGit(repo, args, 'pipe');
+  if (result.status !== 0 && result.status !== 5) {
+    const detail = gitProcessFailure(result) || (result.stderr?.trim() ?? '');
+    throw new Error(`git ${args.join(' ')} failed${detail ? `: ${detail}` : ''}`);
+  }
+}
+
 export function gitInherit(repo: string | null, args: string[]): void {
   const result = runGit(repo, args, 'inherit');
   if (result.status !== 0) {

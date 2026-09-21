@@ -3,7 +3,7 @@
 Create a workspace: clone the project, set up a branch, apply the rules.
 
 ```bash
-workler add <name> [base] [--branch <branch>] [--checkout <ref>] [--force] [--dry-run]
+workler add <name> [base] [--branch <branch>] [--checkout <ref>] [--copy-links] [--force] [--dry-run]
 ```
 
 ## Behavior
@@ -35,6 +35,7 @@ If setup fails after cloning, the clone is left at `.worktrees/<name>` for inspe
 | --- | --- |
 | `--branch <branch>` | Use this branch name instead of the workspace name; create from `HEAD`, or from positional `[base]` when supplied |
 | `--checkout <ref>` | Check out an existing branch/tag/commit; never creates a branch |
+| `--copy-links` | Copy what `link` rules would symlink, so the workspace shares nothing with the main project; remembered for later `apply` runs. See [Copying instead of linking](/guide/rules#copying-instead-of-linking) |
 | `--force` | Replace rule destinations that already exist and differ |
 | `--dry-run` | Print the whole plan (clone, branch, rules) without creating anything |
 
@@ -68,5 +69,6 @@ workler add exp origin/main                # new branch exp tracking origin/main
 workler add review --checkout main         # second checkout of main
 workler add spike --branch feat/spike      # workspace and branch named differently
 workler add spike main --branch feat/spike # explicit branch from an explicit base
+workler add isolated --copy-links          # link rules become independent copies
 workler add big-change --dry-run           # just show the plan
 ```

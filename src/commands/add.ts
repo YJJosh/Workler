@@ -7,11 +7,11 @@ import { findWorklerRoot } from '../workspaces';
 import { printRuleResult, printRuleSummary } from './rule-output';
 
 export function addCommand(args: string[]): void {
-  const usage = `${PACKAGE_NAME} add <name> [base] [--branch <branch>] [--checkout <ref>] [--force] [--dry-run]`;
+  const usage = `${PACKAGE_NAME} add <name> [base] [--branch <branch>] [--checkout <ref>] [--copy-links] [--force] [--dry-run]`;
   const parsed = parseCommandArgs(args, {
     command: 'add',
     usage,
-    booleanFlags: ['--force', '--dry-run'],
+    booleanFlags: ['--copy-links', '--force', '--dry-run'],
     valueFlags: ['--branch', '--checkout'],
     minPositionals: 1,
     maxPositionals: 2,
@@ -27,6 +27,7 @@ export function addCommand(args: string[]): void {
     branch: parsed.flags.branch as string | undefined,
     checkout: parsed.flags.checkout as string | undefined,
     force: parsed.flags.force === true,
+    copyLinks: parsed.flags['copy-links'] === true,
   };
   const dryRun = parsed.flags['dry-run'] === true;
 
@@ -37,7 +38,7 @@ export function addCommand(args: string[]): void {
     for (const warning of plan.warnings) {
       console.log(`warning: ${warning}`);
     }
-    printPlan(plan.root, plan.target, plan.checkout, options.force === true);
+    printPlan(plan.root, plan.target, plan.checkout, options.force === true, options.copyLinks === true);
     return;
   }
 
@@ -55,7 +56,7 @@ export function addCommand(args: string[]): void {
 // Prints the full plan for `add --dry-run` without cloning anything. Mirrors
 // what createWorkspace reports as progress, with "would" phrasing, then
 // dry-runs the copy/link rules against the (nonexistent) target.
-function printPlan(root: string, target: string, plan: CheckoutPlan, force: boolean): void {
+function printPlan(root: string, target: string, plan: CheckoutPlan, force: boolean, copyLinks: boolean): void {
   console.log('dry run: nothing will be created');
   console.log(`would clone ${root}`);
   console.log(`         to ${target}`);
@@ -73,6 +74,6 @@ function printPlan(root: string, target: string, plan: CheckoutPlan, force: bool
     }
   }
 
-  const outcome = applyRules(root, target, { force, dryRun: true, onResult: printRuleResult });
+  const outcome = applyRules(root, target, { force, copyLinks, dryRun: true, onResult: printRuleResult });
   printRuleSummary(outcome);
 }

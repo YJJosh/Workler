@@ -31,6 +31,21 @@ Blank lines are ignored. A `#` at the start of a line or preceded by whitespace 
 
 A linked `node_modules` means a new workspace runs instantly with zero extra disk — but an `npm install` in any workspace changes the shared directory for everyone. Copy instead if workspaces need different dependency states.
 
+## Copying instead of linking
+
+The choice above is made once, in `.workler`, for every workspace. When a single workspace needs to be fully independent — it will upgrade dependencies, or an agent in it must not touch shared state — pass `--copy-links` and its `link` rules are applied as copies instead:
+
+```bash
+workler add isolated --copy-links        # new workspace, nothing shared
+workler apply feature-a --copy-links     # convert an existing workspace
+```
+
+Converting replaces each symlink that still points at its source with a copy of that source. This needs no `--force`, because such a link holds no data of its own; every other kind of destination follows the usual [conflict rules](/guide/safety). Relative symlinks inside the copied tree (every `node_modules/.bin` entry) stay relative, so they resolve inside the copy. An absolute symlink that points inside the copied tree is re-aimed at the copy, so writing through it never reaches the main project; links to anywhere else are kept as they are.
+
+The mode is recorded in the workspace (`workler.copyLinks` in its Git config), so a later `workler apply` or `workler apply --all` keeps the copies rather than reporting them as conflicts with their `link` rule. From then on those destinations behave exactly like `copy` rules: if the copy and the source drift apart, `apply` reports a conflict until you pass `--force`.
+
+To go back, run `workler apply <name> --no-copy-links --force`. `--force` is required because the copies are now real data that the symlinks would replace.
+
 ## Path restrictions
 
 Paths must stay inside the project. The parser rejects, with the line, column, and offending line content:

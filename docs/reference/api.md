@@ -75,13 +75,17 @@ when the root is itself a managed workspace (nested workspaces).
 ### `createWorkspace(root, options): CreateWorkspaceResult`
 
 Same semantics as [`workler add`](/reference/cli/add). `options`:
-`{ name, base?, branch?, checkout?, force? }` with the exact `add` rules.
+`{ name, base?, branch?, checkout?, force?, copyLinks? }` with the exact `add` rules.
 `checkout` is exclusive, while `base` and `branch` may be combined to create
 an explicitly named branch from an explicit start point; `name` alone creates
 a new branch from `HEAD`. Optional `onProgress(message)` and
 `onRuleResult(result)` callbacks stream what the CLI would print. The
 result carries `path`, `branch` (undefined when detached), `head`,
-`detached`, and the structured copy/link `rules` outcome.
+`detached`, `copyLinks`, and the structured copy/link `rules` outcome.
+
+`copyLinks: true` is `add --copy-links`: `link` rules are applied as
+independent copies, and their results carry `copiedLink: true` while
+`action` stays `'link'`.
 
 `.workler` copy/link rules are applied exactly as with the CLI, including
 conflict detection and `force` replacement. If setup fails after the

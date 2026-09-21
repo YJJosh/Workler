@@ -9,6 +9,7 @@ import {
   isCorrectSymlink,
   pathsHaveSameContent,
   pathsReferToSameLocation,
+  rebaseInternalLinks,
 } from './fs-utils';
 import type { RuleAction, WorklerRule } from './types';
 
@@ -70,11 +71,19 @@ export interface RuleApplyResult {
   replaced?: string;
   // Description of the conflicting destination ('conflict' only).
   existing?: string;
+  // Set when a `link` rule was materialized as a copy (copyLinks); `action`
+  // still names the rule as written in .workler.
+  copiedLink?: boolean;
 }
 
 export interface ApplyRulesOptions {
   force: boolean;
   dryRun: boolean;
+  // Materialize `link` rules as independent copies instead of symlinks. A
+  // destination that is still a symlink to its source is converted without
+  // --force: the link holds no data of its own, so nothing can be lost. Any
+  // other conflicting destination keeps the usual --force requirement.
+  copyLinks?: boolean;
   // Called as each rule resolves so the CLI can print incrementally; the
   // same results are also returned in the outcome.
   onResult?: (result: RuleApplyResult) => void;
@@ -164,7 +173,7 @@ export function applyRules(root: string, workspacePath: string, options: ApplyRu
     }
 
     emit(
-      rule.action === 'link'
+      rule.action === 'link' && !options.copyLinks
         ? applyLink(source, destination, rule, options)
         : applyCopy(source, destination, rule, options),
     );
@@ -183,11 +192,19 @@ export function formatRuleResult(result: RuleApplyResult): string {
       return `ok     ${result.action} ${result.targetPath} (${result.note})`;
     case 'conflict':
       return `conflict ${result.action} ${result.targetPath}\n${conflictDetails(result.source, result.destination, result.existing ?? 'unknown')}`;
-    case 'planned':
-      return `would  ${result.action} ${result.targetPath} -> ${result.destination}${result.replaced ? ` (replacing existing ${result.replaced})` : ''}`;
-    case 'applied':
-      return `${result.action === 'link' ? 'linked' : 'copied'} ${result.targetPath}${result.replaced ? ` (replaced existing ${result.replaced})` : ''}`;
+    case 'planned': {
+      const action = result.copiedLink ? 'copy' : result.action;
+      return `would  ${action} ${result.targetPath} -> ${result.destination}${copiedLinkNote(result)}${result.replaced ? ` (replacing existing ${result.replaced})` : ''}`;
+    }
+    case 'applied': {
+      const verb = result.action === 'link' && !result.copiedLink ? 'linked' : 'copied';
+      return `${verb} ${result.targetPath}${copiedLinkNote(result)}${result.replaced ? ` (replaced existing ${result.replaced})` : ''}`;
+    }
   }
+}
+
+function copiedLinkNote(result: RuleApplyResult): string {
+  return result.copiedLink ? ' (link rule, copied instead)' : '';
 }
 
 function ruleConflictError(
@@ -293,15 +310,29 @@ function applyLink(source: string, destination: string, rule: WorklerRule, optio
 }
 
 function applyCopy(source: string, destination: string, rule: WorklerRule, options: ApplyRulesOptions): RuleApplyResult {
-  const base = { action: rule.action, targetPath: rule.targetPath, source, destination } as const;
+  // A `link` rule only gets here under copyLinks.
+  const copiedLink = rule.action === 'link';
+  const base = {
+    action: rule.action,
+    targetPath: rule.targetPath,
+    source,
+    destination,
+    ...(copiedLink ? { copiedLink } : {}),
+  } as const;
   const existing = inspectDestination(destination, source);
+  // A link exposes whatever its source resolves to, so the copy standing in
+  // for it must too: when the source is itself a symlink (a nested workspace's
+  // parent usually links node_modules from ITS parent), copying the entry
+  // verbatim would just produce another link instead of independent files.
+  const content = copiedLink ? fs.realpathSync(source) : source;
 
   let replaced: string | undefined;
   if (existing.kind !== 'none') {
-    if (pathsHaveSameContent(source, destination)) {
+    if (pathsHaveSameContent(content, destination, source)) {
       return { ...base, status: 'ok', note: 'destination matches source' };
     }
-    if (!options.force) {
+    const convertsLink = options.copyLinks === true && existing.kind === 'correct-link';
+    if (!options.force && !convertsLink) {
       const description = existing.kind === 'correct-link'
         ? 'symlink to the source, not a copy'
         : `${existing.description}, contents differ from source`;
@@ -318,12 +349,29 @@ function applyCopy(source: string, destination: string, rule: WorklerRule, optio
   }
 
   fs.mkdirSync(path.dirname(destination), { recursive: true });
-  const copy = (target: string): void => fs.cpSync(source, target, {
-    recursive: true,
-    errorOnExist: true,
-    force: false,
-    preserveTimestamps: true,
-  });
+  const copy = (target: string): void => {
+    fs.cpSync(content, target, {
+      recursive: true,
+      errorOnExist: true,
+      force: false,
+      preserveTimestamps: true,
+      // Newer Node versions use a native directory-copy fast path that treats
+      // Windows junctions as directories. A filter selects the lstat-based JS
+      // path, preserving junctions as links for rebasing rather than following
+      // them (including any that point outside the copied tree).
+      filter: process.platform === 'win32' ? () => true : undefined,
+      // Without this Node rewrites relative symlinks inside the tree (every
+      // node_modules/.bin entry) into absolute paths back into the SOURCE, so
+      // the "copy" would still run the main project's files and would never
+      // compare equal to its source on the next apply.
+      verbatimSymlinks: true,
+    });
+    // Verbatim also keeps links that were ABSOLUTE to begin with aimed at the
+    // source; `target` may be a staging name, `destination` is where it lands.
+    // Keep the original source alias so links written through it are internal
+    // too, not just links written through the resolved content path.
+    rebaseInternalLinks(content, target, destination, source);
+  };
   if (replaced) {
     replaceDestination(destination, copy);
   } else {

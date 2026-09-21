@@ -26,6 +26,7 @@ Each workspace under `.worktrees/<name>` is a normal clone, plus:
 | --- | --- |
 | `git config workler.root` | Path of the immediate parent project — how discovery and [nested workspaces](/guide/nested-workspaces) find their way up. |
 | `git config workler.name` | The workspace name. |
+| `git config workler.copyLinks` | `true` only after `--copy-links`: `apply` keeps materializing `link` rules as [copies](/guide/rules#copying-instead-of-linking) in this workspace. |
 | Remote `origin` | Inherits the main project's fetch URL(s), separate push URL(s), and actual remote-tracking snapshot; relative local URLs are made absolute so they retain their meaning. Synthetic refs created by the local clone are removed. (No `origin` in the main project → none here.) |
 | Remote `workler-root` | Points at the parent project's path; used by [`workler branch-sync`](/reference/cli/branch-sync). Recreated/fixed on every `branch-sync`. |
 | `.git/info/exclude` | Gets a `.worktrees/` line, so the workspace can host nested workspaces. |

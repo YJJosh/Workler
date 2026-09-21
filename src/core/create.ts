@@ -8,6 +8,7 @@ import { withProjectLock } from '../lock';
 import { validateBranchName, validateNewWorkspaceName, validateStartRef, validateWorkspaceRefName } from '../names';
 import { applyRules } from '../rules';
 import type { ApplyRulesOutcome, RuleApplyResult } from '../rules';
+import { setWorkspaceCopiesLinks } from '../workspaces';
 import { requireProject } from './project';
 import type { ProjectInfo } from './project';
 
@@ -27,6 +28,10 @@ export interface CreateWorkspaceOptions {
   checkout?: string;
   // Replace conflicting rule destinations (same as `add --force`).
   force?: boolean;
+  // Copy what `link` rules would symlink, so the workspace shares nothing
+  // with the main project (same as `add --copy-links`). Remembered in the
+  // workspace, so later `apply` runs keep copying.
+  copyLinks?: boolean;
   // Human-readable progress lines (the CLI prints these verbatim).
   onProgress?: (message: string) => void;
   // Per-rule results as they resolve (the CLI prints these incrementally).
@@ -68,6 +73,8 @@ export interface CreateWorkspaceResult {
   // Full commit sha of the workspace HEAD.
   head?: string;
   detached: boolean;
+  // `link` rules were (and will keep being) applied as copies.
+  copyLinks: boolean;
   rules: ApplyRulesOutcome;
 }
 
@@ -83,8 +90,10 @@ function validateOptions(options: CreateWorkspaceOptions): void {
       throw new WorklerError('INVALID_OPTIONS', `${key} must be a string when provided`);
     }
   }
-  if (options.force !== undefined && typeof options.force !== 'boolean') {
-    throw new WorklerError('INVALID_OPTIONS', 'force must be a boolean when provided');
+  for (const key of ['force', 'copyLinks'] as const) {
+    if (options[key] !== undefined && typeof options[key] !== 'boolean') {
+      throw new WorklerError('INVALID_OPTIONS', `${key} must be a boolean when provided`);
+    }
   }
   if (options.onProgress !== undefined && typeof options.onProgress !== 'function') {
     throw new WorklerError('INVALID_OPTIONS', 'onProgress must be a function when provided');
@@ -153,7 +162,7 @@ function planLocked(root: string, options: CreateWorkspaceOptions): WorkspacePla
   // Parse and safety-check every rule against the still-nonexistent target.
   // This has no side effects, but prevents a known-bad rule (including a
   // source symlink-ancestor escape) from leaving a clone behind.
-  applyRules(root, target, { force: options.force === true, dryRun: true });
+  applyRules(root, target, { force: options.force === true, copyLinks: options.copyLinks === true, dryRun: true });
 
   // Resolve the requested branch/ref against the main project BEFORE cloning
   // so name clashes and bad refs fail cleanly without leaving a clone behind.
@@ -205,8 +214,12 @@ export function createWorkspace(rootInput: string, options: CreateWorkspaceOptio
     try {
       executeCheckout(plan.target, plan.checkout, progress);
       configureWorkspace(root, plan.target, options.name);
+      if (options.copyLinks === true) {
+        setWorkspaceCopiesLinks(plan.target, true);
+      }
       rules = applyRules(root, plan.target, {
         force: options.force === true,
+        copyLinks: options.copyLinks === true,
         dryRun: false,
         onResult: options.onRuleResult,
       });
@@ -228,6 +241,7 @@ export function createWorkspace(rootInput: string, options: CreateWorkspaceOptio
       branch: detached ? undefined : abbrev,
       head: gitMaybe(plan.target, ['rev-parse', 'HEAD']),
       detached,
+      copyLinks: options.copyLinks === true,
       rules,
     };
   });
