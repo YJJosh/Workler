@@ -27,6 +27,10 @@ export type { MemberInfo, WorkspaceInfo } from './core/list';
 export { removeWorkspace } from './core/remove';
 export type { RemoveWorkspaceOptions, RemoveWorkspaceResult } from './core/remove';
 
+export { setupWorkspace } from './core/setup';
+export type { MemberSetupResult, SetupWorkspaceResult, WorkspaceSetupOptions, WorkspaceSetupOutcome } from './core/setup';
+export type { SetupCommandResult, SetupOptions, SetupOutcome, SetupTarget } from './setup';
+
 // CLI-style discovery of the nearest enclosing project, for callers that
 // want it; the operations above never call this themselves.
 export { findWorklerRoot } from './workspaces';
@@ -39,5 +43,6 @@ export { groupRefNamespace } from './groups';
 export { projectLockPath } from './lock';
 
 export type { ApplyRulesOutcome, RuleApplyResult } from './rules';
+export type { SetupCommand } from './types';
 
 export { CONFIG_FILE, MAIN_WORKSPACE_NAME, WORKSPACES_DIR } from './constants';

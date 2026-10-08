@@ -106,7 +106,7 @@ test('CLI errors keep their messages and exit code 1', (t) => {
 
 test('every documented command accepts -h/--help without requiring a project', (t) => {
   const root = makeTempDir(t);
-  for (const command of ['init', 'list', 'path', 'shell-init', 'add', 'apply', 'remove', 'status', 'fetch', 'sync', 'branch-sync']) {
+  for (const command of ['init', 'list', 'path', 'shell-init', 'add', 'apply', 'setup', 'remove', 'status', 'fetch', 'sync', 'branch-sync']) {
     for (const helpFlag of ['-h', '--help']) {
       const result = runCli(root, command, helpFlag);
       assert.strictEqual(result.status, 0, `${command} ${helpFlag} must exit 0: ${result.stderr}`);

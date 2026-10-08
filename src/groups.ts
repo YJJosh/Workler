@@ -359,3 +359,36 @@ export function groupRefNamespace(groupRoot: string): string {
       .slice(0, 32) || 'group';
   return `${GROUP_WORKSPACE_REFS}/${name}-${hash}`;
 }
+
+// Prefixes a member's failure with its project path so the user knows which
+// repository to look at; the code and details are kept for API callers.
+export function forProject<T>(project: string, fn: () => T): T {
+  try {
+    return fn();
+  } catch (error) {
+    if (error instanceof WorklerError) {
+      throw new WorklerError(error.code, `${project}: ${error.message}`, { ...error.details, project });
+    }
+    throw error;
+  }
+}
+
+// A member that apply and setup must not touch: nothing is there yet, or a
+// symbolic link or file that is not a clone (a link to the source repository
+// would otherwise be followed and the source itself rewritten).
+export function notACloneReason(check: MemberCheck, project: string): string {
+  const own = ancestorReason(check);
+  if (own !== undefined) {
+    return own;
+  }
+  switch (check.state) {
+    case 'missing':
+      return 'not cloned';
+    case 'link':
+      return 'a symbolic link, not a clone';
+    case 'foreign':
+      return foreignMemberReason(project);
+    default:
+      return 'not a clone';
+  }
+}

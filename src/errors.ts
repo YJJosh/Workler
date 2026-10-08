@@ -18,6 +18,7 @@ export type WorklerErrorCode =
   | 'CONFIG_INVALID'
   | 'RULE_CONFLICT'
   | 'SETUP_FAILED'
+  | 'SETUP_COMMAND_FAILED'
   | 'LOCKED';
 
 export class WorklerError extends Error {

@@ -1,20 +1,24 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { readConfig, readRules } from '../config';
+import { readConfig, readRules, readSetupCommands } from '../config';
 import { CONFIG_FILE, PACKAGE_NAME, ROOT_REMOTE, WORKSPACES_DIR } from '../constants';
 import { WorklerError } from '../errors';
 import { addLineIfMissing, assertInside, canonicalPath } from '../fs-utils';
 import { git, gitInfoExcludePath, gitMaybe, isGitWorkTreeClean, localBranchExists } from '../git';
-import { memberPath, sourceBrokenReason } from '../groups';
+import { forProject, memberPath, sourceBrokenReason } from '../groups';
 import { withProjectLocks } from '../lock';
 import { validateBranchName, validateNewWorkspaceName, validateStartRef, validateWorkspaceRefName } from '../names';
 import { applyRules } from '../rules';
 import type { ApplyRulesOutcome, RuleApplyResult } from '../rules';
+import type { SetupOutcome } from '../setup';
+import type { SetupCommand } from '../types';
 import { groupWorkspaceParent, setGroupWorkspaceCopiesLinks, setWorkspaceCopiesLinks } from '../workspaces';
 import { lockRootsWithSourcesOf, requireProject } from './project';
 import type { ProjectInfo } from './project';
+import { runWorkspaceSetup, validateWorkspaceSetupOptions } from './setup';
+import type { WorkspaceSetupOptions } from './setup';
 
-export interface CreateWorkspaceOptions {
+export interface CreateWorkspaceOptions extends WorkspaceSetupOptions {
   name: string;
   // Start point for a new branch (branch, tag, or commit; origin/* also
   // sets upstream tracking). Without `branch`, the new branch is named after
@@ -34,6 +38,10 @@ export interface CreateWorkspaceOptions {
   // with the main project (same as `add --copy-links`). Remembered in the
   // workspace, so later `apply` runs keep copying.
   copyLinks?: boolean;
+  // Run the `setup` commands from .workler once the workspace is complete
+  // (default true; `add --no-setup` passes false). A failing command throws
+  // SETUP_COMMAND_FAILED and leaves the finished workspace in place.
+  setup?: boolean;
   // Human-readable progress lines (the CLI prints these verbatim).
   onProgress?: (message: string) => void;
   // Per-rule results as they resolve (the CLI prints these incrementally).
@@ -65,6 +73,8 @@ export interface MemberPlan {
   // Where its clone will be created: <group>/.worktrees/<name>/<project>.
   target: string;
   checkout: CheckoutPlan;
+  // The `setup` commands the source's .workler declares, in run order.
+  setup: SetupCommand[];
 }
 
 export interface WorkspacePlan {
@@ -77,6 +87,9 @@ export interface WorkspacePlan {
   // Project group only: one plan per declared project, in file order. The
   // same branch options apply to every member.
   projects?: MemberPlan[];
+  // The `setup` commands root's .workler declares, in run order. For a
+  // group: the group's own, which run after every member's.
+  setup: SetupCommand[];
   // Human-readable warnings (currently: a project has uncommitted changes).
   warnings: string[];
 }
@@ -91,6 +104,9 @@ export interface MemberCreateResult {
   detached: boolean;
   // That project's own copy/link rules, applied inside its clone.
   rules: ApplyRulesOutcome;
+  // That project's own setup commands, run inside its clone; undefined when
+  // `setup: false` skipped them.
+  setup?: SetupOutcome;
 }
 
 export interface CreateWorkspaceResult {
@@ -112,6 +128,9 @@ export interface CreateWorkspaceResult {
   rules: ApplyRulesOutcome;
   // Project group only: one result per declared project, in file order.
   projects?: MemberCreateResult[];
+  // Outcome of the `setup` commands (for a group: the group's own, run after
+  // every member's); undefined when `setup: false` skipped them.
+  setup?: SetupOutcome;
 }
 
 function validateOptions(options: CreateWorkspaceOptions): void {
@@ -126,7 +145,7 @@ function validateOptions(options: CreateWorkspaceOptions): void {
       throw new WorklerError('INVALID_OPTIONS', `${key} must be a string when provided`);
     }
   }
-  for (const key of ['force', 'copyLinks'] as const) {
+  for (const key of ['force', 'copyLinks', 'setup'] as const) {
     if (options[key] !== undefined && typeof options[key] !== 'boolean') {
       throw new WorklerError('INVALID_OPTIONS', `${key} must be a boolean when provided`);
     }
@@ -137,6 +156,7 @@ function validateOptions(options: CreateWorkspaceOptions): void {
   if (options.onRuleResult !== undefined && typeof options.onRuleResult !== 'function') {
     throw new WorklerError('INVALID_OPTIONS', 'onRuleResult must be a function when provided');
   }
+  validateWorkspaceSetupOptions(options);
 
   if (options.branch && options.checkout) {
     throw new WorklerError('INVALID_OPTIONS', '--branch and --checkout cannot be used together');
@@ -247,7 +267,7 @@ function planLocked(root: string, options: CreateWorkspaceOptions): WorkspacePla
     warnings.push('main project has uncommitted changes; the clone will only contain committed tracked files');
   }
 
-  return { root, name: options.name, target, checkout, warnings };
+  return { root, name: options.name, target, checkout, setup: readSetupCommands(root), warnings };
 }
 
 // Plans every member of a group workspace. All-or-nothing: a bad ref or an
@@ -282,24 +302,11 @@ function planGroupLocked(root: string, projects: string[], options: CreateWorksp
       if (!isGitWorkTreeClean(memberRoot)) {
         warnings.push(`${project} has uncommitted changes; its clone will only contain committed tracked files`);
       }
-      members.push({ project, root: memberRoot, target: memberTarget, checkout });
+      members.push({ project, root: memberRoot, target: memberTarget, checkout, setup: readSetupCommands(memberRoot) });
     });
   }
 
-  return { root, name: options.name, target, projects: members, warnings };
-}
-
-// Prefixes a member's failure with its project path so the user knows which
-// repository to look at; the code and details are kept for API callers.
-function forProject<T>(project: string, fn: () => T): T {
-  try {
-    return fn();
-  } catch (error) {
-    if (error instanceof WorklerError) {
-      throw new WorklerError(error.code, `${project}: ${error.message}`, { ...error.details, project });
-    }
-    throw error;
-  }
+  return { root, name: options.name, target, projects: members, setup: readSetupCommands(root), warnings };
 }
 
 export function createWorkspace(rootInput: string, options: CreateWorkspaceOptions): CreateWorkspaceResult {
@@ -310,9 +317,25 @@ export function createWorkspace(rootInput: string, options: CreateWorkspaceOptio
 
   // A group add clones from every declared source and applies its rules from
   // there, so it holds the sources' locks as well as the group's.
-  return withProjectLocks(lockRootsWithSourcesOf(info), `add ${options.name}`, () =>
+  const result = withProjectLocks(lockRootsWithSourcesOf(info), `add ${options.name}`, () =>
     info.isGroup ? createGroupLocked(root, info.projects, options, progress) : createSingleLocked(root, options, progress),
   );
+
+  // Setup commands (`pnpm install`, ...) can run for minutes, so they run
+  // AFTER the locks are released: other workspaces can be added or listed
+  // meanwhile. The workspace is complete at this point; a failing command
+  // throws but leaves it in place for `workler setup` to retry.
+  if (options.setup !== false) {
+    const outcome = runWorkspaceSetup(info, { name: result.name, path: result.path }, options);
+    result.setup = outcome.setup;
+    for (const member of outcome.projects ?? []) {
+      const created = result.projects?.find((candidate) => candidate.project === member.project);
+      if (created) {
+        created.setup = member.setup;
+      }
+    }
+  }
+  return result;
 }
 
 function createSingleLocked(

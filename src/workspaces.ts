@@ -343,11 +343,16 @@ export function listWorkspaces(root: string): Workspace[] {
       continue;
     }
 
-    const name = gitMaybe(workspacePath, ['config', '--local', '--get', 'workler.name']) || entry.name;
-    result.push({ name, path: workspacePath });
+    result.push({ name: workspaceName(workspacePath), path: workspacePath });
   }
 
   return result;
+}
+
+// The name `add` recorded in the workspace, falling back to the directory
+// name for a clone that was never marked.
+export function workspaceName(workspacePath: string): string {
+  return gitMaybe(workspacePath, ['config', '--local', '--get', 'workler.name']) || path.basename(workspacePath);
 }
 
 export function findWorkspace(root: string, name: string): Workspace {
