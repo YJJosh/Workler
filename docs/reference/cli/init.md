@@ -12,7 +12,7 @@ workler init
 
 Run anywhere inside a repository; Workler uses the Git top level:
 
-1. Creates a starter [`.workler`](/reference/configuration) file with commented syntax examples — kept as-is if it already exists.
+1. Creates a starter [`.workler`](/reference/configuration) file with commented syntax examples (`link`, `copy`, and `setup` lines) — kept as-is if it already exists.
 2. Creates the `.worktrees/` directory.
 3. Excludes `.worktrees/` from git via `.git/info/exclude` — local to your machine, so your committed `.gitignore` is untouched.
 4. Records the project as a workler root (`git config workler.root` and `workler.name main`).
@@ -51,5 +51,6 @@ cd my-project
 workler init
 echo "link node_modules" >> .workler
 echo "copy .env" >> .workler
+echo "setup pnpm install" >> .workler
 workler add feature-a
 ```

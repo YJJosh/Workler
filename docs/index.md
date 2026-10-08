@@ -53,9 +53,10 @@ features:
 ::: code-group
 
 ```txt [.workler (optional)]
-# only needed when a workspace needs local files
+# only needed when a workspace needs local files or a command
 link node_modules
 copy .env
+setup --if-missing node_modules pnpm install
 ```
 
 ```bash [terminal]
@@ -70,4 +71,4 @@ $ cd "$(workler path feature-a)"
 
 :::
 
-`workler add feature-a` works directly in any Git repository. It clones the project into `.worktrees/feature-a`, creates and checks out a new `feature-a` branch, and applies `.workler` rules when that optional file is present.
+`workler add feature-a` works directly in any Git repository. It clones the project into `.worktrees/feature-a`, creates and checks out a new `feature-a` branch, and applies `.workler` rules and runs its `setup` commands when that optional file is present.

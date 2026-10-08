@@ -20,9 +20,9 @@ workler add agent-2
 ## How the nested level behaves
 
 - **Every command operates on the nearest enclosing workler project.** `list`, `path`, `remove`, `apply`, and `add` run inside `feature-a` only see `feature-a`'s own workspaces — the root's other workspaces don't leak in.
-- **Optional rules come from the parent checkout.** When `.workler` is present, a nested workspace applies the copy checked out in its parent—commit it if nested workspaces should inherit the rules.
+- **Optional rules and setup commands come from the parent checkout.** When `.workler` is present, a nested workspace applies the copy checked out in its parent, and runs its `setup` lines with `WORKLER_ROOT` set to that parent—commit it if nested workspaces should inherit the rules.
 - **`link` targets resolve to the immediate parent.** `agent-1/node_modules` links to `feature-a/node_modules`, which may itself be a link back to the root — the chain resolves transparently.
-- **Bare `workler apply` refreshes from the immediate parent.** Run inside `agent-1`, it re-applies `feature-a`'s rules to `agent-1`.
+- **Bare `workler apply` and `workler setup` act on the immediate parent's config.** Run inside `agent-1`, they re-apply `feature-a`'s rules to, or re-run its setup commands in, `agent-1`.
 - **Nesting depth is unlimited.** Each clone's `workler.root` git config points at its immediate parent, so discovery always finds the nearest level.
 
 ## Why this is useful for agents

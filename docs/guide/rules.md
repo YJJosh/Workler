@@ -19,6 +19,8 @@ Each line is `<action> <path>`:
 - **`link <path>`** creates a symlink in the workspace pointing back to the main project's copy.
 - **`copy <path>`** copies the file or folder into the workspace.
 
+A third action, **`setup <command>`**, runs a shell command in the new workspace once the rules are applied; `setup --if-missing <path> <command>` does so only while `<path>` is absent, which is how `link node_modules` and `pnpm install` go together. The command is taken verbatim, so the quoting and comment rules below do not apply to it — see [Setup commands](/guide/setup).
+
 Blank lines are ignored. A `#` at the start of a line or preceded by whitespace starts a comment; a `#` inside a quoted path (or glued to a word, like `file#1.txt`) does not. Quote a path with double or single quotes if it contains spaces or `#`.
 
 ## Choosing link vs copy
@@ -103,6 +105,8 @@ workler apply feature-a --dry-run
 
 `apply` follows the same conflict rules as `add`: an up-to-date destination is `ok`, a differing one is a conflict until you pass `--force`. Rules run sequentially, not as one transaction; if a later rule fails, earlier successful rules remain applied.
 
+`apply` only touches copy/link rules. To re-run the `setup` commands, use [`workler setup`](/reference/cli/setup).
+
 ## Commit the file
 
-If you use `.workler`, commit it so it documents what a working checkout needs and [nested workspaces](/guide/nested-workspaces) inherit the same rules.
+If you use `.workler`, commit it so it documents what a working checkout needs and [nested workspaces](/guide/nested-workspaces) inherit the same rules and setup commands.

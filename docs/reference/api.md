@@ -48,7 +48,8 @@ The API and the CLI share the same core: `workler add` and
   `NOT_INITIALIZED`, `NOT_A_GIT_REPO`,
   `WORKSPACE_EXISTS`, `WORKSPACE_NOT_FOUND`, `WORKSPACE_DIRTY`,
   `BRANCH_EXISTS`, `BAD_REF`, `INVALID_NAME`, `INVALID_OPTIONS`,
-  `CONFIG_INVALID`, `RULE_CONFLICT`, `SETUP_FAILED`, and `LOCKED`.
+  `CONFIG_INVALID`, `RULE_CONFLICT`, `SETUP_FAILED`, `SETUP_COMMAND_FAILED`,
+  and `LOCKED`.
 - **Workspaces live in `<root>/.worktrees/<name>`** — the same
   project-local layout the CLI uses, including nested workspaces (pass a
   workspace's path as the root to manage its own `.worktrees/`). The
@@ -98,26 +99,27 @@ checkouts are skipped.
 ### `createWorkspace(root, options): CreateWorkspaceResult`
 
 Same semantics as [`workler add`](/reference/cli/add). `options`:
-`{ name, base?, branch?, checkout?, force?, copyLinks? }` with the exact `add` rules.
+`{ name, base?, branch?, checkout?, force?, copyLinks?, setup? }` with the exact `add` rules.
 `checkout` is exclusive, while `base` and `branch` may be combined to create
 an explicitly named branch from an explicit start point; `name` alone creates
 a new branch from `HEAD`. Optional `onProgress(message)` and
 `onRuleResult(result)` callbacks stream what the CLI would print. The
 result carries `path`, `branch` (undefined when detached), `head`,
-`detached`, `copyLinks`, and the structured copy/link `rules` outcome.
+`detached`, `copyLinks`, the structured copy/link `rules` outcome, and the
+`setup` outcome (undefined when `setup: false` skipped the commands).
 
 `copyLinks: true` is `add --copy-links`: `link` rules are applied as
 independent copies, and their results carry `copiedLink: true` while
 `action` stays `'link'`.
 
 `.workler` copy/link rules are applied exactly as with the CLI, including
-conflict detection and `force` replacement. If setup fails after the
-clone was created (bad config, rule conflict), the error is
+conflict detection and `force` replacement. If configuring the clone fails
+after it was created (bad config, rule conflict), the error is
 `SETUP_FAILED` and the clone is left in place for inspection — the same
 partial-failure contract the CLI documents.
 
 For a project group root the result also has `projects`, one
-`{ project, root, path, branch?, head?, detached, rules }` per member in
+`{ project, root, path, branch?, head?, detached, rules, setup? }` per member in
 file order (`root` is the source repository). The top-level `branch` is set
 only when every member ended on that branch, `detached` is true only when
 every member is detached, `head` is absent, and `rules` is the outcome of the
@@ -127,12 +129,70 @@ projects fails with `CONFIG_INVALID`. A declared path that is missing, is not
 a repository, or is reached through a symbolic link fails with
 `NOT_A_GIT_REPO`; links are never followed. A group-level rule for `.workler` itself is CONFIG_INVALID: `add` copies the group's file into every group workspace.
 
+The `.workler` [`setup` commands](/guide/setup) then run inside the finished
+workspace unless `setup: false` is passed (what `add --no-setup` does). They
+run after the locks are released, sequentially, through the platform
+shell, with the workspace as `cwd` and `WORKLER_WORKSPACE`,
+`WORKLER_WORKSPACE_PATH`, and `WORKLER_ROOT` added to `process.env`. A
+`setup --if-missing <path>` line whose path exists in the workspace is
+skipped: its result has `status: 'skipped'` and `ifMissing` set. Their
+stdin/stderr are inherited; `setupStdout: 'stderr'` routes their stdout to
+stderr (the CLI does this when its stdout is not a terminal), the default
+`'inherit'` shares the caller's stdout. `onSetupCommand(command, index,
+total)` fires before each command starts, and `onSetupSkip(command, index,
+total)` instead of it for a skipped one. The first failing command throws
+`SETUP_COMMAND_FAILED` with `details` `{ name, path, command, exitCode?,
+signal?, index, commandCount, results, project? }`; the workspace is complete
+and stays in place, so the caller can retry with `setupWorkspace()`. The
+result's `setup` is `{ commandCount, results }`.
+
+In a project group every member's commands run first, inside its clone and
+read from its source repository (`WORKLER_ROOT` is the source, and
+`WORKLER_GROUP`, `WORKLER_GROUP_WORKSPACE_PATH`, and `WORKLER_PROJECT` are
+set), in file order; then the group's own commands run in the workspace
+folder (`WORKLER_ROOT` is the group root, `WORKLER_PROJECT` is unset).
+`onProjectSetup(project, commandCount, skipped?)` fires before each member's
+run and `onGroupSetup(commandCount)` before the group's. Each member's
+outcome lands in `projects[i].setup`, the group's own in `setup`. A member's
+failure is prefixed with its project path and carries `details.project`;
+nothing after it runs.
+
+### `setupWorkspace(root, name, options?): SetupWorkspaceResult`
+
+Same as [`workler setup <name>`](/reference/cli/setup): re-runs the `setup`
+commands of `root`'s `.workler` in the existing workspace `name`, with the
+same options and the same `SETUP_COMMAND_FAILED` contract as
+`createWorkspace`. Returns `{ name, path, root, setup, projects?, project? }`
+where `setup` is `{ commandCount, results }` and each result is
+`{ command, status: 'ok' | 'skipped', ifMissing? }`; a `commandCount` of `0`
+means `.workler` declares no commands. Refuses `main` (`MAIN_WORKSPACE`)
+and unknown names (`WORKSPACE_NOT_FOUND`). Does not take the project lock
+(see [Locking](#locking)).
+
+Under a project group, `name` may address one member (`"feat/projects/api"`):
+only that member's commands run, `path` is the clone, `root` its source
+repository, and `project` the declared path. Addressing the whole workspace
+runs every member's commands and then the group's own; `projects` then lists
+one `{ project, root, path, setup?, skipped? }` per declared project, where
+`skipped` says why a member that is not a usable clone, or whose source is
+missing, not a repository, or behind a symbolic link, was left alone.
+Addressing such a member directly throws `WORKSPACE_NOT_FOUND` or
+`NOT_A_GIT_REPO` instead.
+
+Types: `SetupOptions`, `WorkspaceSetupOptions`, `SetupOutcome`,
+`SetupCommandResult`, `SetupTarget`, `SetupWorkspaceResult`,
+`WorkspaceSetupOutcome`, `MemberSetupResult`, and `SetupCommand`
+(`{ command, ifMissing?, raw }`, also the `setup` array of a `WorkspacePlan`
+and of each `MemberPlan`).
+
 ### `planWorkspaceCreation(root, options): WorkspacePlan`
 
 The read-only planning half of `createWorkspace` (what `add --dry-run`
-prints): the resolved target path, the checkout plan, and any warnings.
-Nothing is created. For a project group `checkout` is absent and `projects`
-holds one `{ project, root, target, checkout }` per member.
+prints): the resolved target path, the checkout plan, the `setup` commands
+that would run (in order), and any warnings. Nothing is created. For a
+project group `checkout` is absent, `projects` holds one
+`{ project, root, target, checkout, setup }` per member, and `setup` is the
+group's own commands.
 
 ### `listWorkspaces(root): WorkspaceInfo[]`
 
@@ -179,7 +239,11 @@ The mutating API operations (`initProject`, `createWorkspace`,
 `removeWorkspace`) and mutating CLI operations (`add`, `apply`, `remove`,
 `fetch`, `sync`, and `branch-sync`) take a per-project lock for their duration,
 so mutating commands addressed to the same project root are serialized. Dry
-runs and read-only operations never lock.
+runs and read-only operations never lock. Setup commands run **outside** the
+lock: `createWorkspace` releases it before the first command starts, and
+`setupWorkspace` / `workler setup` never take it, so a long `pnpm install`
+does not block sibling workspaces — nor does anything stop a concurrent
+`removeWorkspace` of the workspace being set up.
 
 - The lock is a JSON file at `<root>/.worktrees/.workler.lock`
   (`projectLockPath(root)` returns it) recording the holder's pid,

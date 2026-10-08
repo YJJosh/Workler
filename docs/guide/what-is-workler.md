@@ -17,8 +17,9 @@ A fresh checkout of a project is rarely ready to work in:
 If fresh workspaces need local files, declare them in an optional `.workler` file at the project root:
 
 ```txt
-link node_modules   # symlink back to the main project
-copy .env           # copied into the workspace
+link node_modules                              # symlink back to the main project
+copy .env                                      # copied into the workspace
+setup --if-missing node_modules pnpm install   # only when there was nothing to link to
 ```
 
 Then create workspaces:
@@ -32,6 +33,7 @@ Workler:
 1. **Clones** the main project into `.worktrees/feature-a` — a full, independent local clone with its own `HEAD`, index, and local branches.
 2. **Creates and checks out a branch** — by default a new branch named after the workspace, started from the main project's current `HEAD`. Bases, existing branches, tags, and detached checkouts are available via `[base]`, `--branch`, and `--checkout` (see [Workspaces & branches](/guide/workspaces)).
 3. **Applies the rules** — `link node_modules` symlinks the workspace's `node_modules` back to the main project's, `copy .env` copies the file in.
+4. **Runs the setup commands** — `pnpm install` here, but only in a workspace where the link found no `node_modules` to point at (see [Setup commands](/guide/setup)).
 
 The result is a checkout you can `cd` into and run, with no install step and no manual file shuffling.
 
@@ -60,5 +62,6 @@ The trade-off is that clones drift apart — so Workler ships [multi-workspace c
 
 - [Getting started](/guide/getting-started) — install Workler and create your first workspace.
 - [Copy & link rules](/guide/rules) — the `.workler` file format.
+- [Setup commands](/guide/setup) — commands a fresh workspace runs, and when they are skipped.
 - [Project groups](/guide/project-groups) — several repositories in one folder, cloned into one workspace.
 - [CLI reference](/reference/cli/) — every command and flag.

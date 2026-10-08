@@ -54,9 +54,15 @@ Rules are applied automatically by `workler add`. If you add or change them late
 workler apply feature-a
 ```
 
+When a workspace also needs a command to become usable — installing dependencies when there was no `node_modules` to link to, generating code — add a `setup` line. It runs in the new workspace once the rules are in place, and `workler setup feature-a` re-runs it later. With `--if-missing <path>` the command only runs while that path is absent, so the install below is skipped whenever the `link` rule put a `node_modules` in place:
+
+```txt
+setup --if-missing node_modules pnpm install
+```
+
 [`workler init`](/reference/cli/init) is an optional convenience that creates a commented starter `.workler`, prepares `.worktrees/`, and records the local Git settings. You do not need it before using any command in a Git repository.
 
-See [Copy & link rules](/guide/rules) for the complete syntax and safety behavior.
+See [Copy & link rules](/guide/rules) and [Setup commands](/guide/setup) for the complete syntax and safety behavior.
 
 ## Move around
 
@@ -77,8 +83,9 @@ wcd main
 
 | Command | What it does |
 | --- | --- |
-| `workler add <name>` | Clone a new workspace on a new branch and apply optional rules |
+| `workler add <name>` | Clone a new workspace on a new branch, apply optional rules, run setup commands |
 | `workler apply <name>` | Re-apply the rules to a workspace |
+| `workler setup <name>` | Re-run the setup commands in a workspace |
 | `workler list` | Show every workspace with its branch and path |
 | `workler path <name>` | Print a workspace's path |
 | `workler remove <name>` | Delete a workspace (refuses if it has uncommitted changes) |
@@ -91,6 +98,7 @@ See the [CLI reference](/reference/cli/) for every command and flag.
 
 - [Workspaces & branches](/guide/workspaces) — bases, `--branch`, `--checkout`, and detached checkouts.
 - [Copy & link rules](/guide/rules) — the optional `.workler` format.
+- [Setup commands](/guide/setup) — `setup --if-missing node_modules pnpm install` and friends, run once a workspace exists.
 - [Keeping workspaces in sync](/guide/sync) — `status`, `fetch`, `sync`, and `branch-sync`.
 - [Project groups](/guide/project-groups) — several repositories in one folder, cloned into one workspace with a single `workler add`.
 - [Programmatic API](/reference/api) — create, inspect, list, and remove workspaces from TypeScript or JavaScript.
