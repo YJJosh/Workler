@@ -66,7 +66,10 @@ Same as the optional `workler init` helper: creates `.workler` (if missing),
 `.worktrees/`, marks the repository with `workler.*` Git config, and adds
 `.worktrees/` to `.git/info/exclude` (or `.gitignore` for non-Git roots).
 Ordinary Git repositories do not need initialization. Idempotent;
-the result reports whether the config file was created.
+the result reports whether the config file was created. In a non-Git folder
+it declares the repositories `discoverProjects` finds: the result lists them
+as `projects` and `discoveredProjects`, and any it could not write (a path
+holding both quote characters, or a line break) as `unwritableProjects`.
 
 ### `inspectProject(root): ProjectInfo`
 
@@ -180,7 +183,9 @@ runs and read-only operations never lock.
   `.worktrees/`, independent of the parent. A parent `fetch`, `sync`, or
   `branch-sync` also touches its child repositories, so do not run one
   concurrently with a mutation addressed directly to a nested project.
-- A project group locks its own `.worktrees/`. Its source repositories are
+- A project group locks its own `.worktrees/`, also for a bare `apply` run
+  inside a member clone: the clone changes under the group's lock, not under
+  its source repository's. Its source repositories are
   only read by `createWorkspace`, so they are not locked; `branch-sync` at a
   group root does write into them (mirrored refs), so do not run it
   concurrently with a `branch-sync` addressed to a member repository.

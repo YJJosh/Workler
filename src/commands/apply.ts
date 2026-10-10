@@ -138,7 +138,13 @@ export function applyCommand(args: string[]): void {
     if (info.gitRepo) {
       const parent = parentProject(root);
       if (parent) {
-        runWithOptionalLock(parent, `apply ${path.basename(root)}`, dryRun, () => {
+        // A member clone of a group workspace changes under the group's lock,
+        // the one `apply <name>/<project>` and `remove <name>` take, so no two
+        // group-level commands touch the clone at once. Its rules still come
+        // from the source repository.
+        const lockRoot = info.memberOf ? info.memberOf.group : parent;
+        const label = info.memberOf ? `apply ${info.memberOf.workspace}/${info.memberOf.project}` : `apply ${path.basename(root)}`;
+        runWithOptionalLock(lockRoot, label, dryRun, () => {
           applyAndPrint(parent, root, flags, { isRepo: true });
         });
         return;

@@ -207,6 +207,10 @@ export interface InitResult {
   // Git repositories found below a non-Git root (see discoverProjects), whether
   // or not the config declares them. Empty for a Git repository.
   discoveredProjects: string[];
+  // Discovered repositories left out of a new config because their path
+  // cannot be spelled in .workler (both quote characters, or a line break).
+  // Reported so the folder can be renamed.
+  unwritableProjects: string[];
 }
 
 export function initProject(rootInput: string): InitResult {
@@ -221,7 +225,9 @@ export function initProject(rootInput: string): InitResult {
     const gitRepo = isGitProjectRoot(root);
     // A plain folder holding several repositories is a project group in the
     // making: declare what is there so `add` can clone all of it.
-    const discoveredProjects = gitRepo ? [] : discoverProjects(root);
+    const found = gitRepo ? [] : discoverProjects(root);
+    const discoveredProjects = found.filter(canWriteConfigPath);
+    const unwritableProjects = found.filter((project) => !canWriteConfigPath(project));
 
     let configCreated = false;
     let projects: string[] = [];
@@ -266,6 +272,7 @@ export function initProject(rootInput: string): InitResult {
       gitignorePath,
       projects,
       discoveredProjects,
+      unwritableProjects,
     };
   });
 }
@@ -302,8 +309,15 @@ function groupConfigTemplate(projects: string[]): string {
   ].join('\n');
 }
 
+// The config parser knows no escapes: a path is written bare, or inside
+// whichever kind of quote it lacks. One holding both kinds, or a line break,
+// cannot be written at all.
+function canWriteConfigPath(value: string): boolean {
+  return !/[\r\n]/.test(value) && !(value.includes('"') && value.includes("'"));
+}
+
 // Paths with whitespace, "#" or a quote need quotes to survive the config
-// parser, which knows no escapes: use whichever quote the path lacks.
+// parser: use whichever quote the path lacks (see canWriteConfigPath).
 function quoteConfigPath(value: string): string {
   if (!/[\s#"']/.test(value)) {
     return value;

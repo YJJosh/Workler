@@ -173,17 +173,28 @@ function validateOptions(options: CreateWorkspaceOptions): void {
 // A root `add` can clone: a Git repository, or a project group whose members
 // are Git repositories. A repository that also declares projects is rejected
 // rather than half-honored.
+// A repository's .workler holds copy/link rules only; "project" lines belong
+// to a group root, which is a plain folder. Checked for the repository `add`
+// runs in and for every member of a group, so a repository is never accepted
+// through a group when `add` would refuse it directly.
+function assertRepositoryDeclaresNoProjects(root: string): void {
+  if (!fs.existsSync(path.join(root, CONFIG_FILE))) {
+    return;
+  }
+  if (readConfig(root).projects.length > 0) {
+    throw new WorklerError(
+      'CONFIG_INVALID',
+      `${CONFIG_FILE} in a Git repository cannot declare "project" entries: ${root}\n` +
+        'a project group is a plain folder (not a Git repository) that lists the repositories below it',
+      { root },
+    );
+  }
+}
+
 function requireCloneableProject(rootInput: string): ProjectInfo {
   const info = requireProject(rootInput);
   if (info.gitRepo) {
-    if (info.configFileExists && readConfig(info.root).projects.length > 0) {
-      throw new WorklerError(
-        'CONFIG_INVALID',
-        `${CONFIG_FILE} in a Git repository cannot declare "project" entries: ${info.root}\n` +
-          'a project group is a plain folder (not a Git repository) that lists the repositories below it',
-        { root: info.root },
-      );
-    }
+    assertRepositoryDeclaresNoProjects(info.root);
     return info;
   }
   if (info.isGroup) {
@@ -261,6 +272,7 @@ function planGroupLocked(root: string, projects: string[], options: CreateWorksp
           { root: memberRoot, project },
         );
       }
+      assertRepositoryDeclaresNoProjects(memberRoot);
       applyRules(memberRoot, memberTarget, { force: options.force === true, copyLinks: options.copyLinks === true, dryRun: true });
       const checkout = planCheckout(memberRoot, options);
       if (!isGitWorkTreeClean(memberRoot)) {

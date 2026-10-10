@@ -5,6 +5,7 @@
 // source repository.
 const assert = require('node:assert');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const { test } = require('node:test');
 const { addOrigin, api, git, makeRepo, makeTempDir, remotes, runCli } = require('./helpers');
@@ -131,6 +132,20 @@ test('a Git repository cannot declare projects', (t) => {
   assert.strictEqual(fs.existsSync(workspaceDir(repo, 'feat')), false);
 });
 
+test('a member repository cannot declare projects either: the group refuses before cloning', (t) => {
+  const root = makeGroup(t, { projects: ['projects/api', 'tools'], rules: { tools: 'project sub\n' } });
+  makeRepoAt(member(root, 'tools/sub'));
+
+  // The same refusal `add` gives inside tools, named after the member.
+  for (const operation of [() => api.createWorkspace(root, { name: 'feat' }), () => api.planWorkspaceCreation(root, { name: 'feat' })]) {
+    assert.throws(
+      operation,
+      (error) => error.code === 'CONFIG_INVALID' && error.details.project === 'tools' && /^tools: .*cannot declare "project" entries/.test(error.message),
+    );
+  }
+  assert.strictEqual(fs.existsSync(workspaceDir(root, 'feat')), false);
+});
+
 test('a non-Git folder without project lines is still not something add can clone', (t) => {
   const root = makeGroup(t, { projects: ['projects/api'], declare: false });
   fs.writeFileSync(path.join(root, '.workler'), 'copy .env\n');
@@ -251,6 +266,34 @@ test('the init command inside an outer repository initializes the group folder, 
   assert.strictEqual(repoInit.status, 0, repoInit.stderr);
   assert.strictEqual(api.inspectProject(outer).marked, true);
   assert.strictEqual(fs.existsSync(path.join(plain, '.workler')), false);
+});
+
+test('init skips a repository whose name cannot be written to .workler, and says so', (t) => {
+  if (process.platform === 'win32') {
+    t.skip('Windows forbids " in a file name');
+    return;
+  }
+  const root = makeGroup(t, { projects: ['projects/api'], declare: false });
+  const odd = `it's "odd"`;
+  makeRepoAt(path.join(root, odd));
+  makeRepoAt(path.join(root, 'has space'));
+
+  // Quoting covers a space or one kind of quote; both kinds cannot be spelled.
+  const result = api.initProject(root);
+  assert.deepStrictEqual(result.projects, ['has space', 'projects/api']);
+  assert.deepStrictEqual(result.discoveredProjects, ['has space', 'projects/api']);
+  assert.deepStrictEqual(result.unwritableProjects, [odd]);
+  assert.ok(fs.readFileSync(result.configPath, 'utf8').includes('\nproject "has space"\n'));
+  const info = api.inspectProject(root);
+  assert.strictEqual(info.configError, undefined);
+  assert.deepStrictEqual(info.projects, ['has space', 'projects/api']);
+
+  fs.rmSync(result.configPath);
+  const cli = runCli(root, 'init');
+  assert.strictEqual(cli.status, 0, cli.stderr);
+  assert.match(cli.stdout, /^project has space$/m);
+  assert.match(cli.stdout, /^skipped it's "odd": cannot be written to .workler/m);
+  assert.doesNotMatch(cli.stdout, /^project it's/m);
 });
 
 // --- add -----------------------------------------------------------------
@@ -677,6 +720,42 @@ test('apply refreshes every member from its source repository, then the group ru
 });
 
 // --- remove --------------------------------------------------------------
+
+test('bare apply inside a member clone takes the group lock, like every other group command', (t) => {
+  const root = makeGroup(t, { projects: ['projects/api'], rules: { 'projects/api': 'link node_modules\n' } });
+  const clone = path.join(api.createWorkspace(root, { name: 'feat' }).path, 'projects', 'api');
+  const link = path.join(clone, 'node_modules');
+  // Holds a project's lock as this (live) process.
+  const hold = (dir) => {
+    const lock = path.join(dir, '.worktrees', '.workler.lock');
+    fs.mkdirSync(path.dirname(lock), { recursive: true });
+    fs.writeFileSync(lock, JSON.stringify({ pid: process.pid, hostname: os.hostname(), operation: 'test', createdAt: new Date().toISOString() }));
+    return () => fs.rmSync(lock, { force: true });
+  };
+
+  // The group's lock blocks it: `remove feat` and `apply feat/projects/api`
+  // take the same one, so none of them can race this apply.
+  fs.rmSync(link, { force: true });
+  let release = hold(root);
+  try {
+    const blocked = runCli(clone, 'apply');
+    assert.strictEqual(blocked.status, 1);
+    assert.match(blocked.stderr, /lock/i);
+    assert.strictEqual(fs.existsSync(link), false);
+  } finally {
+    release();
+  }
+
+  // The source repository's own lock does not: its workspaces are untouched.
+  release = hold(member(root, 'projects/api'));
+  try {
+    const ok = runCli(clone, 'apply');
+    assert.strictEqual(ok.status, 0, ok.stderr);
+    assert.ok(fs.lstatSync(link).isSymbolicLink());
+  } finally {
+    release();
+  }
+});
 
 test('remove needs every member clean and nothing but members in the workspace folder', (t) => {
   const root = makeGroup(t, { rules: { 'projects/api': 'copy .env\n' }, groupRules: 'copy .env.shared\n' });
