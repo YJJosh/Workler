@@ -235,14 +235,21 @@ test('the init command prepares a group folder and hints at undeclared repositor
   assert.match(created.stdout, /^ignored .worktrees\/ in .gitignore$/m);
   assert.doesNotMatch(created.stdout, /warning/);
 
-  // A repository added later is pointed out, never silently included.
+  // A repository added later is pointed out, never silently included. The
+  // suggested lines are quoted the way the file needs, so they paste as they
+  // are (bare, `has # hash` would declare `has` and start a comment).
   makeRepoAt(path.join(root, 'later'));
+  makeRepoAt(path.join(root, 'has # hash'));
   const again = runCli(root, 'init');
   assert.strictEqual(again.status, 0, again.stderr);
   assert.match(again.stdout, /^exists {2}.workler$/m);
   assert.match(again.stdout, /^hint: .*not declared/m);
+  assert.match(again.stdout, /^ {2}project "has # hash"$/m);
   assert.match(again.stdout, /^ {2}project later$/m);
   assert.deepStrictEqual(api.inspectProject(root).projects, DEFAULT_PROJECTS);
+  const hinted = again.stdout.split('\n').filter((line) => line.startsWith('  project ')).map((line) => line.trim());
+  fs.appendFileSync(path.join(root, '.workler'), `${hinted.join('\n')}\n`);
+  assert.deepStrictEqual(api.inspectProject(root).projects, [...DEFAULT_PROJECTS, 'has # hash', 'later']);
 });
 
 test('the init command inside an outer repository initializes the group folder, not the repository', (t) => {
@@ -291,7 +298,7 @@ test('init skips a repository whose name cannot be written to .workler, and says
   fs.rmSync(result.configPath);
   const cli = runCli(root, 'init');
   assert.strictEqual(cli.status, 0, cli.stderr);
-  assert.match(cli.stdout, /^project has space$/m);
+  assert.match(cli.stdout, /^project "has space"$/m);
   assert.match(cli.stdout, /^skipped it's "odd": cannot be written to .workler/m);
   assert.doesNotMatch(cli.stdout, /^project it's/m);
 });
@@ -539,6 +546,46 @@ test('a workspace with a missing member is incomplete, still listed, and can be 
   fs.rmSync(member(feat, 'projects/web'), { recursive: true });
   assert.deepStrictEqual(api.removeWorkspace(root, 'feat'), { name: 'feat', path: feat });
   assert.strictEqual(fs.existsSync(feat), false);
+});
+
+test('a symbolic link at a member path is local data: remove refuses, --force deletes only the link', (t) => {
+  const root = makeGroup(t);
+  const feat = api.createWorkspace(root, { name: 'feat' }).path;
+  const source = path.join(root, 'projects', 'api');
+  const link = member(feat, 'projects/api');
+  const dirLinkType = process.platform === 'win32' ? 'junction' : undefined;
+
+  // A dangling link first, then a link straight at the source repository:
+  // neither is a clone, and neither may be followed or quietly deleted.
+  fs.rmSync(link, { recursive: true });
+  fs.symlinkSync(path.join(root, 'does-not-exist'), link);
+  for (const target of [undefined, source]) {
+    if (target) {
+      fs.unlinkSync(link);
+      fs.symlinkSync(target, link, dirLinkType);
+    }
+    const workspace = api.listWorkspaces(root)[1];
+    assert.strictEqual(workspace.name, 'feat');
+    assert.strictEqual(workspace.broken, 'projects/api: a symbolic link, not a clone');
+    assert.strictEqual(workspace.clean, undefined);
+    assert.match(runCli(root, 'status').stdout, /^feat\/projects\/api\s+-\s+-\s+broken: a symbolic link, not a clone$/m);
+    assert.throws(() => api.removeWorkspace(root, 'feat'), (error) => error.code === 'WORKSPACE_DIRTY' && /projects\/api: a symbolic link, not a clone/.test(error.message));
+    assert.strictEqual(fs.existsSync(feat), true);
+  }
+
+  // apply skips the link instead of following it into the source repository.
+  const applied = runCli(root, 'apply', 'feat');
+  assert.strictEqual(applied.status, 0, applied.stderr);
+  assert.match(applied.stdout, /^project projects\/api: skipped \(a symbolic link, not a clone\)$/m);
+  const one = runCli(root, 'apply', 'feat/projects/api');
+  assert.strictEqual(one.status, 1);
+  assert.match(one.stderr, /projects\/api in workspace feat is a symbolic link, not a clone/);
+
+  assert.deepStrictEqual(api.removeWorkspace(root, 'feat', { force: true }), { name: 'feat', path: feat });
+  assert.strictEqual(fs.existsSync(feat), false);
+  // Only the link went: the source repository it pointed at is untouched.
+  assert.strictEqual(fs.lstatSync(path.join(source, '.git')).isDirectory(), true);
+  assert.ok(fs.readdirSync(source).length > 1);
 });
 
 test('a group workspace whose first clone failed is still listed, as incomplete', (t) => {

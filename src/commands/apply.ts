@@ -4,8 +4,7 @@ import { readRules } from '../config';
 import { MAIN_WORKSPACE_NAME, PACKAGE_NAME } from '../constants';
 import { inspectProject, requireProject } from '../core/project';
 import type { ProjectInfo } from '../core/project';
-import { hasIndependentGitDirectory } from '../git';
-import { memberPath, requireDeclaredProject, splitWorkspaceAddress } from '../groups';
+import { memberPath, memberState, requireDeclaredProject, splitWorkspaceAddress } from '../groups';
 import { withProjectLock } from '../lock';
 import { applyRules } from '../rules';
 import type { Workspace } from '../types';
@@ -66,8 +65,9 @@ function applyWorkspace(info: ProjectInfo, workspace: Workspace, flags: ApplyFla
   const cloned: string[] = [];
   for (const project of info.projects) {
     const member = memberPath(workspace.path, project);
-    if (!hasIndependentGitDirectory(member)) {
-      console.log(`project ${project}: skipped (not cloned)`);
+    const state = memberState(member);
+    if (state !== 'clone') {
+      console.log(`project ${project}: skipped (${notACloneReason(state)})`);
       continue;
     }
     cloned.push(member);
@@ -185,8 +185,9 @@ export function applyCommand(args: string[]): void {
     }
     const project = requireDeclaredProject(info.projects, address.project);
     const member = memberPath(workspace.path, project);
-    if (!hasIndependentGitDirectory(member)) {
-      throw new Error(`project ${project} is not cloned in workspace ${address.workspace}: ${member}`);
+    const state = memberState(member);
+    if (state !== 'clone') {
+      throw new Error(`project ${project} in workspace ${address.workspace} is ${notACloneReason(state)}: ${member}`);
     }
     applyAndPrint(memberPath(root, project), member, flags, { isRepo: true });
   });
@@ -198,4 +199,11 @@ function runWithOptionalLock(root: string, operation: string, dryRun: boolean, f
   } else {
     withProjectLock(root, operation, fn);
   }
+}
+
+// A member that apply must not touch: nothing is there yet, or a symbolic
+// link or file that is not a clone (a link to the source repository would
+// otherwise be followed and the source itself rewritten).
+function notACloneReason(state: ReturnType<typeof memberState>): string {
+  return state === 'missing' ? 'not cloned' : state === 'link' ? 'a symbolic link, not a clone' : 'not a clone';
 }

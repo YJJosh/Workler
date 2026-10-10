@@ -3,8 +3,8 @@ import path from 'node:path';
 import { CONFIG_FILE, MAIN_WORKSPACE_NAME, WORKSPACES_DIR } from '../constants';
 import { WorklerError } from '../errors';
 import { assertInside } from '../fs-utils';
-import { hasIndependentGitDirectory, isGitWorkTreeCleanIncludingIgnored } from '../git';
-import { groupWorkspaceExtras, memberPath } from '../groups';
+import { isGitWorkTreeCleanIncludingIgnored } from '../git';
+import { groupWorkspaceExtras, memberPath, memberState } from '../groups';
 import { withProjectLock } from '../lock';
 import { findWorkspace, validateWorkspaceName } from '../workspaces';
 import { requireProject } from './project';
@@ -79,10 +79,15 @@ function groupLocalData(workspacePath: string, groupRoot: string, projects: stri
   const reasons: string[] = [];
   for (const project of projects) {
     const member = memberPath(workspacePath, project);
-    if (!fs.existsSync(member)) {
+    const state = memberState(member);
+    if (state === 'missing') {
       continue;
     }
-    if (!hasIndependentGitDirectory(member)) {
+    if (state === 'link') {
+      reasons.push(`${project}: a symbolic link, not a clone`);
+      continue;
+    }
+    if (state !== 'clone') {
       reasons.push(`${project}: not a Git clone (unknown contents)`);
       continue;
     }
@@ -91,6 +96,9 @@ function groupLocalData(workspacePath: string, groupRoot: string, projects: stri
     }
   }
   for (const extra of groupWorkspaceExtras(workspacePath, groupRoot, projects)) {
+    if (projects.includes(extra)) {
+      continue; // a link or file at a member path: reported above
+    }
     reasons.push(
       extra === CONFIG_FILE
         ? `${CONFIG_FILE}: differs from the group's ${CONFIG_FILE} (edited here, or the group's file changed after this workspace was created)`

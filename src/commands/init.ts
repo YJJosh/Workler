@@ -1,3 +1,4 @@
+import { quoteConfigPath } from '../config';
 import { CONFIG_FILE, WORKSPACES_DIR } from '../constants';
 import { discoverProjects, initProject } from '../core/project';
 import { relativeToCwd } from '../fs-utils';
@@ -23,16 +24,17 @@ export function initCommand(args: string[]): void {
     console.log(`exists  ${relativeToCwd(result.configPath)}`);
   }
   for (const project of result.projects) {
-    console.log(`project ${project}`);
+    console.log(`project ${quoteConfigPath(project)}`);
   }
   for (const project of result.unwritableProjects) {
     console.log(`skipped ${project}: cannot be written to ${CONFIG_FILE} (a path may not hold both " and ', or a line break); rename it to declare it`);
   }
   const undeclared = result.discoveredProjects.filter((project) => !result.projects.includes(project));
   if (!result.configCreated && undeclared.length > 0) {
+    // Quoted exactly as the file needs them, so the lines paste as they are.
     console.log(`hint: Git repositories below this folder are not declared in ${CONFIG_FILE}; add these lines to manage them as a group:`);
     for (const project of undeclared) {
-      console.log(`  project ${project}`);
+      console.log(`  project ${quoteConfigPath(project)}`);
     }
   }
 

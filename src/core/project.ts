@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { readConfig } from '../config';
+import { canWriteConfigPath, quoteConfigPath, readConfig } from '../config';
 import { CONFIG_FILE, MAIN_WORKSPACE_NAME, WORKSPACES_DIR } from '../constants';
 import { WorklerError } from '../errors';
 import { addLineIfMissing, canonicalPath } from '../fs-utils';
@@ -307,20 +307,4 @@ function groupConfigTemplate(projects: string[]): string {
     ...projects.map((project) => `project ${quoteConfigPath(project)}`),
     '',
   ].join('\n');
-}
-
-// The config parser knows no escapes: a path is written bare, or inside
-// whichever kind of quote it lacks. One holding both kinds, or a line break,
-// cannot be written at all.
-function canWriteConfigPath(value: string): boolean {
-  return !/[\r\n]/.test(value) && !(value.includes('"') && value.includes("'"));
-}
-
-// Paths with whitespace, "#" or a quote need quotes to survive the config
-// parser: use whichever quote the path lacks (see canWriteConfigPath).
-function quoteConfigPath(value: string): string {
-  if (!/[\s#"']/.test(value)) {
-    return value;
-  }
-  return value.includes('"') ? `'${value}'` : `"${value}"`;
 }

@@ -45,7 +45,7 @@ export function isGroupWorkspaceDirectory(dir: string, projects: string[]): bool
   if (fs.existsSync(path.join(dir, CONFIG_FILE))) {
     return true;
   }
-  return projects.some((project) => hasIndependentGitDirectory(memberPath(dir, project)));
+  return projects.some((project) => memberState(memberPath(dir, project)) === 'clone');
 }
 
 export interface WorkspaceAddress {
@@ -83,6 +83,42 @@ export function requireDeclaredProject(projects: string[], project: string): str
   return found;
 }
 
+// What sits at a declared member path. Only a real directory with its own
+// .git directory is a clone. A symbolic link (whatever it points at, even the
+// source repository) or a file is never something Workler put there: it is
+// local data, and following the link would inspect the wrong directory.
+export type MemberState = 'missing' | 'clone' | 'link' | 'not-a-clone';
+
+export function memberState(member: string): MemberState {
+  let stat: fs.Stats;
+  try {
+    stat = fs.lstatSync(member);
+  } catch (_) {
+    return 'missing';
+  }
+  if (stat.isSymbolicLink()) {
+    return 'link';
+  }
+  if (!stat.isDirectory()) {
+    return 'not-a-clone';
+  }
+  return hasIndependentGitDirectory(member) ? 'clone' : 'not-a-clone';
+}
+
+// Why a declared member is not a usable clone, or undefined when it is one.
+export function memberBrokenReason(member: string): string | undefined {
+  switch (memberState(member)) {
+    case 'clone':
+      return undefined;
+    case 'missing':
+      return 'missing (not cloned)';
+    case 'link':
+      return 'a symbolic link, not a clone';
+    default:
+      return 'missing .git (not a clone)';
+  }
+}
+
 // Entries in a group workspace directory that belong to no declared project:
 // not an unchanged .workler copy, not a project or a directory on the way
 // to one.
@@ -113,6 +149,12 @@ export function groupWorkspaceExtras(dir: string, groupRoot: string, projects: s
         continue;
       }
       if (projects.includes(entryPath)) {
+        // A member is a directory: a clone, or one still to be made. A
+        // symbolic link or a file at a declared path is local data.
+        if (entry.isDirectory()) {
+          continue;
+        }
+        extras.push(entryPath);
         continue;
       }
       if (entry.isDirectory() && projects.some((project) => project.startsWith(`${entryPath}/`))) {

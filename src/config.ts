@@ -203,3 +203,20 @@ function validateRulePath(targetPath: string, lineNumber: number, column: number
   // POSIX and a nested path on Windows, and so overlap checks are reliable.
   return parts.join('/');
 }
+
+// The parser knows no escapes: a path is written bare, or inside whichever
+// kind of quote it lacks. One holding both kinds, or a line break, cannot be
+// written at all.
+export function canWriteConfigPath(value: string): boolean {
+  return !/[\r\n]/.test(value) && !(value.includes('"') && value.includes("'"));
+}
+
+// Formats a path for a config line, and for any line shown to be pasted into
+// one: whitespace, "#" or a quote need quotes to survive the parser, using
+// whichever quote the path lacks (see canWriteConfigPath).
+export function quoteConfigPath(value: string): string {
+  if (!/[\s#"']/.test(value)) {
+    return value;
+  }
+  return value.includes('"') ? `'${value}'` : `"${value}"`;
+}
