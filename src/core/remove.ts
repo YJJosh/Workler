@@ -3,7 +3,8 @@ import path from 'node:path';
 import { MAIN_WORKSPACE_NAME, WORKSPACES_DIR } from '../constants';
 import { WorklerError } from '../errors';
 import { assertInside } from '../fs-utils';
-import { isGitWorkTreeCleanIncludingIgnored } from '../git';
+import { hasIndependentGitDirectory, isGitWorkTreeCleanIncludingIgnored } from '../git';
+import { groupWorkspaceExtras, memberPath } from '../groups';
 import { withProjectLock } from '../lock';
 import { findWorkspace, validateWorkspaceName } from '../workspaces';
 import { requireProject } from './project';
@@ -42,16 +43,54 @@ export function removeWorkspace(
   return withProjectLock(info.root, `remove ${name}`, () => {
     const workspace = findWorkspace(info.root, name);
 
-    if (options.force !== true && !isGitWorkTreeCleanIncludingIgnored(workspace.path)) {
-      throw new WorklerError(
-        'WORKSPACE_DIRTY',
-        `workspace has local changes: ${workspace.path}\nUse --force to remove anyway.`,
-        { name, path: workspace.path },
-      );
+    if (options.force !== true) {
+      if (info.isGroup) {
+        const reasons = groupLocalData(workspace.path, info.projects);
+        if (reasons.length > 0) {
+          throw new WorklerError(
+            'WORKSPACE_DIRTY',
+            `workspace has local changes: ${workspace.path}\n` +
+              reasons.map((reason) => `  ${reason}`).join('\n') +
+              '\nUse --force to remove anyway.',
+            { name, path: workspace.path, reasons },
+          );
+        }
+      } else if (!isGitWorkTreeCleanIncludingIgnored(workspace.path)) {
+        throw new WorklerError(
+          'WORKSPACE_DIRTY',
+          `workspace has local changes: ${workspace.path}\nUse --force to remove anyway.`,
+          { name, path: workspace.path },
+        );
+      }
     }
 
     assertInside(path.join(info.root, WORKSPACES_DIR), workspace.path, 'refusing to remove path outside .worktrees');
     fs.rmSync(workspace.path, { recursive: true, force: true });
     return { name, path: workspace.path };
   });
+}
+
+// Everything in a group workspace that deletion would destroy: a member with
+// uncommitted or untracked (including ignored) files, a member directory that
+// is not a clone (unknown contents), and any entry no declared project
+// accounts for. A member that was never cloned holds nothing.
+function groupLocalData(workspacePath: string, projects: string[]): string[] {
+  const reasons: string[] = [];
+  for (const project of projects) {
+    const member = memberPath(workspacePath, project);
+    if (!fs.existsSync(member)) {
+      continue;
+    }
+    if (!hasIndependentGitDirectory(member)) {
+      reasons.push(`${project}: not a Git clone (unknown contents)`);
+      continue;
+    }
+    if (!isGitWorkTreeCleanIncludingIgnored(member)) {
+      reasons.push(`${project}: uncommitted changes or untracked files`);
+    }
+  }
+  for (const extra of groupWorkspaceExtras(workspacePath, projects)) {
+    reasons.push(`${extra}: not part of a declared project`);
+  }
+  return reasons;
 }

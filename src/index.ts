@@ -8,7 +8,7 @@
 export { WorklerError, LockError } from './errors';
 export type { WorklerErrorCode, LockHolder } from './errors';
 
-export { initProject, inspectProject } from './core/project';
+export { discoverProjects, initProject, inspectProject } from './core/project';
 export type { InitResult, ProjectInfo } from './core/project';
 
 export { createWorkspace, planWorkspaceCreation } from './core/create';
@@ -16,11 +16,13 @@ export type {
   CheckoutPlan,
   CreateWorkspaceOptions,
   CreateWorkspaceResult,
+  MemberCreateResult,
+  MemberPlan,
   WorkspacePlan,
 } from './core/create';
 
 export { listWorkspaceInfos as listWorkspaces, resolveWorkspacePath } from './core/list';
-export type { WorkspaceInfo } from './core/list';
+export type { MemberInfo, WorkspaceInfo } from './core/list';
 
 export { removeWorkspace } from './core/remove';
 export type { RemoveWorkspaceOptions, RemoveWorkspaceResult } from './core/remove';
@@ -28,6 +30,7 @@ export type { RemoveWorkspaceOptions, RemoveWorkspaceResult } from './core/remov
 // CLI-style discovery of the nearest enclosing project, for callers that
 // want it; the operations above never call this themselves.
 export { findWorklerRoot } from './workspaces';
+export type { GroupMembership } from './workspaces';
 
 export { projectLockPath } from './lock';
 

@@ -1,7 +1,7 @@
 import { parseCommandArgs } from '../cli-utils';
 import { PACKAGE_NAME } from '../constants';
-import { ensureGitRepo } from '../git';
-import { aheadBehindUpstream, branchInfo, describeAheadBehind, listSyncTargets, trackedChanges } from '../multi-git';
+import { requireRepositoryOrGroup } from '../core/project';
+import { aheadBehindUpstream, branchInfo, describeAheadBehind, listSyncTargets, targetLabel, trackedChanges } from '../multi-git';
 import { findWorklerRoot } from '../workspaces';
 
 export function statusCommand(args: string[]): void {
@@ -16,24 +16,27 @@ export function statusCommand(args: string[]): void {
     console.log(`usage: ${usage}
 
 Shows branch, upstream ahead/behind and clean/dirty state for the main
-project and every workspace. Broken or missing clones are flagged.`);
+project and every workspace. Broken or missing clones are flagged. Under a
+project group every member repository gets its own row, named
+<workspace>/<project>.`);
     return;
   }
 
   const root = findWorklerRoot(process.cwd());
-  ensureGitRepo(root, 'status');
+  requireRepositoryOrGroup(root, 'status');
 
   let failures = 0;
   const rows = listSyncTargets(root).map((target) => {
+    const name = targetLabel(target);
     if (target.broken) {
-      return { name: target.name, branch: '-', upstream: '-', state: `broken: ${target.broken}` };
+      return { name, branch: '-', upstream: '-', state: `broken: ${target.broken}` };
     }
     const head = branchInfo(target.path);
     const counts = aheadBehindUpstream(target.path);
     const changes = trackedChanges(target.path);
     if (changes === undefined) failures++;
     return {
-      name: target.name,
+      name,
       branch: head.detached ? `(detached ${head.branch})` : head.branch,
       upstream: counts ? describeAheadBehind(counts) : 'no upstream',
       state: changes === undefined ? 'unknown: git status failed' : changes ? 'dirty' : 'clean',

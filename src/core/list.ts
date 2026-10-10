@@ -1,10 +1,27 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { MAIN_WORKSPACE_NAME } from '../constants';
+import { MAIN_WORKSPACE_NAME, WORKSPACES_DIR } from '../constants';
 import { gitMaybe, isGitWorkTreeCleanIncludingIgnored } from '../git';
+import { groupWorkspaceExtras, memberPath, requireDeclaredProject, splitWorkspaceAddress } from '../groups';
 import { listSyncTargets } from '../multi-git';
+import type { SyncTarget } from '../multi-git';
 import { findWorkspace } from '../workspaces';
 import { requireProject } from './project';
+
+// One member clone of a group workspace (or one source repository of the
+// group itself, for the "main" entry).
+export interface MemberInfo {
+  // The declared project path (`projects/api`).
+  project: string;
+  path: string;
+  isClone: boolean;
+  broken?: string;
+  branch?: string;
+  head?: string;
+  shortHead?: string;
+  detached: boolean;
+  clean?: boolean;
+}
 
 export interface WorkspaceInfo {
   name: string;
@@ -12,13 +29,17 @@ export interface WorkspaceInfo {
   // The main project itself (always the first entry).
   isMain: boolean;
   // The directory has a .git entry (false for leftovers under .worktrees/
-  // that are not clones at all).
+  // that are not clones at all). For a group workspace: at least one member
+  // has been cloned.
   isClone: boolean;
-  // Set when the directory is not a usable clone; human-readable reason.
+  // Set when the directory is not a usable clone; human-readable reason. For
+  // a group workspace: the reasons of every broken or missing member.
   broken?: string;
-  // Current branch; undefined when detached, unborn, or broken.
+  // Current branch; undefined when detached, unborn, or broken. For a group
+  // workspace: set only when every member is on that same branch.
   branch?: string;
-  // Full and abbreviated HEAD commit sha; undefined when unborn or broken.
+  // Full and abbreviated HEAD commit sha; undefined when unborn or broken,
+  // and for group workspaces (see `projects`).
   head?: string;
   shortHead?: string;
   detached: boolean;
@@ -26,42 +47,102 @@ export interface WorkspaceInfo {
   // `remove` uses, so for non-main workspaces clean === removable without
   // force. Undefined when broken.
   clean?: boolean;
+  // Per-member details; only present under a project group root.
+  projects?: MemberInfo[];
 }
 
 // Structured listing for the API: the main project, every workspace, and
 // broken entries under .worktrees/ (flagged, not hidden).
 export function listWorkspaceInfos(rootInput: string): WorkspaceInfo[] {
   const info = requireProject(rootInput);
+  const targets = listSyncTargets(info.root);
 
-  return listSyncTargets(info.root).map((target) => {
-    const isMain = target.path === info.root;
-    const isClone = isMain || fs.existsSync(path.join(target.path, '.git'));
+  if (!info.isGroup) {
+    return targets.map((target) => {
+      const isMain = target.path === info.root;
+      return { name: target.name, isMain, ...inspectTarget(target, isMain) };
+    });
+  }
 
-    if (target.broken) {
-      return { name: target.name, path: target.path, isMain, isClone, broken: target.broken, detached: false };
+  // Under a group root every target is one member of one workspace; fold the
+  // members back into one entry per workspace, in the order they were listed
+  // (main first, then workspaces by name).
+  const byName = new Map<string, SyncTarget[]>();
+  for (const target of targets) {
+    const members = byName.get(target.name) ?? [];
+    members.push(target);
+    byName.set(target.name, members);
+  }
+
+  return [...byName].map(([name, members]) => {
+    const isMain = name === MAIN_WORKSPACE_NAME;
+    const workspacePath = isMain ? info.root : path.join(info.root, WORKSPACES_DIR, name);
+    const projects: MemberInfo[] = [];
+    const brokenReasons: string[] = [];
+    for (const member of members) {
+      if (member.project === undefined) {
+        // A directory under .worktrees/ that is not a group workspace at all.
+        brokenReasons.push(member.broken ?? 'not a group workspace');
+        continue;
+      }
+      const memberInfo: MemberInfo = { project: member.project, ...inspectTarget(member, false) };
+      projects.push(memberInfo);
+      if (memberInfo.broken) {
+        brokenReasons.push(`${member.project}: ${memberInfo.broken}`);
+      }
     }
 
-    const abbrev = gitMaybe(target.path, ['rev-parse', '--abbrev-ref', 'HEAD']);
-    const detached = !abbrev || abbrev === 'HEAD';
+    const usable = projects.length > 0 && projects.every((project) => !project.broken);
+    const branches = new Set(projects.map((project) => (project.detached ? undefined : project.branch)));
+    const sameBranch = usable && branches.size === 1 && !projects[0].detached;
+    const extras = isMain || !usable ? [] : groupWorkspaceExtras(workspacePath, info.projects);
+    const strayClone = projects.length === 0 && fs.existsSync(path.join(workspacePath, '.git'));
+
     return {
-      name: target.name,
-      path: target.path,
+      name,
+      path: workspacePath,
       isMain,
-      isClone,
-      branch: detached ? undefined : abbrev,
-      head: gitMaybe(target.path, ['rev-parse', 'HEAD']),
-      shortHead: gitMaybe(target.path, ['rev-parse', '--short', 'HEAD']),
-      detached,
-      clean: isGitWorkTreeCleanIncludingIgnored(target.path),
+      isClone: isMain || strayClone || projects.some((project) => project.isClone),
+      broken: brokenReasons.length > 0 ? brokenReasons.join('; ') : undefined,
+      branch: sameBranch ? projects[0].branch : undefined,
+      detached: usable && projects.every((project) => project.detached),
+      clean: usable ? projects.every((project) => project.clean === true) && extras.length === 0 : undefined,
+      projects,
     };
   });
 }
 
+type TargetDetails = Omit<WorkspaceInfo, 'name' | 'isMain' | 'projects'>;
+
+function inspectTarget(target: SyncTarget, isMain: boolean): TargetDetails {
+  const isClone = isMain || fs.existsSync(path.join(target.path, '.git'));
+
+  if (target.broken) {
+    return { path: target.path, isClone, broken: target.broken, detached: false };
+  }
+
+  const abbrev = gitMaybe(target.path, ['rev-parse', '--abbrev-ref', 'HEAD']);
+  const detached = !abbrev || abbrev === 'HEAD';
+  return {
+    path: target.path,
+    isClone,
+    branch: detached ? undefined : abbrev,
+    head: gitMaybe(target.path, ['rev-parse', 'HEAD']),
+    shortHead: gitMaybe(target.path, ['rev-parse', '--short', 'HEAD']),
+    detached,
+    clean: isGitWorkTreeCleanIncludingIgnored(target.path),
+  };
+}
+
 // Absolute path of a workspace by name; "main" resolves to the root itself.
+// Under a project group, `<name>/<project path>` resolves to one member of
+// the workspace (`main/projects/api` is the source repository).
 export function resolveWorkspacePath(rootInput: string, name: string): string {
   const info = requireProject(rootInput);
-  if (name === MAIN_WORKSPACE_NAME) {
-    return info.root;
+  const address = info.isGroup ? splitWorkspaceAddress(name) : { workspace: name, project: undefined };
+  const base = address.workspace === MAIN_WORKSPACE_NAME ? info.root : findWorkspace(info.root, address.workspace).path;
+  if (address.project === undefined) {
+    return base;
   }
-  return findWorkspace(info.root, name).path;
+  return memberPath(base, requireDeclaredProject(info.projects, address.project));
 }

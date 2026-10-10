@@ -7,9 +7,9 @@ Usage:
   ${PACKAGE_NAME} --version
   ${PACKAGE_NAME} init
   ${PACKAGE_NAME} add <name> [base] [--branch <branch>] [--checkout <ref>] [--copy-links] [--force] [--dry-run]
-  ${PACKAGE_NAME} apply [name] [--all] [--copy-links | --no-copy-links] [--force] [--dry-run]
+  ${PACKAGE_NAME} apply [name[/<project>]] [--all] [--copy-links | --no-copy-links] [--force] [--dry-run]
   ${PACKAGE_NAME} list
-  ${PACKAGE_NAME} path <name>
+  ${PACKAGE_NAME} path <name>[/<project>]
   ${PACKAGE_NAME} remove <name> [--force]
   ${PACKAGE_NAME} shell-init
   ${PACKAGE_NAME} status
@@ -29,6 +29,12 @@ ${WORKSPACES_DIR}/ and applies copy/link rules from an optional ${CONFIG_FILE} f
 "sync" skips repositories with uncommitted tracked changes and only fast-forwards
 current branches. "branch-sync" can create branches and fast-forward non-checked-out
 branches, but leaves diverged or locally advanced branches unchanged.
+
+A plain folder that holds several repositories becomes a project group by
+listing them with "project <path>" lines in its ${CONFIG_FILE} ("${PACKAGE_NAME} init" writes
+them for you). "add" there clones every listed repository into ${WORKSPACES_DIR}/<name>/
+in the same layout; "path", "apply" and "status" address one member as
+<name>/<path>. Each repository keeps its own ${CONFIG_FILE} and its own workspaces.
 
 Run "${PACKAGE_NAME} init" to prepare a project, and "${PACKAGE_NAME} <command> --help"
 for details on each command.

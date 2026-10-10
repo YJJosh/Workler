@@ -1,9 +1,10 @@
 import { parseCommandArgs } from '../cli-utils';
-import { PACKAGE_NAME, ROOT_REMOTE } from '../constants';
+import { GROUP_WORKSPACE_REFS, MAIN_WORKSPACE_NAME, PACKAGE_NAME, ROOT_REMOTE, WORKSPACE_REFS } from '../constants';
+import { requireRepositoryOrGroup } from '../core/project';
 import { canonicalPath, pathsReferToSameLocation } from '../fs-utils';
-import { ensureGitRepo, git, gitMaybe } from '../git';
+import { git, gitMaybe } from '../git';
 import { withProjectLock } from '../lock';
-import { listSyncTargets } from '../multi-git';
+import { listSyncTargets, targetLabel } from '../multi-git';
 import { findWorklerRoot } from '../workspaces';
 import type { SyncTarget } from '../multi-git';
 
@@ -28,25 +29,30 @@ Syncs local branches between the main project and every workspace:
   - creates the root's local branches in every workspace, and fast-forwards
     branches that are strictly behind the root
   - mirrors each workspace's local branches into the root as read-only refs
-    under refs/workler/<workspace>/<branch>
+    under ${WORKSPACE_REFS}/<workspace>/<branch>
 
 The branch checked out in a workspace and any branch that has diverged (or
-has local-only commits) are never touched; they are skipped with a note.`);
+has local-only commits) are never touched; they are skipped with a note.
+
+Under a project group the same happens between every member clone and the
+repository it was cloned from, with the mirrors stored there under
+${GROUP_WORKSPACE_REFS}/<workspace>/<branch>.`);
     return;
   }
 
   const root = findWorklerRoot(process.cwd());
-  ensureGitRepo(root, 'branch-sync');
-  withProjectLock(root, 'branch-sync', () => branchSyncAll(root));
+  const info = requireRepositoryOrGroup(root, 'branch-sync');
+  withProjectLock(root, 'branch-sync', () => (info.isGroup ? branchSyncGroup(root) : branchSyncAll(root)));
 }
 
 function branchSyncAll(root: string): void {
   const rootBranches = listLocalBranches(root);
   const targets = listSyncTargets(root).filter((target) => target.path !== root);
+  const current = new Set(targets.map((target) => target.name));
   let failures = 0;
   if (targets.length === 0) {
     console.log('no workspaces');
-    failures += pruneRemovedWorkspaceRefs(root, targets);
+    failures += pruneRemovedWorkspaceRefs(root, current, WORKSPACE_REFS);
     if (failures > 0) throw new Error(`${failures} branch-sync operation failed`);
     return;
   }
@@ -65,33 +71,85 @@ function branchSyncAll(root: string): void {
     }
   }
 
-  console.log('root refs (read-only, refs/workler/<workspace>/<branch>)');
+  console.log(`root refs (read-only, ${WORKSPACE_REFS}/<workspace>/<branch>)`);
   for (const target of targets) {
-    const line = mirrorIntoRoot(root, target);
+    const line = mirrorIntoRoot(root, target, WORKSPACE_REFS);
     if (line.startsWith('failed:')) failures++;
     console.log(`  ${target.name}  ${line}`);
   }
-  failures += pruneRemovedWorkspaceRefs(root, targets);
+  failures += pruneRemovedWorkspaceRefs(root, current, WORKSPACE_REFS);
+  if (failures > 0) {
+    throw new Error(`${failures} branch-sync operation${failures === 1 ? '' : 's'} failed`);
+  }
+}
+
+// A group has no repository of its own: each member clone syncs with the
+// source repository it was cloned from, which is where its mirrors live.
+function branchSyncGroup(root: string): void {
+  const targets = listSyncTargets(root);
+  const sources = targets.filter((target) => target.name === MAIN_WORKSPACE_NAME);
+  const members = targets.filter((target) => target.name !== MAIN_WORKSPACE_NAME);
+  const current = new Set(members.map((target) => target.name));
+  const sourceOf = (member: SyncTarget): SyncTarget | undefined =>
+    sources.find((source) => source.project === member.project);
+  const skipReason = (member: SyncTarget): string | undefined => {
+    if (member.broken) return `broken: ${member.broken}`;
+    const source = sourceOf(member);
+    if (!source) return 'not a declared project';
+    if (source.broken) return `source ${MAIN_WORKSPACE_NAME}/${source.project} is broken: ${source.broken}`;
+    return undefined;
+  };
+
+  let failures = 0;
+  if (members.length === 0) {
+    console.log('no workspaces');
+  }
+  for (const member of members) {
+    console.log(`workspace ${targetLabel(member)}`);
+    const skip = skipReason(member);
+    if (skip) {
+      console.log(`  skipped (${skip})`);
+      continue;
+    }
+    const source = sourceOf(member) as SyncTarget;
+    try {
+      failures += syncWorkspaceBranches(source.path, member, listLocalBranches(source.path));
+    } catch (error) {
+      failures++;
+      console.log(`  failed: ${(error as Error).message}`);
+    }
+  }
+
+  console.log(`project refs (read-only, ${GROUP_WORKSPACE_REFS}/<workspace>/<branch> in each source repository)`);
+  for (const member of members) {
+    const skip = skipReason(member);
+    const line = skip ? `skipped (${skip})` : mirrorIntoRoot((sourceOf(member) as SyncTarget).path, member, GROUP_WORKSPACE_REFS);
+    if (line.startsWith('failed:')) failures++;
+    console.log(`  ${targetLabel(member)}  ${line}`);
+  }
+  for (const source of sources) {
+    if (source.broken) continue;
+    failures += pruneRemovedWorkspaceRefs(source.path, current, GROUP_WORKSPACE_REFS);
+  }
   if (failures > 0) {
     throw new Error(`${failures} branch-sync operation${failures === 1 ? '' : 's'} failed`);
   }
 }
 
 // Mirrored refs live in the root forever unless something deletes them, so a
-// removed workspace would leave a stale refs/workler/<workspace>/ namespace
-// behind. Delete every namespace whose workspace is no longer present (broken
-// workspaces still have a directory, so they stay in `targets` and keep their
+// removed workspace would leave a stale <namespace>/<workspace>/ behind.
+// Delete every namespace whose workspace is no longer present (broken
+// workspaces still have a directory, so they stay in `current` and keep their
 // refs).
-function pruneRemovedWorkspaceRefs(root: string, targets: SyncTarget[]): number {
-  const current = new Set(targets.map((target) => target.name));
-  const output = git(root, ['for-each-ref', '--format=%(refname)', 'refs/workler/']);
+function pruneRemovedWorkspaceRefs(root: string, current: Set<string>, namespace: string): number {
+  const output = git(root, ['for-each-ref', '--format=%(refname)', `${namespace}/`]);
   if (!output) {
     return 0;
   }
 
   const stale = new Map<string, string[]>();
   for (const ref of output.split('\n')) {
-    const rest = ref.slice('refs/workler/'.length);
+    const rest = ref.slice(`${namespace}/`.length);
     const separator = rest.indexOf('/');
     // Workspace names never contain "/" (validateWorkspaceName), so the first
     // segment is the workspace; the remainder is the branch (which may itself
@@ -110,10 +168,10 @@ function pruneRemovedWorkspaceRefs(root: string, targets: SyncTarget[]): number 
       for (const ref of refs) {
         git(root, ['update-ref', '-d', ref]);
       }
-      console.log(`  pruned refs/workler/${workspace}/ (workspace removed)`);
+      console.log(`  pruned ${namespace}/${workspace}/ (workspace removed)`);
     } catch (error) {
       failures++;
-      console.log(`  failed to prune refs/workler/${workspace}/: ${(error as Error).message}`);
+      console.log(`  failed to prune ${namespace}/${workspace}/: ${(error as Error).message}`);
     }
   }
   return failures;
@@ -204,15 +262,15 @@ function syncBranch(repo: string, rootBranch: RootBranch, checkedOut: string | u
 // Fetches the workspace's local branches into the root as namespaced,
 // read-only refs (no local branches are created in the root). Returns a
 // one-line result for the report.
-function mirrorIntoRoot(root: string, target: SyncTarget): string {
+function mirrorIntoRoot(root: string, target: SyncTarget, namespace: string): string {
   if (target.broken) {
     return `skipped (broken: ${target.broken})`;
   }
   try {
-    git(root, ['fetch', '--prune', target.path, `+refs/heads/*:refs/workler/${target.name}/*`]);
-    const refs = git(root, ['for-each-ref', '--format=%(refname)', `refs/workler/${target.name}`]);
+    git(root, ['fetch', '--prune', target.path, `+refs/heads/*:${namespace}/${target.name}/*`]);
+    const refs = git(root, ['for-each-ref', '--format=%(refname)', `${namespace}/${target.name}`]);
     const count = refs ? refs.split('\n').length : 0;
-    return `${count} branch${count === 1 ? '' : 'es'} -> refs/workler/${target.name}/`;
+    return `${count} branch${count === 1 ? '' : 'es'} -> ${namespace}/${target.name}/`;
   } catch (error) {
     return `failed: ${(error as Error).message}`;
   }

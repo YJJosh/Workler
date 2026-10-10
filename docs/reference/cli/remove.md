@@ -15,6 +15,8 @@ Recursively deletes `.worktrees/<name>` — after checking that nothing would be
 
 Removal is plain directory deletion: any nested workspaces under the workspace's own `.worktrees/` go with it, and local branches that exist only in that clone are lost — run [`workler branch-sync`](/reference/cli/branch-sync) first if you want them mirrored into the root as `refs/workler/<name>/...`.
 
+In a [project group](/guide/project-groups), the guard covers every member clone, and the workspace folder must hold nothing but the members and the `.workler` copy: a file from a group-level `copy` rule, a nested `.worktrees/`, or a member directory that is not a clone all count as local data. A member that was never cloned holds nothing and does not block removal. The error lists every reason.
+
 ## Options
 
 | Flag | Description |

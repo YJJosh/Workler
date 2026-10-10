@@ -1,6 +1,7 @@
 import { parseCommandArgs } from '../cli-utils';
 import { PACKAGE_NAME } from '../constants';
-import { ensureGitRepo, git } from '../git';
+import { requireRepositoryOrGroup } from '../core/project';
+import { git } from '../git';
 import { withProjectLock } from '../lock';
 import {
   aheadBehindUpstream,
@@ -8,6 +9,7 @@ import {
   fetchOrigin,
   listSyncTargets,
   nameWidth,
+  targetLabel,
   trackedChanges,
 } from '../multi-git';
 import { findWorklerRoot } from '../workspaces';
@@ -27,12 +29,13 @@ export function syncCommand(args: string[]): void {
 Fetches origin (with --prune) in the main project and every workspace, then
 fast-forwards each current branch that has an upstream. Workspaces with
 uncommitted changes are never touched, and diverged branches are never
-merged or rebased - both are skipped with a note.`);
+merged or rebased - both are skipped with a note. Under a project group this
+covers every member repository of the group and of its workspaces.`);
     return;
   }
 
   const root = findWorklerRoot(process.cwd());
-  ensureGitRepo(root, 'sync');
+  requireRepositoryOrGroup(root, 'sync');
   withProjectLock(root, 'sync', () => syncAll(root));
 }
 
@@ -58,7 +61,7 @@ function syncAll(root: string): void {
         fetchFailed.add(target.path);
       }
     }
-    console.log(`  ${target.name.padEnd(width)}  ${line}`);
+    console.log(`  ${targetLabel(target).padEnd(width)}  ${line}`);
   }
 
   console.log('');
@@ -69,7 +72,7 @@ function syncAll(root: string): void {
       ? { line: 'skipped (fetch failed)', failed: false }
       : syncTarget(target);
     if (result.failed) updateFailures++;
-    console.log(`  ${target.name.padEnd(width)}  ${result.line}`);
+    console.log(`  ${targetLabel(target).padEnd(width)}  ${result.line}`);
   }
 
   const failures = fetchFailed.size + updateFailures;

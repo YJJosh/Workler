@@ -11,6 +11,14 @@ export const PACKAGE_NAME = 'workler';
 // for the main project's real upstream (or absent when it has none).
 export const ROOT_REMOTE = 'workler-root';
 
+// Where `branch-sync` mirrors a workspace's branches inside the project it
+// was cloned from: refs/workler/<workspace>/<branch>. A project group's
+// workspaces mirror into each member's source repository under a separate
+// namespace, so a repository's own workspace named "feat" and a group
+// workspace named "feat" never prune each other's refs.
+export const WORKSPACE_REFS = 'refs/workler';
+export const GROUP_WORKSPACE_REFS = 'refs/workler-group';
+
 // Read at runtime so `npm version` bumps cannot drift from what `help`
 // reports. This file compiles to dist/constants.js, one level below the
 // package root in both the dev and the published layout.

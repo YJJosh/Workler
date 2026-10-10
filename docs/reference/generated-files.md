@@ -10,6 +10,7 @@ What Workler creates and configures, and where.
 | `.worktrees/` | `workler init` / `workler add` | One subdirectory per workspace. Never commit it. |
 | `.git/info/exclude` | `workler init` / `workler add` | Gets a `.worktrees/` line so workspaces stay invisible to git without touching your committed `.gitignore`. (Outside a git repo, `init` falls back to `.gitignore`.) |
 | `refs/workler/<workspace>/<branch>` | `workler branch-sync` | Read-only mirrors of each workspace's local branches. Inspect with `git for-each-ref refs/workler/`; pruned automatically when a workspace is removed. |
+| `refs/workler-group/<workspace>/<branch>` | `workler branch-sync` run at a [group root](/guide/project-groups) | Read-only mirrors of the branches of this repository's clone inside a group workspace. A separate namespace, so a group workspace and one of the repository's own workspaces may share a name. |
 
 ### Git config keys (main project)
 
@@ -31,6 +32,33 @@ Each workspace under `.worktrees/<name>` is a normal clone, plus:
 | Remote `workler-root` | Points at the parent project's path; used by [`workler branch-sync`](/reference/cli/branch-sync). Recreated/fixed on every `branch-sync`. |
 | `.git/info/exclude` | Gets a `.worktrees/` line, so the workspace can host nested workspaces. |
 | Rule outputs | Symlinks from `link` rules and files/folders from `copy` rules. They do not count as dirty for tracked-only `status`/`sync`, but `remove` treats untracked and ignored outputs as local data and refuses without `--force`. |
+
+## In a project group
+
+A [project group](/guide/project-groups) root is a plain folder, so there is no Git config to record anything in; the files do the work.
+
+| Path | Created by | Purpose |
+| --- | --- | --- |
+| `.workler` | `workler init` or you | `project <path>` lines naming the repositories below, plus optional group-level copy/link rules. |
+| `.worktrees/` | `workler init` / `workler add` | One subdirectory per group workspace. |
+| `.gitignore` | `workler init` | Gets a `.worktrees/` line (only matters if the folder sits inside some outer repository). |
+
+Each group workspace under `.worktrees/<name>` is a plain directory holding:
+
+| What | Value / purpose |
+| --- | --- |
+| `.workler` | A copy of the group's file, so the workspace is a group root of its own (nested group workspaces) and is recognized even before any member is cloned. |
+| `<project path>/` | One clone per `project` line, in the same layout as the root. |
+| Group rule outputs | Files and links from the group's own `copy`/`link` rules, next to the clones. They count as local data for `remove`. |
+
+### Git config keys (member clone)
+
+A member clone is a normal workspace of its source repository, so it has everything listed under [In each workspace](#in-each-workspace): `workler.root` is the **source repository** (`root/projects/api`), `workler.name` is the group workspace name, `workler-root` points at the source. Two keys are added:
+
+| Key | Value |
+| --- | --- |
+| `workler.group` | The group root the clone belongs to. |
+| `workler.groupProject` | The declared project path (`projects/api`), with forward slashes. |
 
 ## What to commit, what to ignore
 

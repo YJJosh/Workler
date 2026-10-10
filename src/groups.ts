@@ -1,0 +1,122 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { readConfig } from './config';
+import { CONFIG_FILE, WORKSPACES_DIR } from './constants';
+import { WorklerError } from './errors';
+import { hasIndependentGitDirectory, isGitTopLevel } from './git';
+
+// A project group is a plain folder (not a Git repository) whose .workler
+// lists the repositories below it with `project <path>` lines. `add` run
+// there clones every listed repository into .worktrees/<name>/<path>, in the
+// same layout as the group root, so relative paths between the projects keep
+// working. Each clone is an ordinary Workler workspace of its source
+// repository (rules, link targets and branch-sync come from there); the
+// group only decides where the clones live and manages them as one unit.
+
+// The declared project paths of a group root, in file order. A Git repository
+// is never a group, whatever its .workler says; `add` rejects that mix with a
+// clear message instead of silently ignoring the lines.
+export function groupProjects(root: string): string[] {
+  if (!fs.existsSync(path.join(root, CONFIG_FILE)) || isGitTopLevel(root)) {
+    return [];
+  }
+  return readConfig(root).projects.map((entry) => entry.path);
+}
+
+export function hasGroupConfig(dir: string): boolean {
+  return groupProjects(dir).length > 0;
+}
+
+// Absolute location of a declared project below a group root or below one
+// of its workspaces. Project paths are stored with forward slashes.
+export function memberPath(base: string, project: string): string {
+  return path.join(base, ...project.split('/'));
+}
+
+// A group workspace is a plain directory under .worktrees/ (never itself a
+// clone). It is recognized by the .workler copy `add` places there or, when
+// that copy is missing, by any declared project that has been cloned into it.
+export function isGroupWorkspaceDirectory(dir: string, projects: string[]): boolean {
+  if (hasIndependentGitDirectory(dir)) {
+    return false;
+  }
+  if (fs.existsSync(path.join(dir, CONFIG_FILE))) {
+    return true;
+  }
+  return projects.some((project) => hasIndependentGitDirectory(memberPath(dir, project)));
+}
+
+export interface WorkspaceAddress {
+  workspace: string;
+  // A declared project path inside the workspace (`feat/projects/api`).
+  project?: string;
+}
+
+// Workspace names never contain a path separator (validateWorkspaceName), so
+// the first slash unambiguously splits `<workspace>/<project path>`.
+export function splitWorkspaceAddress(address: string): WorkspaceAddress {
+  const normalized = address.replace(/\\/g, '/');
+  const separator = normalized.indexOf('/');
+  if (separator === -1) {
+    return { workspace: normalized };
+  }
+  const project = normalized
+    .slice(separator + 1)
+    .split('/')
+    .filter((part) => part && part !== '.')
+    .join('/');
+  return { workspace: normalized.slice(0, separator), project: project || undefined };
+}
+
+export function requireDeclaredProject(projects: string[], project: string): string {
+  const found = projects.find((candidate) => candidate === project);
+  if (found === undefined) {
+    const declared = projects.length > 0 ? projects.join(', ') : '(none)';
+    throw new WorklerError(
+      'WORKSPACE_NOT_FOUND',
+      `project not found in this group: ${project}\ndeclared projects: ${declared}`,
+      { project, projects },
+    );
+  }
+  return found;
+}
+
+// Entries in a group workspace directory that belong to no declared project:
+// not the .workler copy, not a project or a directory on the way to one.
+// Files a group-level `copy` rule produced count too, exactly like a copied
+// .env inside a clone counts as local data for `remove`. An empty nested
+// .worktrees/ (left behind by a lock) holds nothing and is ignored.
+export function groupWorkspaceExtras(dir: string, projects: string[]): string[] {
+  const extras: string[] = [];
+  const visit = (relative: string): void => {
+    const current = relative ? memberPath(dir, relative) : dir;
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(current, { withFileTypes: true });
+    } catch (_) {
+      return;
+    }
+    entries.sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0));
+    for (const entry of entries) {
+      const entryPath = relative ? `${relative}/${entry.name}` : entry.name;
+      if (!relative && entry.name === CONFIG_FILE) {
+        continue;
+      }
+      if (projects.includes(entryPath)) {
+        continue;
+      }
+      if (entry.isDirectory() && projects.some((project) => project.startsWith(`${entryPath}/`))) {
+        visit(entryPath);
+        continue;
+      }
+      if (!relative && entry.name === WORKSPACES_DIR && entry.isDirectory()) {
+        if (fs.readdirSync(path.join(dir, WORKSPACES_DIR)).length === 0) {
+          continue;
+        }
+      }
+      extras.push(entryPath);
+    }
+  };
+  visit('');
+  return extras;
+}

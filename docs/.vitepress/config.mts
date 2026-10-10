@@ -60,6 +60,7 @@ export default defineConfig({
           items: [
             { text: "Keeping workspaces in sync", link: "/guide/sync" },
             { text: "Nested workspaces", link: "/guide/nested-workspaces" },
+            { text: "Project groups", link: "/guide/project-groups" },
             { text: "Shell switching (wcd)", link: "/guide/shell-helper" },
           ],
         },

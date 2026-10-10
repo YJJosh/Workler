@@ -118,6 +118,18 @@ export function isGitTopLevel(dir: string): boolean {
   return topLevel !== undefined && pathsReferToSameLocation(topLevel, dir);
 }
 
+// Workler creates independent clones whose .git is a directory. A linked
+// `git worktree` uses a .git file and is never one of Workler's own clones.
+// This is a pure filesystem check: `git rev-parse` would walk up from a plain
+// directory and answer for the enclosing repository instead.
+export function hasIndependentGitDirectory(repo: string): boolean {
+  try {
+    return fs.lstatSync(path.join(repo, '.git')).isDirectory();
+  } catch (_) {
+    return false;
+  }
+}
+
 export function gitInfoExcludePath(repo: string): string {
   // --git-path output is relative to the git process cwd (repo, via -C), so
   // resolve it against repo rather than our own cwd.

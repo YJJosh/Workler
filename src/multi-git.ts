@@ -1,7 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { WORKSPACES_DIR } from './constants';
-import { git, gitMaybe } from './git';
+import { MAIN_WORKSPACE_NAME, WORKSPACES_DIR } from './constants';
+import { git, gitMaybe, hasIndependentGitDirectory, isGitTopLevel } from './git';
+import { groupProjects, isGroupWorkspaceDirectory, memberPath } from './groups';
 import { listWorkspaces } from './workspaces';
 import type { Workspace } from './types';
 
@@ -12,12 +13,33 @@ export interface SyncTarget extends Workspace {
   // Set when the directory under .worktrees/ is not a usable git repository;
   // the value is a human-readable reason.
   broken?: string;
+  // Under a project group root: the declared project this repository is
+  // (`name` is then the workspace, "main" for the source repositories).
+  project?: string;
+}
+
+// `<workspace>/<project>` under a group root, plain workspace name otherwise.
+export function targetLabel(target: SyncTarget): string {
+  return target.project === undefined ? target.name : `${target.name}/${target.project}`;
 }
 
 // listWorkspaces() silently ignores directories under .worktrees/ that are
 // not git clones; the multi-workspace commands must FLAG those instead so a
 // half-deleted or corrupted workspace does not vanish from `status`.
 export function listSyncTargets(root: string): SyncTarget[] {
+  const projects = groupProjects(root);
+  const targets = projects.length > 0 ? listGroupSyncTargets(root, projects) : listRepositorySyncTargets(root);
+
+  // A directory can have .git and still be unreadable (e.g. corrupted).
+  for (const target of targets) {
+    if (!target.broken && gitMaybe(target.path, ['rev-parse', '--git-dir']) === undefined) {
+      target.broken = 'git cannot read this repository';
+    }
+  }
+  return targets;
+}
+
+function listRepositorySyncTargets(root: string): SyncTarget[] {
   const targets: SyncTarget[] = listWorkspaces(root).map((workspace) => ({ ...workspace }));
   const known = new Set(targets.map((target) => target.path));
 
@@ -42,18 +64,57 @@ export function listSyncTargets(root: string): SyncTarget[] {
     }
   }
 
-  // A directory can have .git and still be unreadable (e.g. corrupted).
-  for (const target of targets) {
-    if (!target.broken && gitMaybe(target.path, ['rev-parse', '--git-dir']) === undefined) {
-      target.broken = 'git cannot read this repository';
-    }
-  }
-
   const [main, ...rest] = targets;
   rest.sort((left, right) =>
     left.name < right.name ? -1 : left.name > right.name ? 1 : left.path < right.path ? -1 : left.path > right.path ? 1 : 0,
   );
   return main ? [main, ...rest] : rest;
+}
+
+// One target per declared project: the source repositories as "main", then
+// every member of every group workspace (declared order within a workspace,
+// workspaces by name). A member that was never cloned, or a directory under
+// .worktrees/ that is not a group workspace, is flagged rather than hidden.
+function listGroupSyncTargets(root: string, projects: string[]): SyncTarget[] {
+  const targets: SyncTarget[] = [];
+  for (const project of projects) {
+    const source = memberPath(root, project);
+    targets.push({
+      name: MAIN_WORKSPACE_NAME,
+      path: source,
+      project,
+      broken: !fs.existsSync(source) ? 'missing' : isGitTopLevel(source) ? undefined : 'not a Git repository top level',
+    });
+  }
+
+  const workspacesPath = path.join(root, WORKSPACES_DIR);
+  if (!fs.existsSync(workspacesPath)) {
+    return targets;
+  }
+  const entries = fs.readdirSync(workspacesPath, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0));
+  for (const entry of entries) {
+    const workspacePath = path.join(workspacesPath, entry.name);
+    if (!isGroupWorkspaceDirectory(workspacePath, projects)) {
+      targets.push({ name: entry.name, path: workspacePath, broken: 'not a group workspace (no declared project is cloned here)' });
+      continue;
+    }
+    for (const project of projects) {
+      const member = memberPath(workspacePath, project);
+      targets.push({
+        name: entry.name,
+        path: member,
+        project,
+        broken: !fs.existsSync(member)
+          ? 'missing (not cloned)'
+          : hasIndependentGitDirectory(member)
+            ? undefined
+            : 'missing .git (not a clone)',
+      });
+    }
+  }
+  return targets;
 }
 
 export interface BranchInfo {
@@ -142,5 +203,5 @@ export function fetchOrigin(repo: string): FetchResult {
 }
 
 export function nameWidth(targets: SyncTarget[]): number {
-  return Math.max(4, ...targets.map((target) => target.name.length));
+  return Math.max(4, ...targets.map((target) => targetLabel(target).length));
 }

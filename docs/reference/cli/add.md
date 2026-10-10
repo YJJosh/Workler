@@ -60,6 +60,28 @@ Rule lines use the same status words as [`workler apply`](/reference/cli/apply):
 - The `[base]`/`--branch`/`--checkout` ref does not exist.
 - A rule destination conflicts (see [Safety](/guide/safety)) — re-run `workler apply <name> --force` after resolving.
 
+## In a project group
+
+Run in a [project group](/guide/project-groups) root, `add` creates `.worktrees/<name>/` holding one clone per `project` line, in the same layout as the root, with a copy of the group's `.workler` next to them. The branch options above apply to **every** member, and everything is validated for every member before anything is cloned: one member with the branch already, or without the base ref, fails the whole command and leaves nothing behind. Each clone then gets its own source repository's rules; finally the group's own rules are applied to the workspace folder. `--dry-run` prints the plan per project.
+
+```text
+project projects/api
+cloning /path/to/root/projects/api
+     to /path/to/root/.worktrees/feat/projects/api
+create branch feat from HEAD
+linked node_modules
+project tools
+cloning /path/to/root/tools
+     to /path/to/root/.worktrees/feat/tools
+create branch feat from HEAD
+group rules
+copied .env.shared
+done   feat
+path   /path/to/root/.worktrees/feat
+```
+
+A failure after cloning began leaves the partial workspace in place; `workler status` shows which member is missing and `workler remove <name> --force` removes it.
+
 ## Examples
 
 ```bash
