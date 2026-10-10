@@ -140,7 +140,8 @@ shortHead?, detached, clean?, projects? }`. `clean` uses the same guard as `remo
 Under a project group every entry has `projects`, one `{ project, path,
 isClone, broken?, branch?, head?, shortHead?, detached, clean? }` per
 declared project (for `main`, the source repositories). The entry's own
-`branch` is set only when every member is on it, `clean` only when every
+`isClone` is true for every recognized group workspace, even one left behind
+with no member cloned yet; `branch` is set only when every member is on it, `clean` only when every
 member is clean and the workspace folder holds nothing but the members, and
 `broken` joins the reasons of every broken or missing member.
 

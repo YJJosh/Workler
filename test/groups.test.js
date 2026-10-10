@@ -541,6 +541,26 @@ test('a workspace with a missing member is incomplete, still listed, and can be 
   assert.strictEqual(fs.existsSync(feat), false);
 });
 
+test('a group workspace whose first clone failed is still listed, as incomplete', (t) => {
+  const root = makeGroup(t);
+  // What createWorkspace leaves behind when the very first member clone
+  // fails: the workspace directory with the copied .workler and no clone.
+  const feat = workspaceDir(root, 'feat');
+  fs.mkdirSync(feat, { recursive: true });
+  fs.copyFileSync(path.join(root, '.workler'), path.join(feat, '.workler'));
+
+  const workspace = api.listWorkspaces(root)[1];
+  assert.strictEqual(workspace.name, 'feat');
+  assert.strictEqual(workspace.isClone, true);
+  assert.strictEqual(workspace.broken, 'projects/api: missing (not cloned); projects/web: missing (not cloned); tools: missing (not cloned)');
+  assert.deepStrictEqual(workspace.projects.map((project) => project.isClone), [false, false, false]);
+  assert.match(runCli(root, 'list').stdout, /^feat\s+incomplete\s+/m);
+
+  // Nothing was cloned, so nothing can be dirty: remove cleans it up.
+  assert.deepStrictEqual(api.removeWorkspace(root, 'feat'), { name: 'feat', path: feat });
+  assert.strictEqual(fs.existsSync(feat), false);
+});
+
 test('path resolves a workspace, one member of it, and a source repository', (t) => {
   const root = makeGroup(t);
   const feat = api.createWorkspace(root, { name: 'feat' }).path;
@@ -754,6 +774,33 @@ test('the group rules keep their own copy-links mode; one member switching its m
   const again = runCli(root, 'apply', 'feat');
   assert.strictEqual(again.status, 0, again.stderr);
   assert.ok(fs.lstatSync(groupCopy).isSymbolicLink());
+});
+
+test('apply records an explicit group copy-links mode even while the group has no rules yet', (t) => {
+  const root = makeGroup(t);
+  const feat = api.createWorkspace(root, { name: 'feat' }).path;
+  const clone = member(feat, 'projects/api');
+  assert.throws(() => git(clone, 'config', '--get', 'workler.groupCopyLinks'));
+
+  const choose = runCli(root, 'apply', 'feat', '--copy-links');
+  assert.strictEqual(choose.status, 0, choose.stderr);
+  assert.doesNotMatch(choose.stdout, /^group rules$/m);
+  assert.strictEqual(git(clone, 'config', '--get', 'workler.groupCopyLinks'), 'true');
+  // A dry run never records anything.
+  const dry = runCli(root, 'apply', 'feat', '--no-copy-links', '--dry-run');
+  assert.strictEqual(dry.status, 0, dry.stderr);
+  assert.strictEqual(git(clone, 'config', '--get', 'workler.groupCopyLinks'), 'true');
+
+  // A group rule added later follows the recorded choice on a plain apply.
+  fs.mkdirSync(path.join(root, 'shared'));
+  fs.writeFileSync(path.join(root, 'shared', 'marker.txt'), 'shared\n');
+  fs.appendFileSync(path.join(root, '.workler'), 'link shared\n');
+  const plain = runCli(root, 'apply', 'feat');
+  assert.strictEqual(plain.status, 0, plain.stderr);
+  assert.match(plain.stdout, /^group rules$/m);
+  const groupCopy = path.join(feat, 'shared');
+  assert.ok(fs.lstatSync(groupCopy).isDirectory(), 'the new group link rule is copied, as chosen before');
+  assert.strictEqual(fs.readFileSync(path.join(groupCopy, 'marker.txt'), 'utf8'), 'shared\n');
 });
 
 // --- remove --------------------------------------------------------------

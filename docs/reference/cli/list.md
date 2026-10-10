@@ -22,7 +22,7 @@ hotfix     1a2b3c4    /path/to/project/.worktrees/hotfix
 
 Here `hotfix` has a detached `HEAD`, so its branch column shows the commit it sits on. (For a header row and upstream/clean state, use [`workler status`](/reference/cli/status).)
 
-In a [project group](/guide/project-groups) each group workspace is one line. Its branch column shows the branch when every member is on it, `mixed` when they differ, `detached` when no member is on a branch, and `incomplete` when a member is missing or broken; `main` shows the branch the source repositories share. [`workler status`](/reference/cli/status) shows the members one by one.
+In a [project group](/guide/project-groups) each group workspace is one line. Its branch column shows the branch when every member is on it, `mixed` when they differ, `detached` when no member is on a branch, and `incomplete` when a member is missing or broken (a workspace left behind with no member cloned at all is listed that way too); `main` shows the branch the source repositories share. [`workler status`](/reference/cli/status) shows the members one by one.
 
 ## Examples
 

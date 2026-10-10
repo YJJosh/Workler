@@ -29,8 +29,9 @@ export interface WorkspaceInfo {
   // The main project itself (always the first entry).
   isMain: boolean;
   // The directory has a .git entry (false for leftovers under .worktrees/
-  // that are not clones at all). For a group workspace: at least one member
-  // has been cloned.
+  // that are not clones at all). For a group workspace: the directory is
+  // recognized as one (its copied .workler or any cloned member), even while
+  // every member is still missing.
   isClone: boolean;
   // Set when the directory is not a usable clone; human-readable reason. For
   // a group workspace: the reasons of every broken or missing member.
@@ -102,7 +103,11 @@ export function listWorkspaceInfos(rootInput: string): WorkspaceInfo[] {
       name,
       path: workspacePath,
       isMain,
-      isClone: isMain || strayClone || projects.some((project) => project.isClone),
+      // A recognized group workspace is listed even when no member has been
+      // cloned yet (creation failed during the first clone): it still holds
+      // the copied .workler, and `list` shows it as incomplete. Only entries
+      // under .worktrees/ that are no group workspace at all are hidden.
+      isClone: isMain || strayClone || projects.length > 0,
       broken: brokenReasons.length > 0 ? brokenReasons.join('; ') : undefined,
       branch: sameBranch ? projects[0].branch : undefined,
       detached: usable && projects.every((project) => project.detached),

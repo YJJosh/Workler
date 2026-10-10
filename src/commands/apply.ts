@@ -76,6 +76,11 @@ function applyWorkspace(info: ProjectInfo, workspace: Workspace, flags: ApplyFla
   }
 
   if (readRules(info.root).length === 0) {
+    // No group-level rules yet: an explicit mode is still recorded, so a
+    // group rule added later is materialized the way the user last asked.
+    if (flags.copyLinks !== undefined && !flags.dryRun) {
+      setGroupWorkspaceCopiesLinks(cloned, flags.copyLinks);
+    }
     return;
   }
   console.log('group rules');
