@@ -96,7 +96,7 @@ export function listWorkspaceInfos(rootInput: string): WorkspaceInfo[] {
     const usable = projects.length > 0 && projects.every((project) => !project.broken);
     const branches = new Set(projects.map((project) => (project.detached ? undefined : project.branch)));
     const sameBranch = usable && branches.size === 1 && !projects[0].detached;
-    const extras = isMain || !usable ? [] : groupWorkspaceExtras(workspacePath, info.projects);
+    const extras = isMain || !usable ? [] : groupWorkspaceExtras(workspacePath, info.root, info.projects);
     const strayClone = projects.length === 0 && fs.existsSync(path.join(workspacePath, '.git'));
 
     return {

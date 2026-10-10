@@ -47,7 +47,7 @@ Each group workspace under `.worktrees/<name>` is a plain directory holding:
 
 | What | Value / purpose |
 | --- | --- |
-| `.workler` | A copy of the group's file, so the workspace is a group root of its own (nested group workspaces) and is recognized even before any member is cloned. |
+| `.workler` | A copy of the group's file, so the workspace is a group root of its own (nested group workspaces) and is recognized even before any member is cloned. `remove` treats the copy as harmless only while it still matches the group's file. |
 | `<project path>/` | One clone per `project` line, in the same layout as the root. |
 | Group rule outputs | Files and links from the group's own `copy`/`link` rules, next to the clones. They count as local data for `remove`. |
 

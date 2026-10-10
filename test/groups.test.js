@@ -881,6 +881,43 @@ test('remove needs every member clean and nothing but members in the workspace f
   }
 });
 
+test('an edited .workler copy inside a group workspace counts as local data', (t) => {
+  const root = makeGroup(t);
+  const feat = api.createWorkspace(root, { name: 'feat' }).path;
+  const copy = path.join(feat, '.workler');
+  const featInfo = () => api.listWorkspaces(root).find((workspace) => workspace.name === 'feat');
+  assert.strictEqual(featInfo().clean, true);
+
+  // Configure this workspace for its own nested group workspaces.
+  fs.appendFileSync(copy, 'copy .env.feat\n');
+  assert.strictEqual(featInfo().clean, false);
+  assert.throws(
+    () => api.removeWorkspace(root, 'feat'),
+    (error) =>
+      error.code === 'WORKSPACE_DIRTY' &&
+      error.details.reasons.length === 1 &&
+      /^\.workler: differs from the group's \.workler/.test(error.details.reasons[0]),
+  );
+  assert.ok(fs.existsSync(copy));
+  const cli = runCli(root, 'remove', 'feat');
+  assert.strictEqual(cli.status, 1);
+  assert.match(cli.stderr, /\.workler: differs from the group's \.workler/);
+
+  // Restoring the generated copy makes the workspace removable again.
+  fs.copyFileSync(path.join(root, '.workler'), copy);
+  assert.strictEqual(featInfo().clean, true);
+  assert.deepStrictEqual(api.removeWorkspace(root, 'feat'), { name: 'feat', path: feat });
+  assert.strictEqual(fs.existsSync(feat), false);
+
+  // A group whose own .workler changed after the workspace was created is
+  // reported the same way, and --force still removes it.
+  const again = api.createWorkspace(root, { name: 'feat' }).path;
+  fs.appendFileSync(path.join(root, '.workler'), '# group note\n');
+  assert.throws(() => api.removeWorkspace(root, 'feat'), (error) => error.code === 'WORKSPACE_DIRTY' && /\.workler: differs/.test(error.message));
+  assert.deepStrictEqual(api.removeWorkspace(root, 'feat', { force: true }), { name: 'feat', path: again });
+  assert.strictEqual(fs.existsSync(again), false);
+});
+
 // --- branch-sync, fetch, sync --------------------------------------------
 
 test('branch-sync works per member against its source repository, in its own ref namespace', (t) => {

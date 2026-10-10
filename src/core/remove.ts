@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { MAIN_WORKSPACE_NAME, WORKSPACES_DIR } from '../constants';
+import { CONFIG_FILE, MAIN_WORKSPACE_NAME, WORKSPACES_DIR } from '../constants';
 import { WorklerError } from '../errors';
 import { assertInside } from '../fs-utils';
 import { hasIndependentGitDirectory, isGitWorkTreeCleanIncludingIgnored } from '../git';
@@ -45,7 +45,7 @@ export function removeWorkspace(
 
     if (options.force !== true) {
       if (info.isGroup) {
-        const reasons = groupLocalData(workspace.path, info.projects);
+        const reasons = groupLocalData(workspace.path, info.root, info.projects);
         if (reasons.length > 0) {
           throw new WorklerError(
             'WORKSPACE_DIRTY',
@@ -73,8 +73,9 @@ export function removeWorkspace(
 // Everything in a group workspace that deletion would destroy: a member with
 // uncommitted or untracked (including ignored) files, a member directory that
 // is not a clone (unknown contents), and any entry no declared project
-// accounts for. A member that was never cloned holds nothing.
-function groupLocalData(workspacePath: string, projects: string[]): string[] {
+// accounts for, including the .workler copy once it no longer matches the
+// group's file. A member that was never cloned holds nothing.
+function groupLocalData(workspacePath: string, groupRoot: string, projects: string[]): string[] {
   const reasons: string[] = [];
   for (const project of projects) {
     const member = memberPath(workspacePath, project);
@@ -89,8 +90,12 @@ function groupLocalData(workspacePath: string, projects: string[]): string[] {
       reasons.push(`${project}: uncommitted changes or untracked files`);
     }
   }
-  for (const extra of groupWorkspaceExtras(workspacePath, projects)) {
-    reasons.push(`${extra}: not part of a declared project`);
+  for (const extra of groupWorkspaceExtras(workspacePath, groupRoot, projects)) {
+    reasons.push(
+      extra === CONFIG_FILE
+        ? `${CONFIG_FILE}: differs from the group's ${CONFIG_FILE} (edited here, or the group's file changed after this workspace was created)`
+        : `${extra}: not part of a declared project`,
+    );
   }
   return reasons;
 }

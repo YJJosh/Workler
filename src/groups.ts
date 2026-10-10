@@ -84,11 +84,12 @@ export function requireDeclaredProject(projects: string[], project: string): str
 }
 
 // Entries in a group workspace directory that belong to no declared project:
-// not the .workler copy, not a project or a directory on the way to one.
+// not an unchanged .workler copy, not a project or a directory on the way
+// to one.
 // Files a group-level `copy` rule produced count too, exactly like a copied
 // .env inside a clone counts as local data for `remove`. An empty nested
 // .worktrees/ (left behind by a lock) holds nothing and is ignored.
-export function groupWorkspaceExtras(dir: string, projects: string[]): string[] {
+export function groupWorkspaceExtras(dir: string, groupRoot: string, projects: string[]): string[] {
   const extras: string[] = [];
   const visit = (relative: string): void => {
     const current = relative ? memberPath(dir, relative) : dir;
@@ -102,6 +103,13 @@ export function groupWorkspaceExtras(dir: string, projects: string[]): string[] 
     for (const entry of entries) {
       const entryPath = relative ? `${relative}/${entry.name}` : entry.name;
       if (!relative && entry.name === CONFIG_FILE) {
+        // The generated copy of the group's .workler is ours to delete. Once
+        // it differs (edited for nested group workspaces, or the group's file
+        // changed after creation) it is local data like any other edit.
+        if (configCopyMatches(dir, groupRoot)) {
+          continue;
+        }
+        extras.push(entryPath);
         continue;
       }
       if (projects.includes(entryPath)) {
@@ -121,6 +129,14 @@ export function groupWorkspaceExtras(dir: string, projects: string[]): string[] 
   };
   visit('');
   return extras;
+}
+
+function configCopyMatches(dir: string, groupRoot: string): boolean {
+  try {
+    return fs.readFileSync(path.join(dir, CONFIG_FILE)).equals(fs.readFileSync(path.join(groupRoot, CONFIG_FILE)));
+  } catch (_) {
+    return false;
+  }
 }
 
 // Where `branch-sync` run at a group root mirrors a member clone's branches
