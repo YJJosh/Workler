@@ -310,6 +310,28 @@ export function setWorkspaceCopiesLinks(workspacePath: string, copyLinks: boolea
   }
 }
 
+// A group workspace folder is not a repository, so the copy-links mode of the
+// group's OWN rules is remembered in every member clone instead, under a key
+// of its own (workler.groupCopyLinks). It is deliberately not derived from
+// the members' workler.copyLinks: `apply <name>/<project> --no-copy-links`
+// switches one member's mode and must not silently flip the group's, whose
+// link destinations are still the stored copies.
+export function groupWorkspaceCopiesLinks(members: string[]): boolean {
+  return members.some(
+    (member) => gitMaybe(member, ['config', '--local', '--type=bool', '--get', 'workler.groupCopyLinks']) === 'true',
+  );
+}
+
+export function setGroupWorkspaceCopiesLinks(members: string[], copyLinks: boolean): void {
+  for (const member of members) {
+    if (copyLinks) {
+      git(member, ['config', '--local', 'workler.groupCopyLinks', 'true']);
+    } else {
+      gitConfigUnset(member, 'workler.groupCopyLinks');
+    }
+  }
+}
+
 export function validateWorkspaceName(name: string): void {
   if (!name || name === '.' || name === '..') {
     throw new WorklerError('INVALID_NAME', 'workspace name cannot be empty, . or ..');

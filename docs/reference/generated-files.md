@@ -10,7 +10,7 @@ What Workler creates and configures, and where.
 | `.worktrees/` | `workler init` / `workler add` | One subdirectory per workspace. Never commit it. |
 | `.git/info/exclude` | `workler init` / `workler add` | Gets a `.worktrees/` line so workspaces stay invisible to git without touching your committed `.gitignore`. (Outside a git repo, `init` falls back to `.gitignore`.) |
 | `refs/workler/<workspace>/<branch>` | `workler branch-sync` | Read-only mirrors of each workspace's local branches. Inspect with `git for-each-ref refs/workler/`; pruned automatically when a workspace is removed. |
-| `refs/workler-group/<workspace>/<branch>` | `workler branch-sync` run at a [group root](/guide/project-groups) | Read-only mirrors of the branches of this repository's clone inside a group workspace. A separate namespace, so a group workspace and one of the repository's own workspaces may share a name. |
+| `refs/workler-group/<group>/<workspace>/<branch>` | `workler branch-sync` run at a [group root](/guide/project-groups) | Read-only mirrors of the branches of this repository's clone inside a group workspace. `<group>` is the group folder's name plus a short hash of its path. A separate namespace per group, so a group workspace and one of the repository's own workspaces may share a name, and a repository that belongs to two groups keeps their mirrors apart. |
 
 ### Git config keys (main project)
 
@@ -53,12 +53,13 @@ Each group workspace under `.worktrees/<name>` is a plain directory holding:
 
 ### Git config keys (member clone)
 
-A member clone is a normal workspace of its source repository, so it has everything listed under [In each workspace](#in-each-workspace): `workler.root` is the **source repository** (`root/projects/api`), `workler.name` is the group workspace name, `workler-root` points at the source. Two keys are added:
+A member clone is a normal workspace of its source repository, so it has everything listed under [In each workspace](#in-each-workspace): `workler.root` is the **source repository** (`root/projects/api`), `workler.name` is the group workspace name, `workler-root` points at the source. Three keys are added:
 
 | Key | Value |
 | --- | --- |
 | `workler.group` | The group root the clone belongs to. |
 | `workler.groupProject` | The declared project path (`projects/api`), with forward slashes. |
+| `workler.groupCopyLinks` | `true` only after `--copy-links`: the copy-links mode of the **group's own** rules, kept here because the group workspace folder is not a repository. Separate from `workler.copyLinks`, which is this clone's own mode. |
 
 ## What to commit, what to ignore
 

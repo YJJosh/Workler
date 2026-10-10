@@ -10,7 +10,7 @@ import { withProjectLock } from '../lock';
 import { validateBranchName, validateNewWorkspaceName, validateStartRef, validateWorkspaceRefName } from '../names';
 import { applyRules } from '../rules';
 import type { ApplyRulesOutcome, RuleApplyResult } from '../rules';
-import { setWorkspaceCopiesLinks } from '../workspaces';
+import { setGroupWorkspaceCopiesLinks, setWorkspaceCopiesLinks } from '../workspaces';
 import { requireProject } from './project';
 import type { ProjectInfo } from './project';
 
@@ -471,6 +471,9 @@ function createMember(
     git(member.target, ['config', '--local', 'workler.groupProject', member.project]);
     if (options.copyLinks === true) {
       setWorkspaceCopiesLinks(member.target, true);
+      // The group's own rules are applied in this mode too (createGroupLocked);
+      // the workspace folder is not a repository, so each member remembers it.
+      setGroupWorkspaceCopiesLinks([member.target], true);
     }
     rules = applyRules(member.root, member.target, {
       force: options.force === true,

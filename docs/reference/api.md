@@ -158,6 +158,15 @@ Same as `workler remove`: refuses to remove `main`, and refuses a
 workspace with uncommitted changes (including untracked and ignored files) unless
 `force` is set — that failure is `WORKSPACE_DIRTY`.
 
+### `groupRefNamespace(groupRoot): string`
+
+Where `workler branch-sync` run at a [project group](/guide/project-groups)
+root mirrors a member clone's branches inside its source repository:
+`refs/workler-group/<group>/<workspace>/<branch>`, with `<group>` the group
+folder's name plus a short hash of its canonical path. Use it to inspect the
+mirrors of one group; a repository that belongs to two groups has one such
+namespace per group.
+
 ## Locking
 
 The mutating API operations (`initProject`, `createWorkspace`,

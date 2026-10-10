@@ -3,6 +3,7 @@ import { GROUP_WORKSPACE_REFS, MAIN_WORKSPACE_NAME, PACKAGE_NAME, ROOT_REMOTE, W
 import { requireRepositoryOrGroup } from '../core/project';
 import { canonicalPath, pathsReferToSameLocation } from '../fs-utils';
 import { git, gitMaybe } from '../git';
+import { groupRefNamespace } from '../groups';
 import { withProjectLock } from '../lock';
 import { listSyncTargets, targetLabel } from '../multi-git';
 import { findWorklerRoot } from '../workspaces';
@@ -36,7 +37,9 @@ has local-only commits) are never touched; they are skipped with a note.
 
 Under a project group the same happens between every member clone and the
 repository it was cloned from, with the mirrors stored there under
-${GROUP_WORKSPACE_REFS}/<workspace>/<branch>.`);
+${GROUP_WORKSPACE_REFS}/<group>/<workspace>/<branch>, where <group> is the
+group folder's name plus a hash of its path: a repository that belongs to
+two groups keeps one namespace per group.`);
     return;
   }
 
@@ -100,6 +103,7 @@ function branchSyncGroup(root: string): void {
     return undefined;
   };
 
+  const namespace = groupRefNamespace(root);
   let failures = 0;
   if (members.length === 0) {
     console.log('no workspaces');
@@ -120,16 +124,16 @@ function branchSyncGroup(root: string): void {
     }
   }
 
-  console.log(`project refs (read-only, ${GROUP_WORKSPACE_REFS}/<workspace>/<branch> in each source repository)`);
+  console.log(`project refs (read-only, ${namespace}/<workspace>/<branch> in each source repository)`);
   for (const member of members) {
     const skip = skipReason(member);
-    const line = skip ? `skipped (${skip})` : mirrorIntoRoot((sourceOf(member) as SyncTarget).path, member, GROUP_WORKSPACE_REFS);
+    const line = skip ? `skipped (${skip})` : mirrorIntoRoot((sourceOf(member) as SyncTarget).path, member, namespace);
     if (line.startsWith('failed:')) failures++;
     console.log(`  ${targetLabel(member)}  ${line}`);
   }
   for (const source of sources) {
     if (source.broken) continue;
-    failures += pruneRemovedWorkspaceRefs(source.path, current, GROUP_WORKSPACE_REFS);
+    failures += pruneRemovedWorkspaceRefs(source.path, current, namespace);
   }
   if (failures > 0) {
     throw new Error(`${failures} branch-sync operation${failures === 1 ? '' : 's'} failed`);

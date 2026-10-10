@@ -12,9 +12,11 @@ import type { Workspace } from '../types';
 import {
   findWorklerRoot,
   findWorkspace,
+  groupWorkspaceCopiesLinks,
   groupWorkspaceParent,
   listWorkspaces,
   parentProject,
+  setGroupWorkspaceCopiesLinks,
   setWorkspaceCopiesLinks,
   workspaceCopiesLinks,
 } from '../workspaces';
@@ -27,22 +29,26 @@ interface ApplyFlags {
   copyLinks?: boolean;
 }
 
-interface ApplyTarget {
-  // The workspace is a Git clone that remembers its copy-links mode. A group
-  // workspace directory is not; it follows its members (copyLinksDefault).
-  isRepo: boolean;
-  copyLinksDefault?: boolean;
-}
+type ApplyTarget =
+  // A Git clone remembers its own copy-links mode.
+  | { isRepo: true }
+  // A group workspace folder is not a clone; the mode of the group's own
+  // rules is remembered in its cloned members (workler.groupCopyLinks).
+  | { isRepo: false; members: string[] };
 
 function applyAndPrint(root: string, workspacePath: string, flags: ApplyFlags, target: ApplyTarget): void {
   const { force, dryRun } = flags;
-  const remembered = target.isRepo ? workspaceCopiesLinks(workspacePath) : target.copyLinksDefault === true;
+  const remembered = target.isRepo ? workspaceCopiesLinks(workspacePath) : groupWorkspaceCopiesLinks(target.members);
   const copyLinks = flags.copyLinks ?? remembered;
   // Record the mode BEFORE applying: rules are not one transaction, and after
   // a conflict halfway through a plain re-run must keep converting instead of
   // tripping over the destinations that were already switched.
-  if (target.isRepo && flags.copyLinks !== undefined && !dryRun) {
-    setWorkspaceCopiesLinks(workspacePath, flags.copyLinks);
+  if (flags.copyLinks !== undefined && !dryRun) {
+    if (target.isRepo) {
+      setWorkspaceCopiesLinks(workspacePath, flags.copyLinks);
+    } else {
+      setGroupWorkspaceCopiesLinks(target.members, flags.copyLinks);
+    }
   }
   const outcome = applyRules(root, workspacePath, { force, dryRun, copyLinks, onResult: printRuleResult });
   printRuleSummary(outcome);
@@ -73,8 +79,7 @@ function applyWorkspace(info: ProjectInfo, workspace: Workspace, flags: ApplyFla
     return;
   }
   console.log('group rules');
-  const copyLinksDefault = cloned.length > 0 && cloned.every((member) => workspaceCopiesLinks(member));
-  applyAndPrint(info.root, workspace.path, flags, { isRepo: false, copyLinksDefault });
+  applyAndPrint(info.root, workspace.path, flags, { isRepo: false, members: cloned });
 }
 
 export function applyCommand(args: string[]): void {

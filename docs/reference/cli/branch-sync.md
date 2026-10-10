@@ -41,7 +41,7 @@ root refs (read-only, refs/workler/<workspace>/<branch>)
 
 ## In a project group
 
-A [project group](/guide/project-groups) has no repository of its own, so the same two directions run between every member clone and the **source repository it was cloned from**: the source's local branches are created or fast-forwarded in the clone, and the clone's branches are mirrored into the source under `refs/workler-group/<workspace>/<branch>`. That namespace is separate from `refs/workler/`, so a repository's own workspace named `feat` and the group workspace `feat` never prune each other. Rows are labelled `<workspace>/<project>`.
+A [project group](/guide/project-groups) has no repository of its own, so the same two directions run between every member clone and the **source repository it was cloned from**: the source's local branches are created or fast-forwarded in the clone, and the clone's branches are mirrored into the source under `refs/workler-group/<group>/<workspace>/<branch>`, where `<group>` is the group folder's name plus a short hash of its path. That namespace is separate from `refs/workler/`, so a repository's own workspace named `feat` and the group workspace `feat` never prune each other, and a repository that belongs to two groups keeps one namespace per group: pruning in one never touches the other's mirrors. Rows are labelled `<workspace>/<project>`.
 
 ```text
 workspace feat/projects/api
@@ -49,9 +49,9 @@ workspace feat/projects/api
   from-root  created
 workspace feat/tools
   main       up-to-date
-project refs (read-only, refs/workler-group/<workspace>/<branch> in each source repository)
-  feat/projects/api  4 branches -> refs/workler-group/feat/
-  feat/tools  2 branches -> refs/workler-group/feat/
+project refs (read-only, refs/workler-group/root-3f2a1b4c5d6e/<workspace>/<branch> in each source repository)
+  feat/projects/api  4 branches -> refs/workler-group/root-3f2a1b4c5d6e/feat/
+  feat/tools  2 branches -> refs/workler-group/root-3f2a1b4c5d6e/feat/
 ```
 
 ## Working with the mirrored refs

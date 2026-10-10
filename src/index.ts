@@ -32,6 +32,10 @@ export type { RemoveWorkspaceOptions, RemoveWorkspaceResult } from './core/remov
 export { findWorklerRoot } from './workspaces';
 export type { GroupMembership } from './workspaces';
 
+// Where `branch-sync` at a group root mirrors a member clone's branches inside
+// its source repository: refs/workler-group/<group>/<workspace>/<branch>.
+export { groupRefNamespace } from './groups';
+
 export { projectLockPath } from './lock';
 
 export type { ApplyRulesOutcome, RuleApplyResult } from './rules';

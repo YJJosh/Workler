@@ -1,8 +1,10 @@
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { readConfig } from './config';
-import { CONFIG_FILE, WORKSPACES_DIR } from './constants';
+import { CONFIG_FILE, GROUP_WORKSPACE_REFS, WORKSPACES_DIR } from './constants';
 import { WorklerError } from './errors';
+import { canonicalPath } from './fs-utils';
 import { hasIndependentGitDirectory, isGitTopLevel } from './git';
 
 // A project group is a plain folder (not a Git repository) whose .workler
@@ -119,4 +121,23 @@ export function groupWorkspaceExtras(dir: string, projects: string[]): string[] 
   };
   visit('');
   return extras;
+}
+
+// Where `branch-sync` run at a group root mirrors a member clone's branches
+// inside its source repository: <GROUP_WORKSPACE_REFS>/<group>/<workspace>/
+// <branch>. A repository can belong to several groups (a group folder inside
+// another group folder), and pruning deletes everything under the namespace
+// that no current workspace of the group owns, so the namespace carries the
+// group itself: its folder name made safe for a ref name, plus a hash of its
+// canonical path so two groups with the same folder name stay apart.
+export function groupRefNamespace(groupRoot: string): string {
+  const canonical = canonicalPath(groupRoot);
+  const hash = crypto.createHash('sha1').update(canonical).digest('hex').slice(0, 12);
+  const name =
+    path
+      .basename(canonical)
+      .replace(/[^A-Za-z0-9_-]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 32) || 'group';
+  return `${GROUP_WORKSPACE_REFS}/${name}-${hash}`;
 }

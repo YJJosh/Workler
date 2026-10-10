@@ -719,6 +719,43 @@ test('apply refreshes every member from its source repository, then the group ru
   assert.strictEqual(fs.existsSync(path.join(feat, 'tools')), false);
 });
 
+test('the group rules keep their own copy-links mode; one member switching its mode does not flip it', (t) => {
+  const root = makeGroup(t, { rules: { 'projects/api': 'link node_modules\n' }, groupRules: 'link shared\n' });
+  fs.mkdirSync(path.join(root, 'shared'));
+  fs.writeFileSync(path.join(root, 'shared', 'marker.txt'), 'shared\n');
+  const feat = api.createWorkspace(root, { name: 'feat', copyLinks: true }).path;
+  const clone = member(feat, 'projects/api');
+  const groupCopy = path.join(feat, 'shared');
+  const memberCopy = path.join(clone, 'node_modules');
+  assert.ok(fs.lstatSync(groupCopy).isDirectory(), 'the group link rule is copied');
+  assert.ok(fs.lstatSync(memberCopy).isDirectory(), 'the member link rule is copied');
+  assert.strictEqual(git(clone, 'config', '--get', 'workler.copyLinks'), 'true');
+  assert.strictEqual(git(clone, 'config', '--get', 'workler.groupCopyLinks'), 'true');
+
+  // One member goes back to symlinks: only its own mode changes.
+  const one = runCli(root, 'apply', 'feat/projects/api', '--no-copy-links', '--force');
+  assert.strictEqual(one.status, 0, one.stderr);
+  assert.ok(fs.lstatSync(memberCopy).isSymbolicLink());
+  assert.throws(() => git(clone, 'config', '--get', 'workler.copyLinks'));
+  assert.strictEqual(git(clone, 'config', '--get', 'workler.groupCopyLinks'), 'true');
+
+  // A plain apply of the whole workspace still knows the group's destination
+  // is a copy, instead of reporting it as a conflict with the link rule.
+  const whole = runCli(root, 'apply', 'feat');
+  assert.strictEqual(whole.status, 0, whole.stderr);
+  assert.match(whole.stdout, /^ok {5}link shared \(destination matches source\)$/m);
+  assert.ok(fs.lstatSync(groupCopy).isDirectory());
+
+  // The group's own mode is switched at the group level, and that sticks.
+  const back = runCli(root, 'apply', 'feat', '--no-copy-links', '--force');
+  assert.strictEqual(back.status, 0, back.stderr);
+  assert.ok(fs.lstatSync(groupCopy).isSymbolicLink());
+  assert.throws(() => git(clone, 'config', '--get', 'workler.groupCopyLinks'));
+  const again = runCli(root, 'apply', 'feat');
+  assert.strictEqual(again.status, 0, again.stderr);
+  assert.ok(fs.lstatSync(groupCopy).isSymbolicLink());
+});
+
 // --- remove --------------------------------------------------------------
 
 test('bare apply inside a member clone takes the group lock, like every other group command', (t) => {
@@ -804,6 +841,8 @@ test('branch-sync works per member against its source repository, in its own ref
   const source = member(root, 'projects/api');
   const feat = api.createWorkspace(root, { name: 'feat' }).path;
   const clone = member(feat, 'projects/api');
+  const ns = api.groupRefNamespace(root);
+  assert.match(ns, /^refs\/workler-group\/root-[0-9a-f]{12}$/);
   git(source, 'branch', 'from-root');
   git(clone, 'branch', 'from-feat');
 
@@ -812,13 +851,13 @@ test('branch-sync works per member against its source repository, in its own ref
   assert.match(first.stdout, /^workspace feat\/projects\/api$/m);
   assert.match(first.stdout, /^workspace feat\/tools$/m);
   assert.match(first.stdout, /from-root\s+created$/m);
-  assert.match(first.stdout, /^ {2}feat\/projects\/api {2}4 branches -> refs\/workler-group\/feat\/$/m);
+  assert.ok(first.stdout.split('\n').includes(`  feat/projects/api  4 branches -> ${ns}/feat/`), first.stdout);
   assert.strictEqual(git(clone, 'rev-parse', 'refs/heads/from-root'), git(source, 'rev-parse', 'refs/heads/from-root'));
   assert.deepStrictEqual(refs(source, 'refs/workler-group/'), [
-    'refs/workler-group/feat/feat',
-    'refs/workler-group/feat/from-feat',
-    'refs/workler-group/feat/from-root',
-    'refs/workler-group/feat/main',
+    `${ns}/feat/feat`,
+    `${ns}/feat/from-feat`,
+    `${ns}/feat/from-root`,
+    `${ns}/feat/main`,
   ]);
   assert.deepStrictEqual(refs(source, 'refs/workler/'), []);
 
@@ -834,13 +873,48 @@ test('branch-sync works per member against its source repository, in its own ref
   const pruned = runCli(root, 'branch-sync');
   assert.strictEqual(pruned.status, 0, pruned.stderr);
   assert.match(pruned.stdout, /^no workspaces$/m);
-  assert.match(pruned.stdout, /^ {2}pruned refs\/workler-group\/feat\/ \(workspace removed\)$/m);
+  assert.ok(pruned.stdout.split('\n').includes(`  pruned ${ns}/feat/ (workspace removed)`), pruned.stdout);
   assert.deepStrictEqual(refs(source, 'refs/workler-group/'), []);
   assert.ok(refs(source, 'refs/workler/feat/').includes('refs/workler/feat/feat'));
 
   api.removeWorkspace(source, 'feat');
   assert.strictEqual(runCli(source, 'branch-sync').status, 0);
   assert.deepStrictEqual(refs(source, 'refs/workler/'), []);
+});
+
+test('a repository in two groups keeps one mirror namespace per group, so pruning in one never touches the other', (t) => {
+  // outer/ declares services/api; outer/services/ is a group of its own that
+  // declares api. The repository belongs to both.
+  const outer = makeGroup(t, { projects: ['services/api', 'tools'] });
+  const inner = path.join(outer, 'services');
+  fs.writeFileSync(path.join(inner, '.workler'), 'project api\n');
+  const source = member(outer, 'services/api');
+  const outerNs = api.groupRefNamespace(outer);
+  const innerNs = api.groupRefNamespace(inner);
+  assert.notStrictEqual(outerNs, innerNs);
+  assert.match(innerNs, /^refs\/workler-group\/services-[0-9a-f]{12}$/);
+
+  api.createWorkspace(outer, { name: 'feat' });
+  api.createWorkspace(inner, { name: 'other' });
+  assert.strictEqual(runCli(outer, 'branch-sync').status, 0);
+  assert.strictEqual(runCli(inner, 'branch-sync').status, 0);
+  assert.ok(refs(source, `${outerNs}/`).includes(`${outerNs}/feat/feat`));
+  assert.ok(refs(source, `${innerNs}/`).includes(`${innerNs}/other/other`));
+
+  // The outer group knows nothing about "other", but that workspace lives in
+  // the inner group's namespace and survives the outer group's pruning.
+  const again = runCli(outer, 'branch-sync');
+  assert.strictEqual(again.status, 0, again.stderr);
+  assert.doesNotMatch(again.stdout, /pruned/);
+  assert.ok(refs(source, `${innerNs}/`).includes(`${innerNs}/other/other`));
+
+  // Removing the inner workspace prunes the inner namespace only.
+  api.removeWorkspace(inner, 'other');
+  const pruned = runCli(inner, 'branch-sync');
+  assert.strictEqual(pruned.status, 0, pruned.stderr);
+  assert.ok(pruned.stdout.split('\n').includes(`  pruned ${innerNs}/other/ (workspace removed)`), pruned.stdout);
+  assert.deepStrictEqual(refs(source, `${innerNs}/`), []);
+  assert.ok(refs(source, `${outerNs}/`).includes(`${outerNs}/feat/feat`));
 });
 
 test('fetch and sync cover every member of the group and of its workspaces', (t) => {

@@ -128,8 +128,8 @@ git -C "$(workler path main/tools)" log -1
 | --- | --- |
 | `list` | One line per workspace. The branch column shows the branch when every member is on it, `mixed` when they differ, `detached` when no member is on a branch, `incomplete` when a member is missing or broken. |
 | `status`, `fetch`, `sync` | One row per member repository, including the sources as `main/<project>`. Per-row behavior is unchanged. |
-| `branch-sync` | Per member, against its source repository. Mirrors land in the source under `refs/workler-group/<name>/<branch>`, a separate namespace from the source's own workspaces, so a repository's own `feat` workspace and the group's `feat` workspace never prune each other's refs. |
-| `apply <name>` | Every cloned member from its source repository, then the group's own rules. A member that was never cloned is skipped. `apply --all` and bare `apply` inside the workspace folder do the same. |
+| `branch-sync` | Per member, against its source repository. Mirrors land in the source under `refs/workler-group/<group>/<name>/<branch>`, where `<group>` is the group folder's name plus a short hash of its path. That is a separate namespace from the source's own workspaces, so a repository's own `feat` workspace and the group's `feat` workspace never prune each other's refs, and a repository that belongs to two groups keeps one namespace per group. |
+| `apply <name>` | Every cloned member from its source repository, then the group's own rules. A member that was never cloned is skipped. `apply --all` and bare `apply` inside the workspace folder do the same. `--copy-links` and `--no-copy-links` switch every cloned member and the group's own rules; on `<name>/<project>` they switch that one member, and the group's own mode stays as it was. |
 | `remove <name>` | Refuses unless every member is clean (untracked and ignored files included) and the workspace folder holds nothing but the members and the `.workler` copy. Files from group-level `copy` rules count as local data, like a copied `.env` inside a clone does. `--force` removes everything. |
 
 ## Limits
@@ -137,4 +137,4 @@ git -C "$(workler path main/tools)" log -1
 - The root is a plain folder. A group that is itself a repository is not supported.
 - Projects are listed explicitly, one `project` line each; there are no globs.
 - Every member gets the same branch options; a workspace with only some of the projects is not supported.
-- A repository that belongs to two groups shares one `refs/workler-group/<name>/` namespace per workspace name. Use different workspace names in the two groups.
+- Branch mirrors are keyed by the group folder's path. After moving or renaming the group folder, the old mirrors stay in each source repository until you delete them (`git for-each-ref refs/workler-group/` shows them).
