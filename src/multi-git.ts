@@ -106,7 +106,7 @@ function listGroupSyncTargets(root: string, projects: string[]): SyncTarget[] {
         name: entry.name,
         path: member,
         project,
-        broken: memberBrokenReason(member),
+        broken: memberBrokenReason(workspacePath, project),
       });
     }
   }

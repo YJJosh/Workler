@@ -45,7 +45,7 @@ export function isGroupWorkspaceDirectory(dir: string, projects: string[]): bool
   if (fs.existsSync(path.join(dir, CONFIG_FILE))) {
     return true;
   }
-  return projects.some((project) => memberState(memberPath(dir, project)) === 'clone');
+  return projects.some((project) => memberState(dir, project) === 'clone');
 }
 
 export interface WorkspaceAddress {
@@ -83,39 +83,71 @@ export function requireDeclaredProject(projects: string[], project: string): str
   return found;
 }
 
-// What sits at a declared member path. Only a real directory with its own
-// .git directory is a clone. A symbolic link (whatever it points at, even the
-// source repository) or a file is never something Workler put there: it is
-// local data, and following the link would inspect the wrong directory.
+// What sits at a declared member path below a workspace folder. Only a real
+// directory with its own .git directory, reached through real directories, is
+// a clone. A symbolic link (whatever it points at, even the source
+// repository) or a file, at the member's path or at any folder on the way to
+// it (`projects` for `projects/api`), is never something Workler put there:
+// it is local data, and following the link would inspect the wrong
+// directory. So every component is checked with lstat and none is followed.
 export type MemberState = 'missing' | 'clone' | 'link' | 'not-a-clone';
 
-export function memberState(member: string): MemberState {
-  let stat: fs.Stats;
-  try {
-    stat = fs.lstatSync(member);
-  } catch (_) {
-    return 'missing';
+export interface MemberCheck {
+  state: MemberState;
+  // For 'link' and 'not-a-clone': the folder on the way to the member that
+  // decided the state (relative to the base), when it was not the member.
+  ancestor?: string;
+}
+
+export function inspectMember(base: string, project: string): MemberCheck {
+  const segments = project.split('/');
+  for (let depth = 1; depth <= segments.length; depth += 1) {
+    const current = path.join(base, ...segments.slice(0, depth));
+    const decided = (state: MemberState): MemberCheck =>
+      depth < segments.length ? { state, ancestor: segments.slice(0, depth).join('/') } : { state };
+    let stat: fs.Stats;
+    try {
+      stat = fs.lstatSync(current);
+    } catch (_) {
+      return { state: 'missing' };
+    }
+    if (stat.isSymbolicLink()) {
+      return decided('link');
+    }
+    if (!stat.isDirectory()) {
+      return decided('not-a-clone');
+    }
   }
-  if (stat.isSymbolicLink()) {
-    return 'link';
+  return { state: hasIndependentGitDirectory(memberPath(base, project)) ? 'clone' : 'not-a-clone' };
+}
+
+export function memberState(base: string, project: string): MemberState {
+  return inspectMember(base, project).state;
+}
+
+// The reason when a folder on the way to the member decided its state, or
+// undefined when the member itself did (callers word that case themselves).
+export function ancestorReason(check: MemberCheck): string | undefined {
+  if (check.ancestor === undefined) {
+    return undefined;
   }
-  if (!stat.isDirectory()) {
-    return 'not-a-clone';
-  }
-  return hasIndependentGitDirectory(member) ? 'clone' : 'not-a-clone';
+  return check.state === 'link'
+    ? `behind a symbolic link at ${check.ancestor}, not a clone`
+    : `behind a file at ${check.ancestor}, not a clone`;
 }
 
 // Why a declared member is not a usable clone, or undefined when it is one.
-export function memberBrokenReason(member: string): string | undefined {
-  switch (memberState(member)) {
+export function memberBrokenReason(base: string, project: string): string | undefined {
+  const check = inspectMember(base, project);
+  switch (check.state) {
     case 'clone':
       return undefined;
     case 'missing':
       return 'missing (not cloned)';
     case 'link':
-      return 'a symbolic link, not a clone';
+      return ancestorReason(check) ?? 'a symbolic link, not a clone';
     default:
-      return 'missing .git (not a clone)';
+      return ancestorReason(check) ?? 'missing .git (not a clone)';
   }
 }
 

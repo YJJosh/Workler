@@ -588,6 +588,69 @@ test('a symbolic link at a member path is local data: remove refuses, --force de
   assert.ok(fs.readdirSync(source).length > 1);
 });
 
+test('a symbolic link on the way to a nested member is never followed: status, apply, branch-sync and remove treat the member as local data', (t) => {
+  const { execFileSync } = require('node:child_process');
+  const refs = (cwd, prefix) => execFileSync('git', ['for-each-ref', '--format=%(refname)', prefix], { cwd, encoding: 'utf8' }).trim();
+  const root = makeGroup(t);
+  const feat = api.createWorkspace(root, { name: 'feat' }).path;
+  const dirLinkType = process.platform === 'win32' ? 'junction' : undefined;
+  const sourceApi = path.join(root, 'projects', 'api');
+  const sourceWeb = path.join(root, 'projects', 'web');
+  const sourceTools = path.join(root, 'tools');
+  const before = { api: fs.readdirSync(sourceApi).sort(), web: fs.readdirSync(sourceWeb).sort() };
+
+  // Swap the workspace's `projects` folder for a link to the group's own
+  // `projects` folder: the source repositories now sit exactly where the
+  // members projects/api and projects/web are expected, behind the link.
+  fs.rmSync(path.join(feat, 'projects'), { recursive: true });
+  fs.symlinkSync(path.join(root, 'projects'), path.join(feat, 'projects'), dirLinkType);
+
+  const workspace = api.listWorkspaces(root)[1];
+  assert.strictEqual(workspace.name, 'feat');
+  assert.match(workspace.broken, /projects\/api: behind a symbolic link at projects, not a clone/);
+  assert.match(workspace.broken, /projects\/web: behind a symbolic link at projects, not a clone/);
+  assert.strictEqual(workspace.clean, undefined);
+  const status = runCli(root, 'status');
+  assert.strictEqual(status.status, 0, status.stderr);
+  assert.match(status.stdout, /^feat\/projects\/api\s+-\s+-\s+broken: behind a symbolic link at projects, not a clone$/m);
+  assert.match(status.stdout, /^feat\/projects\/web\s+-\s+-\s+broken: behind a symbolic link at projects, not a clone$/m);
+  assert.match(status.stdout, /^feat\/tools\s+feat\s/m);
+
+  // apply skips both members; the one real clone (tools) is still applied.
+  const applied = runCli(root, 'apply', 'feat');
+  assert.strictEqual(applied.status, 0, applied.stderr);
+  assert.match(applied.stdout, /^project projects\/api: skipped \(behind a symbolic link at projects, not a clone\)$/m);
+  assert.match(applied.stdout, /^project projects\/web: skipped \(behind a symbolic link at projects, not a clone\)$/m);
+  assert.match(applied.stdout, /^project tools$/m);
+  const one = runCli(root, 'apply', 'feat/projects/web');
+  assert.strictEqual(one.status, 1);
+  assert.match(one.stderr, /projects\/web in workspace feat is behind a symbolic link at projects, not a clone/);
+
+  // branch-sync mirrors the real clone only: nothing is written into the
+  // source repositories behind the link, not even their own branches.
+  const namespace = api.groupRefNamespace(root);
+  runCli(root, 'branch-sync');
+  const mirrored = refs(sourceTools, namespace).split('\n');
+  assert.ok(mirrored.includes(`${namespace}/feat/feat`), mirrored.join(', '));
+  assert.ok(mirrored.every((ref) => ref.startsWith(`${namespace}/feat/`)), mirrored.join(', '));
+  assert.strictEqual(refs(sourceApi, 'refs/workler-group'), '');
+  assert.strictEqual(refs(sourceWeb, 'refs/workler-group'), '');
+
+  // remove names the link once per member behind it (not as a stray entry
+  // on top), and --force deletes the link itself only.
+  assert.throws(() => api.removeWorkspace(root, 'feat'), (error) =>
+    error.code === 'WORKSPACE_DIRTY'
+    && /projects\/api: behind a symbolic link at projects, not a clone/.test(error.message)
+    && /projects\/web: behind a symbolic link at projects, not a clone/.test(error.message)
+    && !/not part of a declared project/.test(error.message));
+  assert.strictEqual(fs.existsSync(feat), true);
+  assert.deepStrictEqual(api.removeWorkspace(root, 'feat', { force: true }), { name: 'feat', path: feat });
+  assert.strictEqual(fs.existsSync(feat), false);
+  assert.deepStrictEqual(fs.readdirSync(sourceApi).sort(), before.api);
+  assert.deepStrictEqual(fs.readdirSync(sourceWeb).sort(), before.web);
+  assert.strictEqual(fs.lstatSync(path.join(sourceApi, '.git')).isDirectory(), true);
+});
+
 test('a group workspace whose first clone failed is still listed, as incomplete', (t) => {
   const root = makeGroup(t);
   // What createWorkspace leaves behind when the very first member clone

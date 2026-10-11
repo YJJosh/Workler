@@ -142,7 +142,7 @@ isClone, broken?, branch?, head?, shortHead?, detached, clean? }` per
 declared project (for `main`, the source repositories). The entry's own
 `isClone` is true for every recognized group workspace, even one left behind
 with no member cloned yet; `branch` is set only when every member is on it, `clean` only when every
-member is clean and the workspace folder holds nothing but the members (real directories; a symbolic link or file at a member's path is local data) plus an unchanged `.workler` copy, and
+member is clean and the workspace folder holds nothing but the members (real directories reached through real directories; a symbolic link or file at a member's path, or at any folder on the way to it, is local data) plus an unchanged `.workler` copy, and
 `broken` joins the reasons of every broken or missing member.
 
 ### `resolveWorkspacePath(root, name): string`

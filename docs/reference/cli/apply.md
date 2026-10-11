@@ -14,7 +14,7 @@ workler apply [name[/<project>]] [--all] [--copy-links | --no-copy-links] [--for
 | `workler apply --all` | Apply the rules to every workspace (except `main`) |
 | `workler apply` (inside a workspace) | Refresh this workspace from its immediate parent's `.workler` |
 | `workler apply` (in the main project) | Error — say which workspace, or `--all` |
-| `workler apply <name>` (in a [project group](/guide/project-groups)) | Every cloned member from its source repository's `.workler`, then the group's own rules into the workspace folder; a member that was never cloned is skipped, and so is a symbolic link or file at a member's path (it is never followed) |
+| `workler apply <name>` (in a [project group](/guide/project-groups)) | Every cloned member from its source repository's `.workler`, then the group's own rules into the workspace folder; a member that was never cloned is skipped, and so is a symbolic link or file at a member's path or at any folder on the way to it (it is never followed) |
 | `workler apply <name>/<project>` (in a project group) | That one member only, from its source repository |
 | `workler apply` (inside a member clone) | Refresh this clone from its source repository |
 | `workler apply` (inside a group workspace folder) | Same as `apply <name>` at the group root |

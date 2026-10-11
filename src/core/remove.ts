@@ -4,7 +4,7 @@ import { CONFIG_FILE, MAIN_WORKSPACE_NAME, WORKSPACES_DIR } from '../constants';
 import { WorklerError } from '../errors';
 import { assertInside } from '../fs-utils';
 import { isGitWorkTreeCleanIncludingIgnored } from '../git';
-import { groupWorkspaceExtras, memberPath, memberState } from '../groups';
+import { ancestorReason, groupWorkspaceExtras, inspectMember, memberPath } from '../groups';
 import { withProjectLock } from '../lock';
 import { findWorkspace, validateWorkspaceName } from '../workspaces';
 import { requireProject } from './project';
@@ -77,18 +77,22 @@ export function removeWorkspace(
 // group's file. A member that was never cloned holds nothing.
 function groupLocalData(workspacePath: string, groupRoot: string, projects: string[]): string[] {
   const reasons: string[] = [];
+  // Entries the member loop explains: a link or file at a member path, or at
+  // a folder on the way to one. The extras walk reports them too; skip those.
+  const covered = new Set<string>();
   for (const project of projects) {
     const member = memberPath(workspacePath, project);
-    const state = memberState(member);
-    if (state === 'missing') {
+    const check = inspectMember(workspacePath, project);
+    if (check.state === 'missing') {
       continue;
     }
-    if (state === 'link') {
-      reasons.push(`${project}: a symbolic link, not a clone`);
+    covered.add(check.ancestor ?? project);
+    if (check.state === 'link') {
+      reasons.push(`${project}: ${ancestorReason(check) ?? 'a symbolic link, not a clone'}`);
       continue;
     }
-    if (state !== 'clone') {
-      reasons.push(`${project}: not a Git clone (unknown contents)`);
+    if (check.state !== 'clone') {
+      reasons.push(`${project}: ${ancestorReason(check) ?? 'not a Git clone (unknown contents)'}`);
       continue;
     }
     if (!isGitWorkTreeCleanIncludingIgnored(member)) {
@@ -96,8 +100,8 @@ function groupLocalData(workspacePath: string, groupRoot: string, projects: stri
     }
   }
   for (const extra of groupWorkspaceExtras(workspacePath, groupRoot, projects)) {
-    if (projects.includes(extra)) {
-      continue; // a link or file at a member path: reported above
+    if (covered.has(extra)) {
+      continue;
     }
     reasons.push(
       extra === CONFIG_FILE
