@@ -92,4 +92,5 @@ See the [CLI reference](/reference/cli/) for every command and flag.
 - [Workspaces & branches](/guide/workspaces) — bases, `--branch`, `--checkout`, and detached checkouts.
 - [Copy & link rules](/guide/rules) — the optional `.workler` format.
 - [Keeping workspaces in sync](/guide/sync) — `status`, `fetch`, `sync`, and `branch-sync`.
+- [Project groups](/guide/project-groups) — several repositories in one folder, cloned into one workspace with a single `workler add`.
 - [Programmatic API](/reference/api) — create, inspect, list, and remove workspaces from TypeScript or JavaScript.

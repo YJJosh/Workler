@@ -35,6 +35,8 @@ Workler:
 
 The result is a checkout you can `cd` into and run, with no install step and no manual file shuffling.
 
+The same works for a folder that holds several repositories. List them in that folder's `.workler` with `project <path>` lines, and one `workler add` clones all of them into a single workspace, in the same layout — see [Project groups](/guide/project-groups).
+
 ## Why real clones instead of git worktree?
 
 - **Isolation.** Each workspace has its own fetch/pull state and its own local branches. A `git fetch` or branch switch in one workspace cannot affect another — important when workspaces are driven by parallel coding agents.
@@ -58,4 +60,5 @@ The trade-off is that clones drift apart — so Workler ships [multi-workspace c
 
 - [Getting started](/guide/getting-started) — install Workler and create your first workspace.
 - [Copy & link rules](/guide/rules) — the `.workler` file format.
+- [Project groups](/guide/project-groups) — several repositories in one folder, cloned into one workspace.
 - [CLI reference](/reference/cli/) — every command and flag.
