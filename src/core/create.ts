@@ -10,7 +10,7 @@ import { withProjectLocks } from '../lock';
 import { validateBranchName, validateNewWorkspaceName, validateStartRef, validateWorkspaceRefName } from '../names';
 import { applyRules } from '../rules';
 import type { ApplyRulesOutcome, RuleApplyResult } from '../rules';
-import { setGroupWorkspaceCopiesLinks, setWorkspaceCopiesLinks } from '../workspaces';
+import { groupWorkspaceParent, setGroupWorkspaceCopiesLinks, setWorkspaceCopiesLinks } from '../workspaces';
 import { lockRootsOf, requireProject } from './project';
 import type { ProjectInfo } from './project';
 
@@ -389,6 +389,18 @@ function headState(repo: string): { branch?: string; head?: string; detached: bo
 // workspaces), one clone per declared project, then the group's own rules.
 // A failure midway leaves the partial workspace in place; `list` and
 // `status` flag what is missing and `remove --force` cleans it up.
+// Whether `root` is a workspace of an enclosing group root
+// (<group>/.worktrees/<name>), as opposed to a group that merely sits in a
+// folder of that name. A parent whose own .workler does not parse is no group
+// root here.
+function isNestedGroupWorkspace(root: string): boolean {
+  try {
+    return groupWorkspaceParent(root) !== undefined;
+  } catch {
+    return false;
+  }
+}
+
 function createGroupLocked(
   root: string,
   projects: string[],
@@ -404,9 +416,11 @@ function createGroupLocked(
   // use; mirror `init` and ignore the workspaces directory in .gitignore. That
   // only matters when the group sits inside an outer repository, where the
   // clones and group-level copies would otherwise show up as untracked outer
-  // content. A nested group workspace skips this: it already lives under a
-  // .worktrees/ that its parent group ignores.
-  if (path.basename(path.dirname(root)) !== WORKSPACES_DIR) {
+  // content. A real nested group workspace skips this: it already lives under
+  // a .worktrees/ that its parent group ignores. The parent folder's name alone
+  // does not prove that (a hand-written group may sit in a tracked folder
+  // called .worktrees), so ask for the workspace itself.
+  if (!isNestedGroupWorkspace(root)) {
     addLineIfMissing(path.join(root, '.gitignore'), `${WORKSPACES_DIR}/`);
   }
 

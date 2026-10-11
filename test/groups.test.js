@@ -189,6 +189,38 @@ test('add on a hand-written group ignores .worktrees/ in .gitignore, as init doe
   assert.strictEqual(fs.existsSync(path.join(feat.path, '.gitignore')), false);
 });
 
+test('a hand-written group in a tracked folder named .worktrees still gets its own ignore line', (t) => {
+  // The parent folder's name alone does not make a group a nested group
+  // workspace. Here .worktrees/tools is ordinary tracked content of a plain
+  // outer repository that knows nothing about Workler, so without the group's
+  // own .gitignore its clones would show up there and could be staged by
+  // accident.
+  const outer = makeRepo(t, { includeWorkler: false });
+  fs.rmSync(path.join(outer, '.gitignore'), { force: true });
+  fs.rmSync(path.join(outer, '.git', 'info', 'exclude'), { force: true });
+  const group = path.join(outer, '.worktrees', 'tools');
+  makeRepoAt(path.join(group, 'projects', 'api'));
+  fs.writeFileSync(path.join(group, '.workler'), 'project projects/api\ncopy .env.shared\n');
+  fs.writeFileSync(path.join(group, '.env.shared'), 'SHARED=1\n');
+  git(outer, 'add', '-f', '.worktrees/tools/.workler', '.worktrees/tools/.env.shared');
+  assert.strictEqual(fs.existsSync(path.join(group, '.gitignore')), false);
+
+  const feat = api.createWorkspace(group, { name: 'feat' });
+  assert.strictEqual(fs.readFileSync(path.join(group, '.gitignore'), 'utf8'), '.worktrees/\n');
+  assert.match(
+    git(outer, 'check-ignore', '-v', '.worktrees/tools/.worktrees/feat/.env.shared'),
+    /\.worktrees\/tools\/\.gitignore:1:\.worktrees\//,
+  );
+  const leaked = git(outer, 'status', '--porcelain', '--untracked-files=all')
+    .split('\n')
+    .filter((line) => line.includes('tools/.worktrees/'));
+  assert.deepStrictEqual(leaked, []);
+
+  // The workspace itself is a real nested group workspace and gets none.
+  api.createWorkspace(feat.path, { name: 'inner' });
+  assert.strictEqual(fs.existsSync(path.join(feat.path, '.gitignore')), false);
+});
+
 test('a group-level rule for .workler is a configuration error: add writes that file into every group workspace', (t) => {
   for (const line of ['link .workler', 'copy .workler', 'copy ./.WORKLER']) {
     const root = makeGroup(t, { projects: ['a'], groupRules: `${line}\n` });

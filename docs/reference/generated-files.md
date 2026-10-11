@@ -41,7 +41,7 @@ A [project group](/guide/project-groups) root is a plain folder, so there is no 
 | --- | --- | --- |
 | `.workler` | `workler init` or you | `project <path>` lines naming the repositories below, plus optional group-level copy/link rules. |
 | `.worktrees/` | `workler init` / `workler add` | One subdirectory per group workspace. |
-| `.gitignore` | `workler init` / `workler add` | Gets a `.worktrees/` line (only matters if the folder sits inside some outer repository). |
+| `.gitignore` | `workler init` / `workler add` | Gets a `.worktrees/` line (only matters if the folder sits inside some outer repository). Not written into a nested group workspace, which already lives under an ignored `.worktrees/`. |
 
 Each group workspace under `.worktrees/<name>` is a plain directory holding:
 
