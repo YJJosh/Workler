@@ -1,7 +1,7 @@
 import { parseCommandArgs } from '../cli-utils';
 import { PACKAGE_NAME } from '../constants';
-import { requireRepositoryOrGroup } from '../core/project';
-import { withProjectLock } from '../lock';
+import { lockRootsOf, requireRepositoryOrGroup } from '../core/project';
+import { withProjectLocks } from '../lock';
 import { fetchOrigin, listSyncTargets, nameWidth, targetLabel } from '../multi-git';
 import { findWorklerRoot } from '../workspaces';
 
@@ -23,9 +23,9 @@ group this covers every member repository of the group and of its workspaces.`);
   }
 
   const root = findWorklerRoot(process.cwd());
-  requireRepositoryOrGroup(root, 'fetch');
+  const info = requireRepositoryOrGroup(root, 'fetch');
 
-  withProjectLock(root, 'fetch', () => {
+  withProjectLocks(lockRootsOf(info), 'fetch', () => {
     const targets = listSyncTargets(root);
     const width = nameWidth(targets);
     let failures = 0;

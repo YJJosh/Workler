@@ -6,12 +6,12 @@ import { WorklerError } from '../errors';
 import { addLineIfMissing, assertInside, canonicalPath } from '../fs-utils';
 import { git, gitInfoExcludePath, gitMaybe, isGitWorkTreeClean, localBranchExists } from '../git';
 import { memberPath, sourceBrokenReason } from '../groups';
-import { withProjectLock } from '../lock';
+import { withProjectLocks } from '../lock';
 import { validateBranchName, validateNewWorkspaceName, validateStartRef, validateWorkspaceRefName } from '../names';
 import { applyRules } from '../rules';
 import type { ApplyRulesOutcome, RuleApplyResult } from '../rules';
 import { setGroupWorkspaceCopiesLinks, setWorkspaceCopiesLinks } from '../workspaces';
-import { requireProject } from './project';
+import { lockRootsOf, requireProject } from './project';
 import type { ProjectInfo } from './project';
 
 export interface CreateWorkspaceOptions {
@@ -308,7 +308,7 @@ export function createWorkspace(rootInput: string, options: CreateWorkspaceOptio
   const root = info.root;
   const progress = options.onProgress ?? (() => {});
 
-  return withProjectLock(root, `add ${options.name}`, () =>
+  return withProjectLocks(lockRootsOf(info), `add ${options.name}`, () =>
     info.isGroup ? createGroupLocked(root, info.projects, options, progress) : createSingleLocked(root, options, progress),
   );
 }

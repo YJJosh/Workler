@@ -5,7 +5,7 @@ import { CONFIG_FILE, MAIN_WORKSPACE_NAME, WORKSPACES_DIR } from '../constants';
 import { WorklerError } from '../errors';
 import { addLineIfMissing, canonicalPath } from '../fs-utils';
 import { ensureGitRepo, git, gitInfoExcludePath, gitMaybe, hasIndependentGitDirectory, isGitTopLevel } from '../git';
-import { withProjectLock } from '../lock';
+import { withProjectLocks } from '../lock';
 import { groupMembership, groupWorkspaceParent, parentProject } from '../workspaces';
 import type { GroupMembership } from '../workspaces';
 
@@ -213,13 +213,26 @@ export interface InitResult {
   unwritableProjects: string[];
 }
 
+// The locks a mutating operation rooted at `info.root` must hold, outermost
+// first. A clone inside a project group workspace holds the group's lock as
+// well as its own: `remove <name>` and `apply <name>` at the group root hold
+// only the group's lock while they delete or rewrite the member clones, so a
+// command that creates or removes inside the clone has to share that lock, or
+// `remove feat` could pass its cleanliness check and then delete a nested
+// workspace that `add` is still cloning inside feat/projects/api. A workspace
+// nested deeper, inside the clone's own .worktrees/, is a nested project and
+// locks only itself, like every nested project.
+export function lockRootsOf(info: Pick<ProjectInfo, 'root' | 'memberOf'>): string[] {
+  return info.memberOf ? [info.memberOf.group, info.root] : [info.root];
+}
+
 export function initProject(rootInput: string): InitResult {
   const root = path.resolve(rootInput);
   if (!fs.existsSync(root) || !fs.statSync(root).isDirectory()) {
     throw new WorklerError('ROOT_NOT_FOUND', `project root does not exist: ${root}`, { root });
   }
 
-  return withProjectLock(root, 'init', () => {
+  return withProjectLocks(lockRootsOf({ root, memberOf: inspectProject(root).memberOf }), 'init', () => {
     const configPath = path.join(root, CONFIG_FILE);
     const workspacesPath = path.join(root, WORKSPACES_DIR);
     const gitRepo = isGitProjectRoot(root);

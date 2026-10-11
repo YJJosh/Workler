@@ -1054,6 +1054,55 @@ test('bare apply inside a member clone takes the group lock, like every other gr
   }
 });
 
+test('every mutating command inside a member clone takes the group lock first, then its own', (t) => {
+  const root = makeGroup(t, { projects: ['projects/api'] });
+  const clone = path.join(api.createWorkspace(root, { name: 'feat' }).path, 'projects', 'api');
+  api.createWorkspace(clone, { name: 'nested' });
+  const nested = path.join(clone, '.worktrees', 'nested');
+  const nested2 = path.join(clone, '.worktrees', 'nested2');
+  const hold = (dir) => {
+    const lock = path.join(dir, '.worktrees', '.workler.lock');
+    fs.mkdirSync(path.dirname(lock), { recursive: true });
+    fs.writeFileSync(lock, JSON.stringify({ pid: process.pid, hostname: os.hostname(), operation: 'test', createdAt: new Date().toISOString() }));
+    return () => fs.rmSync(lock, { force: true });
+  };
+
+  // `remove feat` at the group root holds only the group's lock while it
+  // deletes the member clones. A command that creates or removes inside the
+  // clone must be blocked by that same lock, or `remove feat` could pass its
+  // cleanliness check and then delete the workspace `add` is still cloning.
+  let release = hold(root);
+  try {
+    for (const args of [['add', 'nested2'], ['remove', 'nested'], ['apply', 'nested'], ['apply', '--all'], ['fetch'], ['sync'], ['branch-sync'], ['init']]) {
+      const blocked = runCli(clone, ...args);
+      assert.strictEqual(blocked.status, 1, `${args.join(' ')} ran: ${blocked.stdout}`);
+      assert.match(blocked.stderr, /lock/i, args.join(' '));
+    }
+    assert.throws(() => api.createWorkspace(clone, { name: 'nested2' }), { code: 'LOCKED' });
+    assert.throws(() => api.removeWorkspace(clone, 'nested', { force: true }), { code: 'LOCKED' });
+    assert.throws(() => api.initProject(clone), { code: 'LOCKED' });
+    assert.strictEqual(fs.existsSync(nested2), false, 'nothing was cloned under the held lock');
+    assert.ok(fs.existsSync(nested), 'nothing was removed under the held lock');
+  } finally {
+    release();
+  }
+
+  // The clone's own lock still guards its .worktrees/, like any project's.
+  release = hold(clone);
+  try {
+    assert.throws(() => api.createWorkspace(clone, { name: 'nested2' }), { code: 'LOCKED' });
+    assert.throws(() => api.removeWorkspace(clone, 'nested', { force: true }), { code: 'LOCKED' });
+  } finally {
+    release();
+  }
+
+  // Unlocked, both run, and the group lock they took is released again.
+  api.createWorkspace(clone, { name: 'nested2' });
+  api.removeWorkspace(clone, 'nested2', { force: true });
+  assert.strictEqual(fs.existsSync(path.join(root, '.worktrees', '.workler.lock')), false);
+  assert.strictEqual(fs.existsSync(path.join(clone, '.worktrees', '.workler.lock')), false);
+});
+
 test('remove needs every member clean and nothing but members in the workspace folder', (t) => {
   const root = makeGroup(t, { rules: { 'projects/api': 'copy .env\n' }, groupRules: 'copy .env.shared\n' });
   const feat = api.createWorkspace(root, { name: 'feat' }).path;

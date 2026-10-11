@@ -87,6 +87,7 @@ Each clone inside the workspace is an ordinary Workler workspace **of its source
 - Its rules come from the source's `.workler`, and `link` targets point back into the source (`feat/projects/api/node_modules` links to `root/projects/api/node_modules`).
 - Its `workler-root` remote points at the source, so [`branch-sync`](/reference/cli/branch-sync) works between the two.
 - Bare `workler apply` inside it refreshes it from the source.
+- Mutating commands run inside it (`add`, `remove`, `apply`, `fetch`, `sync`, `branch-sync`, `init`) take the group's lock before the clone's own, so `remove feat` at the group root never runs while one of them is still changing the clone.
 - It additionally records its group in Git config (`workler.group`, `workler.groupProject`), see [Generated files](/reference/generated-files#in-a-project-group).
 
 Because the layout mirrors the root, relative paths between projects keep working: a script in `tools` that reaches `../projects/api` finds the clone of `api` inside the workspace.

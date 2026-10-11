@@ -2,10 +2,10 @@ import path from 'node:path';
 import { parseCommandArgs } from '../cli-utils';
 import { readRules } from '../config';
 import { MAIN_WORKSPACE_NAME, PACKAGE_NAME } from '../constants';
-import { inspectProject, requireProject } from '../core/project';
+import { inspectProject, lockRootsOf, requireProject } from '../core/project';
 import type { ProjectInfo } from '../core/project';
 import { ancestorReason, inspectMember, memberPath, requireDeclaredProject, sourceBrokenReason, splitWorkspaceAddress } from '../groups';
-import { withProjectLock } from '../lock';
+import { withProjectLocks } from '../lock';
 import { applyRules } from '../rules';
 import type { Workspace } from '../types';
 import {
@@ -128,7 +128,7 @@ export function applyCommand(args: string[]): void {
 
   if (all) {
     const info = requireProject(root);
-    runWithOptionalLock(root, 'apply --all', dryRun, () => {
+    runWithOptionalLock(lockRootsOf(info), 'apply --all', dryRun, () => {
       const workspaces = listWorkspaces(root).filter((workspace) => workspace.name !== MAIN_WORKSPACE_NAME);
       if (workspaces.length === 0) {
         console.log('no workspaces found');
@@ -156,10 +156,11 @@ export function applyCommand(args: string[]): void {
         // A member clone of a group workspace changes under the group's lock,
         // the one `apply <name>/<project>` and `remove <name>` take, so no two
         // group-level commands touch the clone at once. Its rules still come
-        // from the source repository.
-        const lockRoot = info.memberOf ? info.memberOf.group : parent;
+        // from the source repository. A workspace nested inside a member clone
+        // changes under that clone's locks, which include the group's.
+        const lockRoots = info.memberOf ? [info.memberOf.group] : lockRootsOf(inspectProject(parent));
         const label = info.memberOf ? `apply ${info.memberOf.workspace}/${info.memberOf.project}` : `apply ${path.basename(root)}`;
-        runWithOptionalLock(lockRoot, label, dryRun, () => {
+        runWithOptionalLock(lockRoots, label, dryRun, () => {
           applyAndPrint(parent, root, flags, { isRepo: true });
         });
         return;
@@ -168,7 +169,7 @@ export function applyCommand(args: string[]): void {
       const location = groupWorkspaceParent(root);
       if (location) {
         const group = requireProject(location.group);
-        runWithOptionalLock(group.root, `apply ${location.name}`, dryRun, () => {
+        runWithOptionalLock(lockRootsOf(group), `apply ${location.name}`, dryRun, () => {
           applyWorkspace(group, { name: location.name, path: location.path }, flags);
         });
         return;
@@ -182,7 +183,7 @@ export function applyCommand(args: string[]): void {
     throw new Error('apply needs a workspace name when run from the main project, or use --all');
   }
 
-  runWithOptionalLock(root, `apply ${name}`, dryRun, () => {
+  runWithOptionalLock(lockRootsOf(info), `apply ${name}`, dryRun, () => {
     const workspace = findWorkspace(root, address.workspace);
     if (address.project === undefined) {
       applyWorkspace(info, workspace, flags);
@@ -203,11 +204,11 @@ export function applyCommand(args: string[]): void {
   });
 }
 
-function runWithOptionalLock(root: string, operation: string, dryRun: boolean, fn: () => void): void {
+function runWithOptionalLock(roots: readonly string[], operation: string, dryRun: boolean, fn: () => void): void {
   if (dryRun) {
     fn();
   } else {
-    withProjectLock(root, operation, fn);
+    withProjectLocks(roots, operation, fn);
   }
 }
 

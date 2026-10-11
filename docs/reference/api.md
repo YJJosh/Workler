@@ -195,9 +195,15 @@ runs and read-only operations never lock.
   `.worktrees/`, independent of the parent. A parent `fetch`, `sync`, or
   `branch-sync` also touches its child repositories, so do not run one
   concurrently with a mutation addressed directly to a nested project.
-- A project group locks its own `.worktrees/`, also for a bare `apply` run
-  inside a member clone: the clone changes under the group's lock, not under
-  its source repository's. Its source repositories are
-  only read by `createWorkspace`, so they are not locked; `branch-sync` at a
-  group root does write into them (mirrored refs), so do not run it
-  concurrently with a `branch-sync` addressed to a member repository.
+- A project group locks its own `.worktrees/`. `remove <name>` and
+  `apply <name>` hold only that lock while they delete or rewrite the member
+  clones, so every mutating operation rooted at a member clone (`add`,
+  `remove`, `apply`, `fetch`, `sync`, `branch-sync`, `init`, and the API
+  functions behind them) takes the group's lock first and then the clone's
+  own. A bare `apply` inside a member clone takes just the group's lock,
+  because it changes the clone itself and not the clone's `.worktrees/`. A
+  workspace nested deeper, inside a member clone's own `.worktrees/`, follows
+  the nested-project rule above. Source repositories are only read by
+  `createWorkspace`, so they are not locked; `branch-sync` at a group root
+  does write into them (mirrored refs), so do not run it concurrently with a
+  `branch-sync` addressed to a member repository.

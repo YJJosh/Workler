@@ -5,9 +5,9 @@ import { WorklerError } from '../errors';
 import { assertInside } from '../fs-utils';
 import { isGitWorkTreeCleanIncludingIgnored } from '../git';
 import { ancestorReason, groupWorkspaceExtras, inspectMember, memberPath } from '../groups';
-import { withProjectLock } from '../lock';
+import { withProjectLocks } from '../lock';
 import { findWorkspace, validateWorkspaceName } from '../workspaces';
-import { requireProject } from './project';
+import { lockRootsOf, requireProject } from './project';
 
 export interface RemoveWorkspaceOptions {
   // Remove even when the workspace has uncommitted changes.
@@ -40,7 +40,7 @@ export function removeWorkspace(
 
   const info = requireProject(rootInput);
 
-  return withProjectLock(info.root, `remove ${name}`, () => {
+  return withProjectLocks(lockRootsOf(info), `remove ${name}`, () => {
     const workspace = findWorkspace(info.root, name);
 
     if (options.force !== true) {

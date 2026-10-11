@@ -138,3 +138,14 @@ export function withProjectLock<T>(root: string, operation: string, fn: () => T)
     lock.release();
   }
 }
+
+// Takes several project locks for one operation, outermost first, and
+// releases them in reverse order. A clone inside a project group workspace is
+// guarded by the group's lock as well as its own (see lockRootsOf).
+export function withProjectLocks<T>(roots: readonly string[], operation: string, fn: () => T): T {
+  const first = roots[0];
+  if (first === undefined) {
+    return fn();
+  }
+  return withProjectLock(first, operation, () => withProjectLocks(roots.slice(1), operation, fn));
+}
