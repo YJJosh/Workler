@@ -4,7 +4,7 @@ import { CONFIG_FILE, MAIN_WORKSPACE_NAME, PACKAGE_NAME, WORKSPACES_DIR } from '
 import { WorklerError } from './errors';
 import { canonicalPath, pathsReferToSameLocation } from './fs-utils';
 import { findGitTopLevel, git, gitConfigUnset, gitMaybe, hasIndependentGitDirectory, isGitTopLevel } from './git';
-import { groupProjects, hasGroupConfig, inspectMember, isGroupWorkspaceDirectory, memberPath } from './groups';
+import { groupProjects, hasGroupConfig, inspectMember, isGroupWorkspaceDirectory, memberPath, sourceBrokenReason } from './groups';
 import type { Workspace } from './types';
 
 // Discovers the nearest enclosing workler project from `startDir` (the CLI
@@ -71,7 +71,8 @@ export function parentProject(root: string): string | undefined {
 
 export interface ParentResolution {
   // The immediate parent project; undefined for a main project, and for a
-  // member clone whose source repository no longer exists.
+  // member clone whose source is missing, not a repository, or behind a
+  // symbolic link (sourceBrokenReason).
   parent?: string;
   // Set when root is a member clone of a group workspace: the slot it
   // occupies, whether or not its source still exists.
@@ -101,7 +102,13 @@ export function resolveParent(root: string): ParentResolution {
     ) {
       return {};
     }
-    return fs.existsSync(expectedParent) ? { parent: expectedParent, memberOf: membership } : { memberOf: membership };
+    // The source counts as the parent only while it is a usable repository
+    // reached without symbolic links. A replacement at that path, a link to
+    // some other repository or a plain folder, must not become the thing a
+    // bare `apply` refreshes from. memberOf stays set either way: the group
+    // still owns the clone.
+    const sourceUnusable = sourceBrokenReason(membership.group, membership.project);
+    return sourceUnusable === undefined ? { parent: expectedParent, memberOf: membership } : { memberOf: membership };
   }
 
   if (!configured) {

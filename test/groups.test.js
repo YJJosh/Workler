@@ -841,6 +841,49 @@ test('a source repository behind a symbolic link is refused: nothing reaches wha
   assert.strictEqual(fs.existsSync(workspaceDir(root, 'other')), false);
 
   assert.deepStrictEqual(snapshot(), externalBefore);
+
+  // Bare `apply` inside the member clone must not refresh from the link
+  // either. The repository behind it gets a `copy secret` rule; nothing of
+  // it reaches the clone, which still knows which slot it occupies.
+  const memberApi = path.join(workspaceDir(root, 'feat'), 'projects', 'api');
+  fs.writeFileSync(path.join(externalApi, '.workler'), 'copy secret\n');
+  fs.writeFileSync(path.join(externalApi, 'secret'), 'leak\n');
+  const memberInfo = api.inspectProject(memberApi);
+  assert.strictEqual(memberInfo.parent, undefined);
+  assert.deepStrictEqual(memberInfo.memberOf, { group: fs.realpathSync(root), workspace: 'feat', project: 'projects/api' });
+  const bare = runCli(memberApi, 'apply');
+  assert.strictEqual(bare.status, 1);
+  assert.match(bare.stderr, /source main\/projects\/api is behind a symbolic link at projects, not a repository/);
+  assert.strictEqual(fs.existsSync(path.join(memberApi, 'secret')), false);
+});
+
+test('a source replaced by a plain folder is refused by bare apply inside the member', (t) => {
+  const root = makeGroup(t);
+  api.createWorkspace(root, { name: 'feat' });
+  const memberTools = path.join(workspaceDir(root, 'feat'), 'tools');
+  const sourceTools = path.join(root, 'tools');
+  assert.strictEqual(api.inspectProject(memberTools).parent, fs.realpathSync(sourceTools));
+
+  // Replace the source with a plain folder that carries rules of its own.
+  fs.rmSync(sourceTools, { recursive: true, force: true });
+  fs.mkdirSync(sourceTools);
+  fs.writeFileSync(path.join(sourceTools, '.workler'), 'copy secret\n');
+  fs.writeFileSync(path.join(sourceTools, 'secret'), 'leak\n');
+
+  // The clone still belongs to the slot, but the folder is not its parent.
+  const info = api.inspectProject(memberTools);
+  assert.strictEqual(info.parent, undefined);
+  assert.deepStrictEqual(info.memberOf, { group: fs.realpathSync(root), workspace: 'feat', project: 'tools' });
+  const bare = runCli(memberTools, 'apply');
+  assert.strictEqual(bare.status, 1);
+  assert.match(bare.stderr, /source main\/tools is [^\n]*not a (Git )?repository/);
+  assert.strictEqual(fs.existsSync(path.join(memberTools, 'secret')), false);
+
+  // The group-level form skips it with the same reason, as before.
+  const applied = runCli(root, 'apply', 'feat');
+  assert.strictEqual(applied.status, 0, applied.stderr);
+  assert.match(applied.stdout, /^project tools: skipped \(source main\/tools is [^)]*not a (Git )?repository[^)]*\)$/m);
+  assert.strictEqual(fs.existsSync(path.join(memberTools, 'secret')), false);
 });
 
 

@@ -79,11 +79,14 @@ isGroup, configError?, memberOf? }`. Every Git repository is immediately
 usable and reports `initialized: true`; a non-Git directory does so only when
 `.workler` explicitly marks it. `parent` is set when the root is itself a
 managed workspace (nested workspaces), or a group workspace folder (then it
-is the group root). `projects` lists the declared `project` paths of a group
+is the group root). For a member clone of a group workspace it is the source
+repository, but only while that is a usable repository reached without
+symbolic links; a replacement at the source path leaves `parent` undefined,
+and a bare `apply` inside the clone refuses. `projects` lists the declared `project` paths of a group
 in file order (always empty for a Git repository) and `isGroup` is true when
 there are any. `configError` carries the parse error when `.workler` cannot
 be read. `memberOf` is `{ group, workspace, project }` for a member clone of
-a group workspace.
+a group workspace, whether or not its source is still usable.
 
 ### `discoverProjects(root): string[]`
 

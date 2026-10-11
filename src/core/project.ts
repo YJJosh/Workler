@@ -35,7 +35,8 @@ export interface ProjectInfo {
   // Set when this project is itself a managed workspace: the immediate
   // parent project it was cloned from (nested workspaces), or the group root
   // for a group workspace directory. For a member clone of a group workspace
-  // it is the source repository, when that still exists.
+  // it is the source repository, while that is still a usable repository
+  // reached without symbolic links (otherwise undefined, with memberOf set).
   parent?: string;
   // The `project <path>` entries of a project group, in file order. Always
   // empty for a Git repository.
@@ -49,7 +50,8 @@ export interface ProjectInfo {
   // Set when this project is a member clone of a group workspace, whether or
   // not `add` finished marking it (an interrupted add is recognized by the
   // clone's location and remotes). Set even when the source repository is
-  // gone and parent is therefore undefined: the group still owns the clone.
+  // gone or unusable and parent is therefore undefined: the group still owns
+  // the clone.
   memberOf?: GroupMembership;
 }
 

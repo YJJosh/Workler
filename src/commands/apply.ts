@@ -179,6 +179,16 @@ export function applyCommand(args: string[]): void {
         });
         return;
       }
+      if (info.memberOf) {
+        // A member whose source is no longer a usable repository: missing,
+        // not a repository, or behind a symbolic link (resolveParent then
+        // leaves parent unset). Refreshing from whatever now sits at the
+        // source path would apply a stranger's rules and copy its files into
+        // the clone, so refuse, exactly as `apply <name>/<project>` does.
+        const { group, project } = info.memberOf;
+        const unusable = sourceBrokenReason(group, project) ?? 'not a usable repository';
+        throw new Error(`source ${MAIN_WORKSPACE_NAME}/${project} is ${unusable}: ${memberPath(group, project)}`);
+      }
     } else {
       const location = groupWorkspaceParent(root);
       if (location) {

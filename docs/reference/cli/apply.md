@@ -72,6 +72,7 @@ ok     link node_modules (already linked)
 - `--all` combined with a workspace name.
 - `--copy-links` combined with `--no-copy-links`.
 - Bare `apply` outside a workspace.
+- Bare `apply` inside a member clone whose source repository is missing, not a repository, or behind a symbolic link. The clone is not refreshed from whatever now sits at the source path.
 - A conflicting destination without `--force` — the error shows source, destination, and what is currently there.
 
 ## Examples
