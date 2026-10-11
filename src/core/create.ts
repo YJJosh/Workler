@@ -1,15 +1,17 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { ROOT_REMOTE, WORKSPACES_DIR } from '../constants';
+import { readConfig, readRules } from '../config';
+import { CONFIG_FILE, PACKAGE_NAME, ROOT_REMOTE, WORKSPACES_DIR } from '../constants';
 import { WorklerError } from '../errors';
 import { addLineIfMissing, assertInside, canonicalPath } from '../fs-utils';
 import { git, gitInfoExcludePath, gitMaybe, isGitWorkTreeClean, localBranchExists } from '../git';
-import { withProjectLock } from '../lock';
+import { memberPath, sourceBrokenReason } from '../groups';
+import { withProjectLocks } from '../lock';
 import { validateBranchName, validateNewWorkspaceName, validateStartRef, validateWorkspaceRefName } from '../names';
 import { applyRules } from '../rules';
 import type { ApplyRulesOutcome, RuleApplyResult } from '../rules';
-import { setWorkspaceCopiesLinks } from '../workspaces';
-import { requireProject } from './project';
+import { groupWorkspaceParent, setGroupWorkspaceCopiesLinks, setWorkspaceCopiesLinks } from '../workspaces';
+import { lockRootsWithSourcesOf, requireProject } from './project';
 import type { ProjectInfo } from './project';
 
 export interface CreateWorkspaceOptions {
@@ -54,28 +56,62 @@ export type CheckoutPlan =
   // Checkout a tag/commit without a branch (detached HEAD).
   | { kind: 'detach'; sha: string; ref: string };
 
+// One declared project of a group workspace plan.
+export interface MemberPlan {
+  // The declared project path (`projects/api`).
+  project: string;
+  // The source repository: <group>/<project>.
+  root: string;
+  // Where its clone will be created: <group>/.worktrees/<name>/<project>.
+  target: string;
+  checkout: CheckoutPlan;
+}
+
 export interface WorkspacePlan {
   root: string;
   name: string;
   // Where the workspace will be created: <root>/.worktrees/<name>.
   target: string;
-  checkout: CheckoutPlan;
-  // Human-readable warnings (currently: main project has uncommitted changes).
+  // Absent for a project group, which has one checkout per member instead.
+  checkout?: CheckoutPlan;
+  // Project group only: one plan per declared project, in file order. The
+  // same branch options apply to every member.
+  projects?: MemberPlan[];
+  // Human-readable warnings (currently: a project has uncommitted changes).
   warnings: string[];
+}
+
+export interface MemberCreateResult {
+  project: string;
+  // The source repository the member was cloned from.
+  root: string;
+  path: string;
+  branch?: string;
+  head?: string;
+  detached: boolean;
+  // That project's own copy/link rules, applied inside its clone.
+  rules: ApplyRulesOutcome;
 }
 
 export interface CreateWorkspaceResult {
   name: string;
   path: string;
   root: string;
-  // Branch checked out in the new workspace; undefined when detached.
+  // Branch checked out in the new workspace; undefined when detached. For a
+  // group workspace: set only when every member ended up on that same branch.
   branch?: string;
-  // Full commit sha of the workspace HEAD.
+  // Full commit sha of the workspace HEAD; absent for a group workspace.
   head?: string;
+  // For a group workspace: every member is detached.
   detached: boolean;
   // `link` rules were (and will keep being) applied as copies.
   copyLinks: boolean;
+  // The rules of `root` applied to the workspace. For a group that is the
+  // group's own .workler (shared files next to the clones); each member's
+  // rules are in `projects`.
   rules: ApplyRulesOutcome;
+  // Project group only: one result per declared project, in file order.
+  projects?: MemberCreateResult[];
 }
 
 function validateOptions(options: CreateWorkspaceOptions): void {
@@ -134,12 +170,46 @@ function validateOptions(options: CreateWorkspaceOptions): void {
   validateWorkspaceRefName(options.name);
 }
 
-function requireGitProject(rootInput: string): ProjectInfo {
-  const info = requireProject(rootInput);
-  if (!info.gitRepo) {
-    throw new WorklerError('NOT_A_GIT_REPO', 'workler add needs a git repository', { root: info.root });
+// A root `add` can clone: a Git repository, or a project group whose members
+// are Git repositories. A repository that also declares projects is rejected
+// rather than half-honored.
+// A repository's .workler holds copy/link rules only; "project" lines belong
+// to a group root, which is a plain folder. Checked for the repository `add`
+// runs in and for every member of a group, so a repository is never accepted
+// through a group when `add` would refuse it directly.
+function assertRepositoryDeclaresNoProjects(root: string): void {
+  if (!fs.existsSync(path.join(root, CONFIG_FILE))) {
+    return;
   }
-  return info;
+  if (readConfig(root).projects.length > 0) {
+    throw new WorklerError(
+      'CONFIG_INVALID',
+      `${CONFIG_FILE} in a Git repository cannot declare "project" entries: ${root}\n` +
+        'a project group is a plain folder (not a Git repository) that lists the repositories below it',
+      { root },
+    );
+  }
+}
+
+function requireCloneableProject(rootInput: string): ProjectInfo {
+  const info = requireProject(rootInput);
+  if (info.gitRepo) {
+    assertRepositoryDeclaresNoProjects(info.root);
+    return info;
+  }
+  if (info.isGroup) {
+    return info;
+  }
+  if (info.configError) {
+    // Re-read to throw the original CONFIG_INVALID (inspectProject only
+    // records its message).
+    readConfig(info.root);
+  }
+  throw new WorklerError(
+    'NOT_A_GIT_REPO',
+    `${PACKAGE_NAME} add needs a git repository, or a project group (a ${CONFIG_FILE} with "project <path>" entries)`,
+    { root: info.root },
+  );
 }
 
 // Validates options and resolves everything `add` needs without touching
@@ -147,17 +217,21 @@ function requireGitProject(rootInput: string): ProjectInfo {
 // for dry runs; createWorkspace re-plans under the project lock.
 export function planWorkspaceCreation(rootInput: string, options: CreateWorkspaceOptions): WorkspacePlan {
   validateOptions(options);
-  const info = requireGitProject(rootInput);
-  return planLocked(info.root, options);
+  const info = requireCloneableProject(rootInput);
+  return info.isGroup ? planGroupLocked(info.root, info.projects, options) : planLocked(info.root, options);
+}
+
+function workspaceTarget(root: string, name: string): string {
+  const target = path.join(root, WORKSPACES_DIR, name);
+  assertInside(path.join(root, WORKSPACES_DIR), target, 'workspace path escaped .worktrees');
+  if (fs.existsSync(target)) {
+    throw new WorklerError('WORKSPACE_EXISTS', `workspace already exists: ${target}`, { name, path: target });
+  }
+  return target;
 }
 
 function planLocked(root: string, options: CreateWorkspaceOptions): WorkspacePlan {
-  const target = path.join(root, WORKSPACES_DIR, options.name);
-  assertInside(path.join(root, WORKSPACES_DIR), target, 'workspace path escaped .worktrees');
-
-  if (fs.existsSync(target)) {
-    throw new WorklerError('WORKSPACE_EXISTS', `workspace already exists: ${target}`, { name: options.name, path: target });
-  }
+  const target = workspaceTarget(root, options.name);
 
   // Parse and safety-check every rule against the still-nonexistent target.
   // This has no side effects, but prevents a known-bad rule (including a
@@ -176,75 +250,276 @@ function planLocked(root: string, options: CreateWorkspaceOptions): WorkspacePla
   return { root, name: options.name, target, checkout, warnings };
 }
 
+// Plans every member of a group workspace. All-or-nothing: a bad ref or an
+// existing branch in ANY member fails here, before anything is cloned.
+function planGroupLocked(root: string, projects: string[], options: CreateWorkspaceOptions): WorkspacePlan {
+  const target = workspaceTarget(root, options.name);
+
+  // The group's own rules land next to the member clones.
+  applyRules(root, target, { force: options.force === true, copyLinks: options.copyLinks === true, dryRun: true });
+
+  const warnings: string[] = [];
+  const members: MemberPlan[] = [];
+  for (const project of projects) {
+    const memberRoot = memberPath(root, project);
+    const memberTarget = memberPath(target, project);
+    forProject(project, () => {
+      // Reached through real folders only: a symbolic link on the way would
+      // make the group clone from (and later sync into) a repository that
+      // lives somewhere else.
+      const unusable = sourceBrokenReason(root, project);
+      if (unusable !== undefined) {
+        throw new WorklerError(
+          'NOT_A_GIT_REPO',
+          `declared project is ${unusable}: ${memberRoot}\n` +
+            `put the repository there as a real folder, or fix the "project ${project}" line in ${CONFIG_FILE}`,
+          { root: memberRoot, project },
+        );
+      }
+      assertRepositoryDeclaresNoProjects(memberRoot);
+      applyRules(memberRoot, memberTarget, { force: options.force === true, copyLinks: options.copyLinks === true, dryRun: true });
+      const checkout = planCheckout(memberRoot, options);
+      if (!isGitWorkTreeClean(memberRoot)) {
+        warnings.push(`${project} has uncommitted changes; its clone will only contain committed tracked files`);
+      }
+      members.push({ project, root: memberRoot, target: memberTarget, checkout });
+    });
+  }
+
+  return { root, name: options.name, target, projects: members, warnings };
+}
+
+// Prefixes a member's failure with its project path so the user knows which
+// repository to look at; the code and details are kept for API callers.
+function forProject<T>(project: string, fn: () => T): T {
+  try {
+    return fn();
+  } catch (error) {
+    if (error instanceof WorklerError) {
+      throw new WorklerError(error.code, `${project}: ${error.message}`, { ...error.details, project });
+    }
+    throw error;
+  }
+}
+
 export function createWorkspace(rootInput: string, options: CreateWorkspaceOptions): CreateWorkspaceResult {
   validateOptions(options);
-  const info = requireGitProject(rootInput);
+  const info = requireCloneableProject(rootInput);
   const root = info.root;
   const progress = options.onProgress ?? (() => {});
 
-  return withProjectLock(root, `add ${options.name}`, () => {
-    const plan = planLocked(root, options);
-    for (const warning of plan.warnings) {
-      progress(`warning: ${warning}`);
+  // A group add clones from every declared source and applies its rules from
+  // there, so it holds the sources' locks as well as the group's.
+  return withProjectLocks(lockRootsWithSourcesOf(info), `add ${options.name}`, () =>
+    info.isGroup ? createGroupLocked(root, info.projects, options, progress) : createSingleLocked(root, options, progress),
+  );
+}
+
+function createSingleLocked(
+  root: string,
+  options: CreateWorkspaceOptions,
+  progress: (message: string) => void,
+): CreateWorkspaceResult {
+  const plan = planLocked(root, options);
+  for (const warning of plan.warnings) {
+    progress(`warning: ${warning}`);
+  }
+
+  // `init` excludes .worktrees/ on the main project, but a workspace acting
+  // as the root of nested workspaces (or a root from an older workler) may
+  // not have the entry yet; make sure it does before creating the clone.
+  addLineIfMissing(gitInfoExcludePath(root), `${WORKSPACES_DIR}/`);
+
+  fs.mkdirSync(path.dirname(plan.target), { recursive: true });
+
+  progress(`cloning ${root}`);
+  progress(`     to ${plan.target}`);
+  try {
+    git(null, ['clone', '--local', root, plan.target]);
+  } catch (error) {
+    const partial = fs.existsSync(plan.target)
+      ? '\nthe partial clone was left in place so you can inspect or remove it manually'
+      : '';
+    throw new WorklerError(
+      'SETUP_FAILED',
+      `clone failed for ${plan.target}: ${(error as Error).message}${partial}`,
+      { name: options.name, path: plan.target, cause: (error as Error).message },
+    );
+  }
+
+  let rules: ApplyRulesOutcome;
+  try {
+    executeCheckout(plan.target, plan.checkout as CheckoutPlan, progress);
+    configureWorkspace(root, plan.target, options.name);
+    if (options.copyLinks === true) {
+      setWorkspaceCopiesLinks(plan.target, true);
     }
-
-    // `init` excludes .worktrees/ on the main project, but a workspace acting
-    // as the root of nested workspaces (or a root from an older workler) may
-    // not have the entry yet; make sure it does before creating the clone.
-    addLineIfMissing(gitInfoExcludePath(root), `${WORKSPACES_DIR}/`);
-
-    fs.mkdirSync(path.dirname(plan.target), { recursive: true });
-
-    progress(`cloning ${root}`);
-    progress(`     to ${plan.target}`);
-    try {
-      git(null, ['clone', '--local', root, plan.target]);
-    } catch (error) {
-      const partial = fs.existsSync(plan.target)
-        ? '\nthe partial clone was left in place so you can inspect or remove it manually'
-        : '';
-      throw new WorklerError(
-        'SETUP_FAILED',
-        `clone failed for ${plan.target}: ${(error as Error).message}${partial}`,
-        { name: options.name, path: plan.target, cause: (error as Error).message },
-      );
-    }
-
-    let rules: ApplyRulesOutcome;
-    try {
-      executeCheckout(plan.target, plan.checkout, progress);
-      configureWorkspace(root, plan.target, options.name);
-      if (options.copyLinks === true) {
-        setWorkspaceCopiesLinks(plan.target, true);
-      }
-      rules = applyRules(root, plan.target, {
-        force: options.force === true,
-        copyLinks: options.copyLinks === true,
-        dryRun: false,
-        onResult: options.onRuleResult,
-      });
-    } catch (error) {
-      throw new WorklerError(
-        'SETUP_FAILED',
-        `setup failed for ${plan.target}: ${(error as Error).message}\n` +
-          'the clone was left in place so you can inspect or remove it manually',
-        { name: options.name, path: plan.target, cause: (error as Error).message },
-      );
-    }
-
-    const abbrev = gitMaybe(plan.target, ['rev-parse', '--abbrev-ref', 'HEAD']);
-    const detached = !abbrev || abbrev === 'HEAD';
-    return {
-      name: options.name,
-      path: plan.target,
-      root,
-      branch: detached ? undefined : abbrev,
-      head: gitMaybe(plan.target, ['rev-parse', 'HEAD']),
-      detached,
+    rules = applyRules(root, plan.target, {
+      force: options.force === true,
       copyLinks: options.copyLinks === true,
-      rules,
-    };
-  });
+      dryRun: false,
+      onResult: options.onRuleResult,
+    });
+  } catch (error) {
+    throw new WorklerError(
+      'SETUP_FAILED',
+      `setup failed for ${plan.target}: ${(error as Error).message}\n` +
+        'the clone was left in place so you can inspect or remove it manually',
+      { name: options.name, path: plan.target, cause: (error as Error).message },
+    );
+  }
+
+  const head = headState(plan.target);
+  return {
+    name: options.name,
+    path: plan.target,
+    root,
+    ...head,
+    copyLinks: options.copyLinks === true,
+    rules,
+  };
+}
+
+function headState(repo: string): { branch?: string; head?: string; detached: boolean } {
+  const abbrev = gitMaybe(repo, ['rev-parse', '--abbrev-ref', 'HEAD']);
+  const detached = !abbrev || abbrev === 'HEAD';
+  return { branch: detached ? undefined : abbrev, head: gitMaybe(repo, ['rev-parse', 'HEAD']), detached };
+}
+
+// Creates a group workspace: the directory, a copy of the group's .workler
+// (so the workspace is a group root of its own and can host nested group
+// workspaces), one clone per declared project, then the group's own rules.
+// A failure midway leaves the partial workspace in place; `list` and
+// `status` flag what is missing and `remove --force` cleans it up.
+// Whether `root` is a workspace of an enclosing group root
+// (<group>/.worktrees/<name>), as opposed to a group that merely sits in a
+// folder of that name. A parent whose own .workler does not parse is no group
+// root here.
+function isNestedGroupWorkspace(root: string): boolean {
+  try {
+    return groupWorkspaceParent(root) !== undefined;
+  } catch {
+    return false;
+  }
+}
+
+function createGroupLocked(
+  root: string,
+  projects: string[],
+  options: CreateWorkspaceOptions,
+  progress: (message: string) => void,
+): CreateWorkspaceResult {
+  const plan = planGroupLocked(root, projects, options);
+  for (const warning of plan.warnings) {
+    progress(`warning: ${warning}`);
+  }
+
+  // A group root is never a Git repository, so there is no info/exclude to
+  // use; mirror `init` and ignore the workspaces directory in .gitignore. That
+  // only matters when the group sits inside an outer repository, where the
+  // clones and group-level copies would otherwise show up as untracked outer
+  // content. A real nested group workspace skips this: it already lives under
+  // a .worktrees/ that its parent group ignores. The parent folder's name alone
+  // does not prove that (a hand-written group may sit in a tracked folder
+  // called .worktrees), so ask for the workspace itself.
+  if (!isNestedGroupWorkspace(root)) {
+    addLineIfMissing(path.join(root, '.gitignore'), `${WORKSPACES_DIR}/`);
+  }
+
+  fs.mkdirSync(plan.target, { recursive: true });
+  fs.copyFileSync(path.join(root, CONFIG_FILE), path.join(plan.target, CONFIG_FILE));
+
+  const results: MemberCreateResult[] = [];
+  for (const member of plan.projects ?? []) {
+    results.push(createMember(root, member, options, progress));
+  }
+
+  let rules: ApplyRulesOutcome;
+  try {
+    if (readRules(root).length > 0) {
+      progress('group rules');
+    }
+    rules = applyRules(root, plan.target, {
+      force: options.force === true,
+      copyLinks: options.copyLinks === true,
+      dryRun: false,
+      onResult: options.onRuleResult,
+    });
+  } catch (error) {
+    throw new WorklerError(
+      'SETUP_FAILED',
+      `setup failed for ${plan.target}: ${(error as Error).message}\n` +
+        `the workspace was left in place so you can inspect it, or run \`${PACKAGE_NAME} remove ${options.name} --force\``,
+      { name: options.name, path: plan.target, cause: (error as Error).message },
+    );
+  }
+
+  const branches = new Set(results.map((result) => (result.detached ? undefined : result.branch)));
+  const sameBranch = branches.size === 1 && !results[0].detached;
+  return {
+    name: options.name,
+    path: plan.target,
+    root,
+    branch: sameBranch ? results[0].branch : undefined,
+    detached: results.every((result) => result.detached),
+    copyLinks: options.copyLinks === true,
+    rules,
+    projects: results,
+  };
+}
+
+function createMember(
+  group: string,
+  member: MemberPlan,
+  options: CreateWorkspaceOptions,
+  progress: (message: string) => void,
+): MemberCreateResult {
+  const leftInPlace = `the partial workspace was left in place so you can inspect it, or run \`${PACKAGE_NAME} remove ${options.name} --force\``;
+  fs.mkdirSync(path.dirname(member.target), { recursive: true });
+
+  progress(`project ${member.project}`);
+  progress(`cloning ${member.root}`);
+  progress(`     to ${member.target}`);
+  try {
+    git(null, ['clone', '--local', member.root, member.target]);
+  } catch (error) {
+    throw new WorklerError(
+      'SETUP_FAILED',
+      `${member.project}: clone failed for ${member.target}: ${(error as Error).message}\n${leftInPlace}`,
+      { name: options.name, path: member.target, project: member.project, cause: (error as Error).message },
+    );
+  }
+
+  let rules: ApplyRulesOutcome;
+  try {
+    executeCheckout(member.target, member.checkout, progress);
+    // The member is an ordinary workspace of its source repository (rules,
+    // link targets and branch-sync come from there) that additionally knows
+    // which group workspace it belongs to.
+    configureWorkspace(member.root, member.target, options.name);
+    git(member.target, ['config', '--local', 'workler.group', canonicalPath(group)]);
+    git(member.target, ['config', '--local', 'workler.groupProject', member.project]);
+    if (options.copyLinks === true) {
+      setWorkspaceCopiesLinks(member.target, true);
+      // The group's own rules are applied in this mode too (createGroupLocked);
+      // the workspace folder is not a repository, so each member remembers it.
+      setGroupWorkspaceCopiesLinks([member.target], true);
+    }
+    rules = applyRules(member.root, member.target, {
+      force: options.force === true,
+      copyLinks: options.copyLinks === true,
+      dryRun: false,
+      onResult: options.onRuleResult,
+    });
+  } catch (error) {
+    throw new WorklerError(
+      'SETUP_FAILED',
+      `${member.project}: setup failed for ${member.target}: ${(error as Error).message}\n${leftInPlace}`,
+      { name: options.name, path: member.target, project: member.project, cause: (error as Error).message },
+    );
+  }
+
+  return { project: member.project, root: member.root, path: member.target, ...headState(member.target), rules };
 }
 
 function planCheckout(root: string, options: CreateWorkspaceOptions): CheckoutPlan {

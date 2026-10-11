@@ -3,7 +3,7 @@
 (Re-)apply the copy/link rules from `.workler` to workspaces. If the optional file is absent or empty, there are no rules to apply.
 
 ```bash
-workler apply [name] [--all] [--copy-links | --no-copy-links] [--force] [--dry-run]
+workler apply [name[/<project>]] [--all] [--copy-links | --no-copy-links] [--force] [--dry-run]
 ```
 
 ## Behavior
@@ -14,6 +14,10 @@ workler apply [name] [--all] [--copy-links | --no-copy-links] [--force] [--dry-r
 | `workler apply --all` | Apply the rules to every workspace (except `main`) |
 | `workler apply` (inside a workspace) | Refresh this workspace from its immediate parent's `.workler` |
 | `workler apply` (in the main project) | Error — say which workspace, or `--all` |
+| `workler apply <name>` (in a [project group](/guide/project-groups)) | Every cloned member from its source repository's `.workler`, then the group's own rules into the workspace folder; a member that was never cloned is skipped, and so is a symbolic link or file at a member's path or at any folder on the way to it (it is never followed), and so is a repository at a member path that is not the recorded clone of that member (an unrelated repository, or a clone made for another workspace or location); a workspace left with no member clone at all gets no group rules, since nothing can record its copy-links mode (remove it and run `add` again). Holds the group's lock and every usable source repository's lock while it runs, like `fetch` and `sync`, so a `sync` started inside a source cannot rewrite files while they are being copied |
+| `workler apply <name>/<project>` (in a project group) | That one member only, from its source repository |
+| `workler apply` (inside a member clone) | Refresh this clone from its source repository |
+| `workler apply` (inside a group workspace folder) | Same as `apply <name>` at the group root |
 
 For each rule, an up-to-date destination is reported `ok` and left alone; a missing source is skipped; anything else in the way is a conflict that requires `--force`. See [Safety, `--force`, `--dry-run`](/guide/safety) for the exact semantics.
 
@@ -64,10 +68,11 @@ ok     link node_modules (already linked)
 
 ## Errors
 
-- No workspace named `<name>`.
+- No workspace named `<name>`, or no declared project `<project>` in the group.
 - `--all` combined with a workspace name.
 - `--copy-links` combined with `--no-copy-links`.
 - Bare `apply` outside a workspace.
+- Bare `apply` inside a member clone whose source repository is missing, not a repository, or behind a symbolic link. The clone is not refreshed from whatever now sits at the source path.
 - A conflicting destination without `--force` — the error shows source, destination, and what is currently there.
 
 ## Examples
@@ -80,4 +85,5 @@ workler apply feature-a --force         # take the main project's .env again
 workler apply feature-a --copy-links    # convert its symlinks into independent copies
 workler apply feature-a --no-copy-links --force   # and back to symlinks
 cd "$(workler path feature-a)" && workler apply   # refresh from inside
+workler apply feat/projects/api         # in a project group: one member only
 ```

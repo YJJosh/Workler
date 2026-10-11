@@ -2,9 +2,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { CONFIG_FILE, WORKSPACES_DIR } from './constants';
 import { WorklerError } from './errors';
-import type { WorklerRule } from './types';
+import type { ProjectEntry, WorklerConfig, WorklerRule } from './types';
 
-const EXPECTED_SYNTAX = 'copy <path> | link <path>  (quote paths that contain spaces, "#" after whitespace starts a comment)';
+const EXPECTED_SYNTAX =
+  'copy <path> | link <path> | project <path>  (quote paths that contain spaces, "#" after whitespace starts a comment)';
 
 // Throws with .workler:<line>:<column>, the offending line, and what was
 // expected, so config mistakes are easy to locate and fix.
@@ -59,14 +60,29 @@ function parseRulePath(line: string, start: number, lineNumber: number, rawLine:
   return line.slice(start).trim();
 }
 
+// Every path-bearing line in the file, in order, for the overlap check.
+interface ConfigEntry {
+  kind: 'rule' | 'project';
+  path: string;
+}
+
+// The copy/link rules of a project. `project` lines are parsed and validated
+// too (so a broken file fails everywhere), but only readConfig exposes them.
 export function readRules(root: string): WorklerRule[] {
+  return readConfig(root).rules;
+}
+
+export function readConfig(root: string): WorklerConfig {
   const configPath = path.join(root, CONFIG_FILE);
   if (!fs.existsSync(configPath)) {
-    return [];
+    return { rules: [], projects: [] };
   }
 
   const text = fs.readFileSync(configPath, 'utf8');
   const rules: WorklerRule[] = [];
+  let configRule: { lineNumber: number; column: number; rawLine: string } | undefined;
+  const projects: ProjectEntry[] = [];
+  const entries: ConfigEntry[] = [];
   const lines = text.split(/\r?\n/);
 
   for (let index = 0; index < lines.length; index++) {
@@ -84,7 +100,7 @@ export function readRules(root: string): WorklerRule[] {
     const actionStart = line.length - line.trimStart().length;
     const actionMatch = line.slice(actionStart).match(/^\S+/);
     const action = actionMatch ? actionMatch[0] : '';
-    if (action !== 'copy' && action !== 'link') {
+    if (action !== 'copy' && action !== 'link' && action !== 'project') {
       parseError(index + 1, actionStart + 1, rawLine, `unknown action "${action}"`, EXPECTED_SYNTAX);
     }
 
@@ -96,31 +112,84 @@ export function readRules(root: string): WorklerRule[] {
 
     const parsedPath = parseRulePath(line, pathStart, lineNumber, rawLine);
     const targetPath = validateRulePath(parsedPath, lineNumber, pathStart + 1, rawLine);
+    const entry: ConfigEntry = { kind: action === 'project' ? 'project' : 'rule', path: targetPath };
 
-    // Parent/child rules are not independent: a link at `cache` would make a
-    // later rule for `cache/file` traverse that link, while two rules for the
-    // same path necessarily conflict. Reject the ambiguous configuration
-    // instead of making behavior (and safety) depend on line order.
-    const targetParts = targetPath.split('/').map((part) => part.toLowerCase());
-    for (const existing of rules) {
-      const existingParts = existing.targetPath.split('/').map((part) => part.toLowerCase());
-      const shared = Math.min(targetParts.length, existingParts.length);
-      const samePrefix = targetParts.slice(0, shared).every((part, partIndex) => part === existingParts[partIndex]);
-      if (samePrefix && (targetParts.length === shared || existingParts.length === shared)) {
-        parseError(
-          lineNumber,
-          pathStart + 1,
-          rawLine,
-          `rule path overlaps an earlier rule: "${targetPath}" and "${existing.targetPath}"`,
-          'non-overlapping rule paths (manage either a parent or its child, not both)',
-        );
+    // Workler writes its own copy of this file into every group workspace, so
+    // a group-level rule for it could only ever conflict with that copy (or,
+    // with --force, replace the copy by a link that `remove` then protects as
+    // local data). Remember the first such rule; it is rejected below once the
+    // file turns out to declare projects.
+    if (entry.kind === 'rule' && !configRule && targetPath.split('/')[0].toLowerCase() === CONFIG_FILE.toLowerCase()) {
+      configRule = { lineNumber, column: pathStart + 1, rawLine };
+    }
+
+    // Parent/child entries are not independent: a link at `cache` would make
+    // a later rule for `cache/file` traverse that link, two rules for the same
+    // path necessarily conflict, and a rule that reaches into a project (or a
+    // project nested in another) would make two owners manage one tree.
+    // Reject the ambiguous configuration instead of making behavior (and
+    // safety) depend on line order.
+    for (const existing of entries) {
+      if (pathsOverlap(targetPath, existing.path)) {
+        parseError(lineNumber, pathStart + 1, rawLine, overlapMessage(entry, existing, targetPath), overlapExpectation(entry, existing));
       }
     }
 
-    rules.push({ action, targetPath, raw: rawLine.trim() });
+    entries.push(entry);
+    if (action === 'project') {
+      projects.push({ path: targetPath, raw: rawLine.trim() });
+    } else {
+      rules.push({ action, targetPath, raw: rawLine.trim() });
+    }
   }
 
-  return rules;
+  if (configRule && projects.length > 0) {
+    parseError(
+      configRule.lineNumber,
+      configRule.column,
+      configRule.rawLine,
+      `a project group cannot manage ${CONFIG_FILE}: Workler writes that file into every group workspace itself`,
+      `a path other than ${CONFIG_FILE}`,
+    );
+  }
+
+  return { rules, projects };
+}
+
+// Whether two validated paths are the same entry or a parent and its child,
+// compared the way the parser compares them: component by component and
+// case-insensitively (on a case-insensitive file system `API` and `api` are
+// one folder, so the file cannot tell them apart). Exported so `init` can
+// leave out a discovered path that the file would reject.
+export function pathsOverlap(first: string, second: string): boolean {
+  const firstParts = first.split('/').map((part) => part.toLowerCase());
+  const secondParts = second.split('/').map((part) => part.toLowerCase());
+  const shared = Math.min(firstParts.length, secondParts.length);
+  const samePrefix = firstParts.slice(0, shared).every((part, index) => part === secondParts[index]);
+  return samePrefix && (firstParts.length === shared || secondParts.length === shared);
+}
+
+function overlapMessage(entry: ConfigEntry, existing: ConfigEntry, targetPath: string): string {
+  const pair = `"${targetPath}" and "${existing.path}"`;
+  if (entry.kind === 'rule' && existing.kind === 'rule') {
+    return `rule path overlaps an earlier rule: ${pair}`;
+  }
+  if (entry.kind === 'project' && existing.kind === 'project') {
+    return `project path overlaps an earlier project: ${pair}`;
+  }
+  return entry.kind === 'project'
+    ? `project path overlaps an earlier rule: ${pair}`
+    : `rule path overlaps an earlier project: ${pair}`;
+}
+
+function overlapExpectation(entry: ConfigEntry, existing: ConfigEntry): string {
+  if (entry.kind === 'rule' && existing.kind === 'rule') {
+    return 'non-overlapping rule paths (manage either a parent or its child, not both)';
+  }
+  if (entry.kind === 'project' && existing.kind === 'project') {
+    return 'non-overlapping project paths (a project cannot contain another project)';
+  }
+  return "non-overlapping paths (rules that reach into a project belong in that project's own .workler)";
 }
 
 function validateRulePath(targetPath: string, lineNumber: number, column: number, rawLine: string): string {
@@ -162,4 +231,22 @@ function validateRulePath(targetPath: string, lineNumber: number, column: number
   // Store one portable spelling so `a\\b` does not mean a single filename on
   // POSIX and a nested path on Windows, and so overlap checks are reliable.
   return parts.join('/');
+}
+
+// The parser knows no escapes: a path is written bare, or inside whichever
+// kind of quote it lacks. One holding both kinds, or a line break, cannot be
+// written at all. Neither can one holding a backslash: the parser reads it as
+// a separator (see validateRulePath), so `foo\bar` would name `foo/bar`.
+export function canWriteConfigPath(value: string): boolean {
+  return !/[\r\n\\]/.test(value) && !(value.includes('"') && value.includes("'"));
+}
+
+// Formats a path for a config line, and for any line shown to be pasted into
+// one: whitespace, "#" or a quote need quotes to survive the parser, using
+// whichever quote the path lacks (see canWriteConfigPath).
+export function quoteConfigPath(value: string): string {
+  if (!/[\s#"']/.test(value)) {
+    return value;
+  }
+  return value.includes('"') ? `'${value}'` : `"${value}"`;
 }

@@ -1,8 +1,9 @@
 import { parseCommandArgs } from '../cli-utils';
 import { PACKAGE_NAME } from '../constants';
 import { createWorkspace, planWorkspaceCreation } from '../core/create';
-import type { CheckoutPlan, CreateWorkspaceOptions } from '../core/create';
+import type { CheckoutPlan, CreateWorkspaceOptions, WorkspacePlan } from '../core/create';
 import { applyRules } from '../rules';
+import type { ApplyRulesOutcome } from '../rules';
 import { findWorklerRoot } from '../workspaces';
 import { printRuleResult, printRuleSummary } from './rule-output';
 
@@ -38,7 +39,7 @@ export function addCommand(args: string[]): void {
     for (const warning of plan.warnings) {
       console.log(`warning: ${warning}`);
     }
-    printPlan(plan.root, plan.target, plan.checkout, options.force === true, options.copyLinks === true);
+    printPlan(plan, options.force === true, options.copyLinks === true);
     return;
   }
 
@@ -47,7 +48,13 @@ export function addCommand(args: string[]): void {
     onProgress: (message) => console.log(message),
     onRuleResult: printRuleResult,
   });
-  printRuleSummary(result.rules);
+  if (result.projects) {
+    // Each member printed its own results as they resolved; summarize the
+    // group as a whole so "no workspace rules" means no rules anywhere.
+    printRuleSummary(combinedOutcome([result.rules, ...result.projects.map((project) => project.rules)]));
+  } else {
+    printRuleSummary(result.rules);
+  }
 
   console.log(`done   ${result.name}`);
   console.log(`path   ${result.path}`);
@@ -56,8 +63,27 @@ export function addCommand(args: string[]): void {
 // Prints the full plan for `add --dry-run` without cloning anything. Mirrors
 // what createWorkspace reports as progress, with "would" phrasing, then
 // dry-runs the copy/link rules against the (nonexistent) target.
-function printPlan(root: string, target: string, plan: CheckoutPlan, force: boolean, copyLinks: boolean): void {
+function printPlan(plan: WorkspacePlan, force: boolean, copyLinks: boolean): void {
   console.log('dry run: nothing will be created');
+
+  if (!plan.projects) {
+    printClonePlan(plan.root, plan.target, plan.checkout as CheckoutPlan);
+    const outcome = applyRules(plan.root, plan.target, { force, copyLinks, dryRun: true, onResult: printRuleResult });
+    printRuleSummary(outcome);
+    return;
+  }
+
+  const outcomes: ApplyRulesOutcome[] = [];
+  for (const member of plan.projects) {
+    console.log(`project ${member.project}`);
+    printClonePlan(member.root, member.target, member.checkout);
+    outcomes.push(applyRules(member.root, member.target, { force, copyLinks, dryRun: true, onResult: printRuleResult }));
+  }
+  const groupOutcome = applyRules(plan.root, plan.target, { force, copyLinks, dryRun: true, onResult: printRuleResult });
+  printRuleSummary(combinedOutcome([groupOutcome, ...outcomes]));
+}
+
+function printClonePlan(root: string, target: string, plan: CheckoutPlan): void {
   console.log(`would clone ${root}`);
   console.log(`         to ${target}`);
 
@@ -73,7 +99,12 @@ function printPlan(root: string, target: string, plan: CheckoutPlan, force: bool
       console.log(`would create branch ${plan.branch} from HEAD`);
     }
   }
+}
 
-  const outcome = applyRules(root, target, { force, copyLinks, dryRun: true, onResult: printRuleResult });
-  printRuleSummary(outcome);
+function combinedOutcome(outcomes: ApplyRulesOutcome[]): ApplyRulesOutcome {
+  return {
+    ruleCount: outcomes.reduce((sum, outcome) => sum + outcome.ruleCount, 0),
+    results: outcomes.flatMap((outcome) => outcome.results),
+    conflicts: outcomes.reduce((sum, outcome) => sum + outcome.conflicts, 0),
+  };
 }

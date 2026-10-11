@@ -1,5 +1,6 @@
 import { assertNoArgs } from '../cli-utils';
 import { listWorkspaceInfos } from '../core/list';
+import type { WorkspaceInfo } from '../core/list';
 import { findWorklerRoot } from '../workspaces';
 
 export function listCommand(args: string[]): void {
@@ -11,7 +12,7 @@ export function listCommand(args: string[]): void {
     .filter((info) => info.isClone)
     .map((info) => ({
       name: info.name,
-      branch: info.branch ?? info.shortHead ?? '?',
+      branch: branchColumn(info),
       path: info.path,
     }));
 
@@ -21,4 +22,21 @@ export function listCommand(args: string[]): void {
   for (const row of rows) {
     console.log(`${row.name.padEnd(nameWidth)}  ${row.branch.padEnd(branchWidth)}  ${row.path}`);
   }
+}
+
+// A group workspace is one line: its branch when every member agrees,
+// "detached" when no member is on a branch, "mixed" otherwise, and
+// "incomplete" when a member is missing or broken.
+// `status` shows the members one by one.
+function branchColumn(info: WorkspaceInfo): string {
+  if (!info.projects) {
+    return info.branch ?? info.shortHead ?? '?';
+  }
+  if (info.broken) {
+    return 'incomplete';
+  }
+  if (info.detached) {
+    return 'detached';
+  }
+  return info.branch ?? (info.projects.length > 0 ? 'mixed' : '?');
 }

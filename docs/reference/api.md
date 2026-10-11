@@ -53,6 +53,10 @@ The API and the CLI share the same core: `workler add` and
   project-local layout the CLI uses, including nested workspaces (pass a
   workspace's path as the root to manage its own `.worktrees/`). The
   `.worktrees` containment directory must not be a symlink or junction.
+- **A root may be a [project group](/guide/project-groups)**: a non-Git
+  folder whose `.workler` declares `project <path>` lines. The same functions
+  then create, list, and remove group workspaces; the results carry a
+  `projects` array with one entry per member.
 
 ## Functions
 
@@ -62,15 +66,34 @@ Same as the optional `workler init` helper: creates `.workler` (if missing),
 `.worktrees/`, marks the repository with `workler.*` Git config, and adds
 `.worktrees/` to `.git/info/exclude` (or `.gitignore` for non-Git roots).
 Ordinary Git repositories do not need initialization. Idempotent;
-the result reports whether the config file was created.
+the result reports whether the config file was created. In a non-Git folder
+it declares the repositories `discoverProjects` finds: the result lists them
+as `projects` and `discoveredProjects`, and any it could not write (a path
+holding both quote characters, a backslash, or a line break) as `unwritableProjects`. A repository whose path overlaps one the file already declares, or one discovered before it, the way the parser compares paths (case-insensitively, and a parent against its children) is returned under `overlappingProjects` with the path it overlaps, and left out so the written file parses. An existing `.workler` that does not parse is left as is; its parse error is returned as `configError` and the folder is still prepared.
 
 ### `inspectProject(root): ProjectInfo`
 
 Non-throwing inspection: `{ root, exists, gitRepo, marked,
-configFileExists, workspacesDirExists, initialized, parent }`. Every Git
-repository is immediately usable and reports `initialized: true`; a non-Git
-directory does so only when `.workler` explicitly marks it. `parent` is set
-when the root is itself a managed workspace (nested workspaces).
+configFileExists, workspacesDirExists, initialized, parent, projects,
+isGroup, configError?, memberOf? }`. Every Git repository is immediately
+usable and reports `initialized: true`; a non-Git directory does so only when
+`.workler` explicitly marks it. `parent` is set when the root is itself a
+managed workspace (nested workspaces), or a group workspace folder (then it
+is the group root). For a member clone of a group workspace it is the source
+repository, but only while that is a usable repository reached without
+symbolic links; a replacement at the source path leaves `parent` undefined,
+and a bare `apply` inside the clone refuses. `projects` lists the declared `project` paths of a group
+in file order (always empty for a Git repository) and `isGroup` is true when
+there are any. `configError` carries the parse error when `.workler` cannot
+be read. `memberOf` is `{ group, workspace, project }` for a member clone of
+a group workspace, whether or not its source is still usable.
+
+### `discoverProjects(root): string[]`
+
+Git repositories directly below a folder or one level deeper, as portable
+relative paths in sorted order — what `initProject` declares in a non-Git
+folder. Hidden directories, `node_modules`, and linked `git worktree`
+checkouts are skipped.
 
 ### `createWorkspace(root, options): CreateWorkspaceResult`
 
@@ -93,30 +116,62 @@ clone was created (bad config, rule conflict), the error is
 `SETUP_FAILED` and the clone is left in place for inspection — the same
 partial-failure contract the CLI documents.
 
+For a project group root the result also has `projects`, one
+`{ project, root, path, branch?, head?, detached, rules }` per member in
+file order (`root` is the source repository). The top-level `branch` is set
+only when every member ended on that branch, `detached` is true only when
+every member is detached, `head` is absent, and `rules` is the outcome of the
+group's own rules. Errors from one member are prefixed with its project path
+and carry `details.project`. A Git repository whose `.workler` declares
+projects fails with `CONFIG_INVALID`. A declared path that is missing, is not
+a repository, or is reached through a symbolic link fails with
+`NOT_A_GIT_REPO`; links are never followed. A group-level rule for `.workler` itself is CONFIG_INVALID: `add` copies the group's file into every group workspace.
+
 ### `planWorkspaceCreation(root, options): WorkspacePlan`
 
 The read-only planning half of `createWorkspace` (what `add --dry-run`
 prints): the resolved target path, the checkout plan, and any warnings.
-Nothing is created.
+Nothing is created. For a project group `checkout` is absent and `projects`
+holds one `{ project, root, target, checkout }` per member.
 
 ### `listWorkspaces(root): WorkspaceInfo[]`
 
 The main project plus every entry under `.worktrees/`, including broken
 ones: `{ name, path, isMain, isClone, broken?, branch?, head?,
-shortHead?, detached, clean? }`. `clean` uses the same guard as `remove`
-(untracked and ignored files count as dirty), so for a non-main workspace
+shortHead?, detached, clean?, projects? }`. `clean` uses the same guard as `remove`
+(untracked and ignored files count as dirty; an empty `.worktrees/`, Workler's own lock directory, does not), so for a non-main workspace
 `clean === true` means removable without force.
+
+Under a project group every entry has `projects`, one `{ project, path,
+isClone, broken?, branch?, head?, shortHead?, detached, clean? }` per
+declared project (for `main`, the source repositories). A member's `isClone` is true only for its usable clone, so it is false whenever that member's `broken` is set. The entry's own
+`isClone` is true for every recognized group workspace, even one left behind
+with no member cloned yet; `branch` is set only when every member is on it, `clean` only when every
+member is clean and the workspace folder holds nothing but the members (real directories reached through real directories that carry the recorded member identity; a symbolic link or file at a member's path, or at any folder on the way to it, is local data, and so is a repository that is not the recorded clone) plus an unchanged `.workler` copy (a regular file; a symbolic link in its place is local data), and
+`broken` joins the reasons of every broken or missing member.
 
 ### `resolveWorkspacePath(root, name): string`
 
 Absolute path of a workspace by name (`"main"` resolves to the root).
-Throws `WORKSPACE_NOT_FOUND` for unknown names.
+Throws `WORKSPACE_NOT_FOUND` for unknown names. Under a project group,
+`"<name>/<project path>"` resolves one member of the workspace
+(`"feat/projects/api"`, `"main/tools"`); an undeclared project throws
+`WORKSPACE_NOT_FOUND` too.
 
 ### `removeWorkspace(root, name, { force? }): RemoveWorkspaceResult`
 
 Same as `workler remove`: refuses to remove `main`, and refuses a
 workspace with uncommitted changes (including untracked and ignored files) unless
 `force` is set — that failure is `WORKSPACE_DIRTY`.
+
+### `groupRefNamespace(groupRoot): string`
+
+Where `workler branch-sync` run at a [project group](/guide/project-groups)
+root mirrors a member clone's branches inside its source repository:
+`refs/workler-group/<group>/<workspace>/<branch>`, with `<group>` the group
+folder's name plus a short hash of its canonical path. Use it to inspect the
+mirrors of one group; a repository that belongs to two groups has one such
+namespace per group.
 
 ## Locking
 
@@ -143,3 +198,24 @@ runs and read-only operations never lock.
   `.worktrees/`, independent of the parent. A parent `fetch`, `sync`, or
   `branch-sync` also touches its child repositories, so do not run one
   concurrently with a mutation addressed directly to a nested project.
+- A project group locks its own `.worktrees/`. `remove <name>` and
+  `apply <name>` hold that lock while they delete or rewrite the workspace,
+  so every mutating operation rooted inside it (`add`, `remove`, `apply`,
+  `fetch`, `sync`, `branch-sync`, `init`, and the API functions behind them)
+  takes the group's lock first and then its own. That holds for a member
+  clone, marked or not (a clone that an interrupted `add` left behind is
+  recognized by its location and remotes), for the workspace folder itself
+  when `add` runs there (a nested group), and it continues up through every
+  enclosing group. A bare `apply` inside a member clone takes the group's
+  locks and the source repository's, not the clone's own: it changes the
+  clone itself from the source's rules, not the clone's `.worktrees/`. A
+  workspace nested deeper, inside a member clone's own `.worktrees/`, follows
+  the nested-project rule above.
+- `add`, `apply`, `fetch`, `sync`, and `branch-sync` at a group root also
+  take the lock of every usable source repository, in declared order: `add`
+  clones from the sources and applies their rules, `apply` reads their rules
+  and copies from them, and the other three fetch into, fast-forward, and
+  write mirrored refs into them. A `sync` or `apply` run inside a source
+  repository therefore fails with `LOCKED` while the group's is running, and
+  the other way round. Dry runs take no locks. A source that is missing, not
+  a repository, or behind a symbolic link is skipped and never locked.

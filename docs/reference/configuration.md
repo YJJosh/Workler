@@ -2,6 +2,8 @@
 
 `.workler` is an optional file at the project root that declares copy/link rules applied to every workspace. Without it, Workler creates normal isolated clones and applies no rules. [`workler init`](/reference/cli/init) can create a commented starter file.
 
+In a plain folder that holds several repositories, the same file lists them with `project` lines and turns the folder into a [project group](/guide/project-groups).
+
 ## Syntax
 
 Line-based, like `.gitignore` but with an action first:
@@ -27,6 +29,7 @@ Each non-empty line is:
 | --- | --- |
 | `link <path>` | Create a symlink pointing back to the main project's `<path>`. Relative symlink on POSIX. On Windows a directory becomes a junction (no elevation needed, but its target is absolute, so moving the project breaks it) and a file becomes a real symlink (needs Developer Mode or elevation). See [Rules](/guide/rules#links-on-posix-and-on-windows). |
 | `copy <path>` | Copy the file or folder (recursively, preserving timestamps) into the workspace. |
+| `project <path>` | Declare a Git repository below this folder as a member of a [project group](/guide/project-groups). Only meaningful in a folder that is not itself a Git repository; `add` rejects a repository whose `.workler` declares projects. The path must lead there through real folders: a symbolic link on the way is never followed, and the source counts as broken. |
 
 ### Comments
 
@@ -60,7 +63,12 @@ Forward and backslashes both mean path separators, so a committed rule has the
 same meaning on POSIX and Windows. Rules for the same path, or for a parent and
 its child (`link cache` plus `copy cache/file`), are rejected as overlapping;
 otherwise applying them would depend on line order and could traverse a link
-created by an earlier rule.
+created by an earlier rule. `project` lines take part in the same check: a
+project cannot contain another project, and a rule cannot reach into a project
+(`project projects/api` plus `link projects/api/node_modules` is rejected; that
+rule belongs in `projects/api/.workler`). A file that declares projects also
+cannot have a rule for `.workler` itself: `add` copies the group's file into
+every group workspace, so the rule could only collide with that copy.
 
 ## Errors
 
@@ -78,4 +86,5 @@ Other parse errors include `unknown action "..."`, `missing path after "copy"`, 
 - **Missing sources are skipped, not errors.** `link node_modules` before an `npm install` just reports `skip` — re-run [`workler apply`](/reference/cli/apply) later.
 - **Order doesn't affect the final result** because overlapping parent/child and duplicate rules are rejected; every accepted rule is independent. Application is sequential rather than all-or-nothing, so if a later rule fails, earlier successful rules remain applied.
 - **Rules are read from the parent.** A workspace is set up from the `.workler` of the project that contains it — for [nested workspaces](/guide/nested-workspaces) that is the `.workler` checked out in the parent workspace, so commit the file if nested workspaces should inherit the rules.
+- **In a project group, each repository's rules apply inside its own clone**, read from that repository. The group's own `copy`/`link` rules (the lines next to the `project` lines) are applied to the workspace folder itself, with the group root as their source. `add` copies the group's `.workler` into every group workspace so the workspace can host nested group workspaces.
 - **Existing destinations are never overwritten** without `--force` — see [Safety](/guide/safety). A source or destination whose parent is a symlink/junction is refused even with `--force`, so a rule cannot traverse outside the managed trees. A direct final symlink entry remains supported.

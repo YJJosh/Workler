@@ -60,6 +60,28 @@ Rule lines use the same status words as [`workler apply`](/reference/cli/apply):
 - The `[base]`/`--branch`/`--checkout` ref does not exist.
 - A rule destination conflicts (see [Safety](/guide/safety)) — re-run `workler apply <name> --force` after resolving.
 
+## In a project group
+
+Run in a [project group](/guide/project-groups) root, `add` creates `.worktrees/<name>/` holding one clone per `project` line, in the same layout as the root, with a copy of the group's `.workler` next to them. The branch options above apply to **every** member, and everything is validated for every member before anything is cloned: one member with the branch already, without the base ref, or whose declared path is missing, not a repository, or reached through a symbolic link (links are never followed), fails the whole command and leaves nothing behind. Each clone then gets its own source repository's rules; finally the group's own rules are applied to the workspace folder. Like `init`, `add` makes sure the group's `.gitignore` lists `.worktrees/`, so a hand-written group inside an outer repository never shows its workspaces as untracked content there. The one exception is a group workspace itself (a nested group): it already lives under a `.worktrees/` that its parent group ignores, so no `.gitignore` is written there. Merely sitting in a folder called `.worktrees` does not count; the folder has to be a workspace of a group root. While it runs, `add` holds the group's lock and every usable source repository's lock (it clones from the sources and applies their rules), so a `sync` started inside a source fails with `LOCKED` until it finishes, and the other way round. `--dry-run` prints the plan per project and takes no locks.
+
+```text
+project projects/api
+cloning /path/to/root/projects/api
+     to /path/to/root/.worktrees/feat/projects/api
+create branch feat from HEAD
+linked node_modules
+project tools
+cloning /path/to/root/tools
+     to /path/to/root/.worktrees/feat/tools
+create branch feat from HEAD
+group rules
+copied .env.shared
+done   feat
+path   /path/to/root/.worktrees/feat
+```
+
+A failure after cloning began leaves the partial workspace in place; `workler status` shows which member is missing and `workler remove <name> --force` removes it.
+
 ## Examples
 
 ```bash

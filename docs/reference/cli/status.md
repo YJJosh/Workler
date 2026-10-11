@@ -32,6 +32,16 @@ broken     -                    -                  broken: missing .git (not a c
 
 Untracked files — including everything created by [copy rules](/reference/configuration) — never count as dirty.
 
+In a [project group](/guide/project-groups) there is one row per member repository, named `<workspace>/<project>`; the source repositories appear as `main/<project>`. A member that was never cloned shows `broken: missing (not cloned)`; a source reached through a symbolic link shows `broken: behind a symbolic link at <folder>, not a repository` and is never followed. A repository at a member path that is not the recorded clone of that member (an unrelated repository, or a clone made for another workspace or location) shows `broken: not the recorded clone of <project>: unrelated, or made for another location` and is left alone by every command.
+
+```text
+NAME                BRANCH  UPSTREAM     STATE
+main/projects/api   main    up to date   clean
+main/tools          main    no upstream  clean
+feat/projects/api   feat    no upstream  dirty
+feat/tools          -       -            broken: missing (not cloned)
+```
+
 ## Examples
 
 ```bash

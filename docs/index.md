@@ -38,6 +38,10 @@ features:
   - icon: 🪆
     title: Nested workspaces
     details: Workspaces are ordinary clones, so workler works inside them too — one workspace per feature, one nested workspace per subagent.
+  - icon: 🗃️
+    title: Project groups
+    details: Several repositories in one folder? List them in .workler and one workler add clones all of them into a single workspace, in the same layout.
+    link: /guide/project-groups
   - icon: 🧩
     title: Typed programmatic API
     details: Create, inspect, list, and remove workspaces from TypeScript or JavaScript with structured results, stable error codes, and per-project locking.

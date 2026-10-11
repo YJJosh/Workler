@@ -39,6 +39,21 @@ root refs (read-only, refs/workler/<workspace>/<branch>)
   pruned refs/workler/old-ws/ (workspace removed)
 ```
 
+## In a project group
+
+A [project group](/guide/project-groups) has no repository of its own, so the same two directions run between every member clone and the **source repository it was cloned from**: the source's local branches are created or fast-forwarded in the clone, and the clone's branches are mirrored into the source under `refs/workler-group/<group>/<workspace>/<branch>`, where `<group>` is the group folder's name plus a short hash of its path. That namespace is separate from `refs/workler/`, so a repository's own workspace named `feat` and the group workspace `feat` never prune each other, and a repository that belongs to two groups keeps one namespace per group: pruning in one never touches the other's mirrors. Rows are labelled `<workspace>/<project>`. The group's lock and every usable source repository's lock are held for the duration, so a `branch-sync` run inside a source repository at the same time fails with `LOCKED`.
+
+```text
+workspace feat/projects/api
+  main       up-to-date
+  from-root  created
+workspace feat/tools
+  main       up-to-date
+project refs (read-only, refs/workler-group/root-3f2a1b4c5d6e/<workspace>/<branch> in each source repository)
+  feat/projects/api  4 branches -> refs/workler-group/root-3f2a1b4c5d6e/feat/
+  feat/tools  2 branches -> refs/workler-group/root-3f2a1b4c5d6e/feat/
+```
+
 ## Working with the mirrored refs
 
 ```bash

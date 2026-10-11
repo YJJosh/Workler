@@ -42,4 +42,4 @@ cd "$(workler path feature-a)"
 workler remove agent-1
 ```
 
-Removing `feature-a` itself from the root with `--force` also removes everything nested under it. The normal local-data check sees the ignored `.worktrees/` entry and refuses, so nested checkouts cannot be deleted accidentally. Before forcing removal, rescue any agent work you care about (e.g. run `workler branch-sync` inside `feature-a`, then again at the root).
+Removing `feature-a` itself from the root with `--force` also removes everything nested under it. The normal local-data check sees the ignored, non-empty `.worktrees/` entry and refuses, so nested checkouts cannot be deleted accidentally. (An empty `.worktrees/`, left behind by Workler's own lock after you removed the nested workspace, does not count.) Before forcing removal, rescue any agent work you care about (e.g. run `workler branch-sync` inside `feature-a`, then again at the root).

@@ -3,6 +3,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import type { SpawnSyncReturns } from 'node:child_process';
 import { pathsReferToSameLocation } from './fs-utils';
+import { WORKSPACES_DIR } from './constants';
 
 function runGit(repo: string | null, args: string[], stdio: 'pipe' | 'quiet' | 'inherit'): SpawnSyncReturns<string> {
   // Use the subprocess cwd instead of `git -C <repo>`. Besides producing
@@ -118,6 +119,18 @@ export function isGitTopLevel(dir: string): boolean {
   return topLevel !== undefined && pathsReferToSameLocation(topLevel, dir);
 }
 
+// Workler creates independent clones whose .git is a directory. A linked
+// `git worktree` uses a .git file and is never one of Workler's own clones.
+// This is a pure filesystem check: `git rev-parse` would walk up from a plain
+// directory and answer for the enclosing repository instead.
+export function hasIndependentGitDirectory(repo: string): boolean {
+  try {
+    return fs.lstatSync(path.join(repo, '.git')).isDirectory();
+  } catch (_) {
+    return false;
+  }
+}
+
 export function gitInfoExcludePath(repo: string): string {
   // --git-path output is relative to the git process cwd (repo, via -C), so
   // resolve it against repo rather than our own cwd.
@@ -134,5 +147,22 @@ export function isGitWorkTreeCleanIncludingIgnored(repo: string): boolean {
   // Remove uses this stricter data-loss guard: an ignored .env, database, or
   // nested .worktrees/ is still data that deletion would destroy. '' means
   // clean; undefined means Git failed and must not read as clean.
-  return gitMaybe(repo, ['status', '--porcelain', '--ignored=matching']) === '';
+  const status = gitMaybe(repo, ['status', '--porcelain', '--ignored=matching']);
+  if (status === undefined) {
+    return false;
+  }
+  // An EMPTY .worktrees/ is not data: it is where Workler's lock lives, so
+  // any locked operation leaves it behind (a nested workspace since removed,
+  // a group command that locked this repository as one of its sources).
+  // Git lists the excluded directory itself without looking inside, so check.
+  const lockDirectory = `!! ${WORKSPACES_DIR}/`;
+  return status.split('\n').every((line) => line === '' || (line === lockDirectory && isEmptyDirectory(path.join(repo, WORKSPACES_DIR))));
+}
+
+function isEmptyDirectory(dir: string): boolean {
+  try {
+    return fs.readdirSync(dir).length === 0;
+  } catch (_) {
+    return false;
+  }
 }

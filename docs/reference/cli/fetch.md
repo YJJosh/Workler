@@ -13,6 +13,7 @@ Runs `git fetch --prune origin` everywhere. Because every workspace is an indepe
 - Workspaces without an `origin` remote are skipped with a note.
 - A failing fetch (network, auth) is reported for that workspace and does not stop the others. After every workspace has been attempted, the command exits non-zero if any fetch failed.
 - Broken clones are skipped with their reason.
+- In a [project group](/guide/project-groups) every member repository of the group and of its workspaces is fetched, labelled `<workspace>/<project>`. The group's lock and every usable source repository's lock are held for the duration.
 
 Nothing is merged or checked out — working trees are untouched. Use [`workler sync`](/reference/cli/sync) to also fast-forward.
 
