@@ -1,6 +1,7 @@
 import { quoteConfigPath } from '../config';
 import { CONFIG_FILE, WORKSPACES_DIR } from '../constants';
 import { discoverProjects, initProject } from '../core/project';
+import { WorklerError } from '../errors';
 import { relativeToCwd } from '../fs-utils';
 import { findGitTopLevel, isGitTopLevel } from '../git';
 import { hasGroupConfig } from '../groups';
@@ -14,7 +15,7 @@ export function initCommand(args: string[]): void {
   // repositories (or already declares them) is a project group of its own,
   // even when some unrelated outer repository encloses it.
   const gitRoot = findGitTopLevel(cwd);
-  const groupFolder = !isGitTopLevel(cwd) && (hasGroupConfig(cwd) || discoverProjects(cwd).length > 0);
+  const groupFolder = Boolean(gitRoot) && !isGitTopLevel(cwd) && (declaresProjects(cwd) || discoverProjects(cwd).length > 0);
   const root = gitRoot && !groupFolder ? gitRoot : cwd;
   const result = initProject(root);
 
@@ -22,6 +23,9 @@ export function initCommand(args: string[]): void {
     console.log(`created ${relativeToCwd(result.configPath)}`);
   } else {
     console.log(`exists  ${relativeToCwd(result.configPath)}`);
+    if (result.configError) {
+      console.log(`warning: ${relativeToCwd(result.configPath)} does not parse and was left as is: ${result.configError}`);
+    }
   }
   for (const project of result.projects) {
     console.log(`project ${quoteConfigPath(project)}`);
@@ -46,5 +50,17 @@ export function initCommand(args: string[]): void {
     console.log(`ignored ${WORKSPACES_DIR}/ in ${relativeToCwd(result.gitignorePath)}`);
   } else {
     console.log('warning: current folder is not a git repo yet; wrote .gitignore instead of .git/info/exclude');
+  }
+}
+
+// Whether an existing .workler declares projects. One that does not parse is
+// not a declaration: `initProject` leaves it alone and reports why, as it
+// always has, instead of this lookup failing before any setup happens.
+function declaresProjects(dir: string): boolean {
+  try {
+    return hasGroupConfig(dir);
+  } catch (error) {
+    if (error instanceof WorklerError && error.code === 'CONFIG_INVALID') return false;
+    throw error;
   }
 }

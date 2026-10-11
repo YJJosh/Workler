@@ -382,6 +382,55 @@ test('init skips a repository whose name cannot be written to .workler, and says
 
 // --- add -----------------------------------------------------------------
 
+test('init leaves a malformed .workler alone, says so, and still prepares the folder', (t) => {
+  // A plain folder with no repository above it. Root detection used to parse
+  // the broken file and fail before any setup happened.
+  const root = makeTempDir(t);
+  makeRepoAt(path.join(root, 'projects', 'api'));
+  const configPath = path.join(root, '.workler');
+  const broken = 'frobnicate projects/api\n';
+  fs.writeFileSync(configPath, broken);
+
+  const result = api.initProject(root);
+  assert.equal(result.configCreated, false);
+  assert.deepEqual(result.projects, []);
+  assert.deepEqual(result.discoveredProjects, ['projects/api']);
+  assert.match(result.configError, /unknown action/);
+  assert.equal(fs.readFileSync(configPath, 'utf8'), broken);
+  assert.ok(fs.existsSync(path.join(root, '.worktrees')));
+  assert.match(fs.readFileSync(path.join(root, '.gitignore'), 'utf8'), /^\.worktrees\/$/m);
+
+  const run = runCli(root, 'init');
+  assert.equal(run.status, 0, run.stderr);
+  assert.match(run.stdout, /^exists  \.workler$/m);
+  assert.match(run.stdout, /^warning: \.workler does not parse and was left as is: .*unknown action/m);
+  assert.match(run.stdout, /^  project projects\/api$/m);
+  assert.match(run.stdout, /^ready   \.worktrees$/m);
+  assert.equal(fs.readFileSync(configPath, 'utf8'), broken);
+
+  // Inside an outer repository the broken file does not count as a group
+  // declaration, but the repositories below still mark the folder as the
+  // project, so init prepares the folder and not the repository around it.
+  const outer = makeRepo(t, { includeWorkler: false });
+  const outerWorktreesBefore = fs.existsSync(path.join(outer, '.worktrees'));
+  const outerExclude = path.join(outer, '.git', 'info', 'exclude');
+  const outerExcludeBefore = fs.existsSync(outerExclude) ? fs.readFileSync(outerExclude, 'utf8') : undefined;
+  const services = path.join(outer, 'services');
+  fs.mkdirSync(services);
+  makeRepoAt(path.join(services, 'api'));
+  fs.writeFileSync(path.join(services, '.workler'), broken);
+
+  const nested = runCli(services, 'init');
+  assert.equal(nested.status, 0, nested.stderr);
+  assert.match(nested.stdout, /^exists  \.workler$/m);
+  assert.match(nested.stdout, /^warning: \.workler does not parse/m);
+  assert.match(nested.stdout, /^  project api$/m);
+  assert.ok(fs.existsSync(path.join(services, '.worktrees')));
+  assert.equal(fs.readFileSync(path.join(services, '.workler'), 'utf8'), broken);
+  assert.equal(fs.existsSync(path.join(outer, '.worktrees')), outerWorktreesBefore);
+  assert.equal(fs.existsSync(outerExclude) ? fs.readFileSync(outerExclude, 'utf8') : undefined, outerExcludeBefore);
+});
+
 test('add at a group root clones every project into one workspace, in the same layout', (t) => {
   const root = makeGroup(t, {
     rules: { 'projects/api': 'link node_modules\n', 'projects/web': 'copy .env\n' },

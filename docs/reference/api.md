@@ -69,7 +69,7 @@ Ordinary Git repositories do not need initialization. Idempotent;
 the result reports whether the config file was created. In a non-Git folder
 it declares the repositories `discoverProjects` finds: the result lists them
 as `projects` and `discoveredProjects`, and any it could not write (a path
-holding both quote characters, a backslash, or a line break) as `unwritableProjects`.
+holding both quote characters, a backslash, or a line break) as `unwritableProjects`. An existing `.workler` that does not parse is left as is; its parse error is returned as `configError` and the folder is still prepared.
 
 ### `inspectProject(root): ProjectInfo`
 

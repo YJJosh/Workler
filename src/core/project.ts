@@ -212,6 +212,8 @@ export interface InitResult {
   // cannot be spelled in .workler (both quote characters, or a line break).
   // Reported so the folder can be renamed.
   unwritableProjects: string[];
+  // Why an existing .workler could not be parsed. The file is left as is.
+  configError?: string;
 }
 
 // The locks a mutating operation rooted at `info.root` must hold, outermost
@@ -294,6 +296,7 @@ export function initProject(rootInput: string): InitResult {
 
     let configCreated = false;
     let projects: string[] = [];
+    let configError: string | undefined;
     if (!fs.existsSync(configPath)) {
       if (discoveredProjects.length > 0) {
         fs.writeFileSync(configPath, groupConfigTemplate(discoveredProjects));
@@ -305,9 +308,11 @@ export function initProject(rootInput: string): InitResult {
     } else if (!gitRepo) {
       try {
         projects = readConfig(root).projects.map((entry) => entry.path);
-      } catch (_) {
+      } catch (error) {
         // init leaves an existing file alone, broken or not; the operations
-        // that need it report the parse error.
+        // that need it fail on the parse error. Report it so the file is
+        // known to need fixing.
+        configError = error instanceof Error ? error.message : String(error);
       }
     }
 
@@ -336,6 +341,7 @@ export function initProject(rootInput: string): InitResult {
       projects,
       discoveredProjects,
       unwritableProjects,
+      configError,
     };
   });
 }
