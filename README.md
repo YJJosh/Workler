@@ -53,6 +53,7 @@ See the [CLI reference](https://yjjosh.github.io/Workler/reference/cli/) for eve
 - **Safe by default** — existing data is not overwritten without `--force`, and `--dry-run` previews changes.
 - **Workspace coordination** — [status and sync commands](https://yjjosh.github.io/Workler/guide/sync) operate across all local clones without merging or rebasing.
 - **Nested workflows** — [nested workspaces](https://yjjosh.github.io/Workler/guide/nested-workspaces) support parallel features and coding agents.
+- **Project groups** — [several repositories in one folder](https://yjjosh.github.io/Workler/guide/project-groups) become one workspace: list them in `.workler` and a single `workler add` clones all of them, in the same layout.
 - **Programmatic use** — the package includes a typed [JavaScript and TypeScript API](https://yjjosh.github.io/Workler/reference/api).
 
 ## License
