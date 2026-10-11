@@ -140,7 +140,13 @@ export function gitInfoExcludePath(repo: string): string {
 export function isGitWorkTreeClean(repo: string): boolean {
   // Used for add's "uncommitted changes do not clone" warning. Ordinary
   // porcelain includes tracked and untracked (but not ignored) entries.
-  return gitMaybe(repo, ['status', '--porcelain']) === '';
+  // The lock directory is Workler's own, not the user's changes: every
+  // locked operation creates .worktrees/ (a group command does so in each
+  // member it locks), and a repository that never ran `init` has no exclude
+  // line for it, so Git lists it as untracked. Nothing in there is cloned
+  // either way. undefined means Git failed and must not read as clean.
+  const status = gitMaybe(repo, ['status', '--porcelain']);
+  return status !== undefined && status.split('\n').every((line) => line === '' || line === `?? ${WORKSPACES_DIR}/`);
 }
 
 export function isGitWorkTreeCleanIncludingIgnored(repo: string): boolean {

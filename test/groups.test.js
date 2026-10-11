@@ -657,6 +657,30 @@ test('the plan lists one checkout per member and add --dry-run creates nothing',
 
 // --- list, status, path --------------------------------------------------
 
+test('the lock directory a group command leaves in every member is not reported as uncommitted changes', (t) => {
+  const root = makeGroup(t);
+  const progress = [];
+  api.createWorkspace(root, { name: 'feat', onProgress: (line) => progress.push(line) });
+  assert.deepStrictEqual(progress.filter((line) => line.startsWith('warning:')), []);
+
+  // add locked every member, which created .worktrees/ in each source and
+  // leaves it behind. No init ran there, so nothing excludes it: while the
+  // lock file is inside, Git lists the directory as untracked, which is
+  // exactly when the clean check runs.
+  for (const project of DEFAULT_PROJECTS) {
+    assert.ok(fs.existsSync(path.join(member(root, project), '.worktrees')));
+  }
+  const again = runCli(root, 'add', 'feat2');
+  assert.strictEqual(again.status, 0, again.stderr);
+  assert.doesNotMatch(again.stdout, /^warning:/m);
+
+  // Real changes are still reported, and only for the member that has them.
+  fs.writeFileSync(path.join(member(root, 'tools'), 'scratch.txt'), 'wip\n');
+  assert.deepStrictEqual(api.planWorkspaceCreation(root, { name: 'feat3' }).warnings, [
+    'tools has uncommitted changes; its clone will only contain committed tracked files',
+  ]);
+});
+
 test('list shows a group workspace as one line; status shows every member', (t) => {
   const root = makeGroup(t);
   const added = runCli(root, 'add', 'feat');

@@ -56,6 +56,9 @@ test('add works directly in a plain Git repository without .workler or init', (t
   const add = runCli(subdir, 'add', 'plain');
   assert.strictEqual(add.status, 0, add.stderr);
   assert.match(add.stdout, /^no workspace rules$/m);
+  // add created .worktrees/ for its lock before anything excluded it (no init
+  // ran here). Workler's own directory is not "uncommitted changes".
+  assert.doesNotMatch(add.stdout, /^warning:/m);
   assert.ok(fs.existsSync(path.join(root, '.worktrees', 'plain', '.git')));
   assert.ok(!fs.existsSync(path.join(root, '.workler')));
 
