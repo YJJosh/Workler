@@ -169,13 +169,21 @@ test('a failing setup command keeps the workspace, exits non-zero, and hints at 
 });
 
 test('a command that cannot be started reports the results of the commands before it', (t) => {
-  // The second command moves the workspace away, so the shell for the third
-  // cannot start in it (spawn fails with ENOENT instead of the command
-  // exiting non-zero). The error still carries what already ran.
-  const move = `${NODE} -e "const d=process.cwd();process.chdir(require('os').tmpdir());require('fs').renameSync(d,d+'-moved')"`;
-  const root = makeProject(t, { workler: `setup ${logCommand('one')}\nsetup ${move}\nsetup ${logCommand('never')}\n` });
+  // The workspace is moved away right before the third command, so its shell
+  // cannot start there (spawn fails with ENOENT instead of the command
+  // exiting non-zero). The move happens from the hook, while no command is
+  // running: Windows refuses to rename a folder that is some process's cwd,
+  // and the shell of a running command has the workspace as its cwd.
+  const root = makeProject(t, { workler: `setup ${logCommand('one')}\nsetup ${logCommand('two')}\nsetup ${logCommand('never')}\n` });
+  const target = path.join(root, '.worktrees', 'feat');
   assert.throws(
-    () => api.createWorkspace(root, { name: 'feat' }),
+    () =>
+      api.createWorkspace(root, {
+        name: 'feat',
+        onSetupCommand: (_command, index) => {
+          if (index === 2) fs.renameSync(target, `${target}-moved`);
+        },
+      }),
     (error) => {
       assert.strictEqual(error.code, 'SETUP_COMMAND_FAILED', error.message);
       assert.match(error.message, /^setup command could not be started in .*feat: /);
@@ -186,7 +194,7 @@ test('a command that cannot be started reports the results of the commands befor
       return true;
     },
   );
-  assert.deepStrictEqual(readLog(path.join(root, '.worktrees', 'feat-moved')).map((fields) => fields[0]), ['one']);
+  assert.deepStrictEqual(readLog(`${target}-moved`).map((fields) => fields[0]), ['one', 'two']);
 });
 
 test('--no-setup / setup: false skip the commands', (t) => {
