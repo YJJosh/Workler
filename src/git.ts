@@ -145,8 +145,13 @@ export function isGitWorkTreeClean(repo: string): boolean {
   // member it locks), and a repository that never ran `init` has no exclude
   // line for it, so Git lists it as untracked. Nothing in there is cloned
   // either way. undefined means Git failed and must not read as clean.
-  const status = gitMaybe(repo, ['status', '--porcelain']);
-  return status !== undefined && status.split('\n').every((line) => line === '' || line === `?? ${WORKSPACES_DIR}/`);
+  // `--untracked-files=normal` pins the collapsed form: with
+  // status.showUntrackedFiles=all in the user's config, Git would list
+  // `?? .worktrees/.workler.lock` instead of the directory. The match is by
+  // prefix for the same reason. Tracked files under .worktrees/ use another
+  // status letter and are still reported.
+  const status = gitMaybe(repo, ['status', '--porcelain', '--untracked-files=normal']);
+  return status !== undefined && status.split('\n').every((line) => line === '' || line.startsWith(`?? ${WORKSPACES_DIR}/`));
 }
 
 export function isGitWorkTreeCleanIncludingIgnored(repo: string): boolean {
