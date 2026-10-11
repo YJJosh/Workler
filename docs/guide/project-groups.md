@@ -78,7 +78,7 @@ The [branch options of `add`](/reference/cli/add#branch-behavior) apply to every
 
 `--copy-links`, `--force`, and `--dry-run` work as usual; `--dry-run` prints the plan per project.
 
-A failure after cloning started leaves the partial workspace in place: [`workler list`](/reference/cli/list) shows it as `incomplete`, [`workler status`](/reference/cli/status) names the missing member, and `workler remove feat --force` cleans it up.
+A failure after cloning started leaves the partial workspace in place: [`workler list`](/reference/cli/list) shows it as `incomplete`, [`workler status`](/reference/cli/status) names the missing member, and `workler remove feat --force` cleans it up. If no member was cloned at all, `workler apply feat` skips the group's rules too: the copy-links mode is recorded in the member clones, and there is none to record it in.
 
 ## What a member clone is
 
@@ -87,7 +87,7 @@ Each clone inside the workspace is an ordinary Workler workspace **of its source
 - Its rules come from the source's `.workler`, and `link` targets point back into the source (`feat/projects/api/node_modules` links to `root/projects/api/node_modules`).
 - Its `workler-root` remote points at the source, so [`branch-sync`](/reference/cli/branch-sync) works between the two.
 - Bare `workler apply` inside it refreshes it from the source.
-- Mutating commands run inside it (`add`, `remove`, `apply`, `fetch`, `sync`, `branch-sync`, `init`) take the group's lock before the clone's own, so `remove feat` at the group root never runs while one of them is still changing the clone.
+- Mutating commands run inside it (`add`, `remove`, `apply`, `fetch`, `sync`, `branch-sync`, `init`) take the group's lock before the clone's own, so `remove feat` at the group root never runs while one of them is still changing the clone. The same holds for `add` run inside the workspace folder itself (a nested group), all the way up through enclosing groups.
 - It additionally records its group in Git config (`workler.group`, `workler.groupProject`), see [Generated files](/reference/generated-files#in-a-project-group).
 
 Because the layout mirrors the root, relative paths between projects keep working: a script in `tools` that reaches `../projects/api` finds the clone of `api` inside the workspace.
@@ -128,8 +128,8 @@ git -C "$(workler path main/tools)" log -1
 | Command | At a group root |
 | --- | --- |
 | `list` | One line per workspace. The branch column shows the branch when every member is on it, `mixed` when they differ, `detached` when no member is on a branch, `incomplete` when a member is missing or broken, including a workspace that was left behind with no member cloned at all. |
-| `status`, `fetch`, `sync` | One row per member repository, including the sources as `main/<project>`. Per-row behavior is unchanged. |
-| `branch-sync` | Per member, against its source repository. Mirrors land in the source under `refs/workler-group/<group>/<name>/<branch>`, where `<group>` is the group folder's name plus a short hash of its path. That is a separate namespace from the source's own workspaces, so a repository's own `feat` workspace and the group's `feat` workspace never prune each other's refs, and a repository that belongs to two groups keeps one namespace per group. |
+| `status`, `fetch`, `sync` | One row per member repository, including the sources as `main/<project>`. Per-row behavior is unchanged. `fetch` and `sync` hold the group's lock and every usable source repository's lock while they run, so a `sync` started inside a source repository at the same time fails with `LOCKED`. |
+| `branch-sync` | Per member, against its source repository. Mirrors land in the source under `refs/workler-group/<group>/<name>/<branch>`, where `<group>` is the group folder's name plus a short hash of its path. That is a separate namespace from the source's own workspaces, so a repository's own `feat` workspace and the group's `feat` workspace never prune each other's refs, and a repository that belongs to two groups keeps one namespace per group. It holds the same locks as `sync`. |
 | `apply <name>` | Every cloned member from its source repository, then the group's own rules. A member that was never cloned is skipped, and so is a symbolic link or file at a member's path or at any folder on the way to it (`projects` for `projects/api`); nothing is followed. `apply --all` and bare `apply` inside the workspace folder do the same. `--copy-links` and `--no-copy-links` switch every cloned member and the group's own rules; on `<name>/<project>` they switch that one member, and the group's own mode stays as it was. The group's own mode is remembered even while the group has no rules of its own yet. |
 | `remove <name>` | Refuses unless every member is clean (untracked and ignored files included) and the workspace folder holds nothing but the members and an unchanged `.workler` copy. A copy you edited or replaced with a symbolic link (even one pointing at the group's file), or one the group's `.workler` has since moved away from, counts as local data. Files from group-level `copy` rules count as local data, like a copied `.env` inside a clone does. So is a symbolic link or a file at a member's path, or at any folder on the way to it, whatever it points at: nothing follows it, and only the link itself is deleted. `--force` removes everything. |
 

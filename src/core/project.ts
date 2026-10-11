@@ -3,8 +3,9 @@ import path from 'node:path';
 import { canWriteConfigPath, quoteConfigPath, readConfig } from '../config';
 import { CONFIG_FILE, MAIN_WORKSPACE_NAME, WORKSPACES_DIR } from '../constants';
 import { WorklerError } from '../errors';
-import { addLineIfMissing, canonicalPath } from '../fs-utils';
+import { addLineIfMissing, canonicalPath, pathsReferToSameLocation } from '../fs-utils';
 import { ensureGitRepo, git, gitInfoExcludePath, gitMaybe, hasIndependentGitDirectory, isGitTopLevel } from '../git';
+import { memberPath, sourceBrokenReason } from '../groups';
 import { withProjectLocks } from '../lock';
 import { groupMembership, groupWorkspaceParent, parentProject } from '../workspaces';
 import type { GroupMembership } from '../workspaces';
@@ -222,8 +223,57 @@ export interface InitResult {
 // workspace that `add` is still cloning inside feat/projects/api. A workspace
 // nested deeper, inside the clone's own .worktrees/, is a nested project and
 // locks only itself, like every nested project.
-export function lockRootsOf(info: Pick<ProjectInfo, 'root' | 'memberOf'>): string[] {
-  return info.memberOf ? [info.memberOf.group, info.root] : [info.root];
+// The group a root sits directly inside, if any: a member clone belongs to
+// the group that cloned it, and a group workspace folder (a nested group)
+// belongs to the group that created it. `remove <name>` at that group deletes
+// either one under the group's lock alone.
+function enclosingGroupOf(info: Pick<ProjectInfo, 'gitRepo' | 'parent' | 'memberOf'>): string | undefined {
+  if (info.memberOf) {
+    return info.memberOf.group;
+  }
+  return info.gitRepo ? undefined : info.parent;
+}
+
+// The locks a mutating operation at `info.root` must hold, outermost first:
+// every enclosing group up the chain, then the root's own. A workspace nested
+// inside a Git clone's own .worktrees/ is not part of the chain; it locks
+// itself, as nested workspaces always have.
+export function lockRootsOf(info: Pick<ProjectInfo, 'root' | 'gitRepo' | 'parent' | 'memberOf'>): string[] {
+  const roots = [info.root];
+  let outer = enclosingGroupOf(info);
+  while (outer !== undefined) {
+    const next = outer;
+    if (roots.some((root) => pathsReferToSameLocation(root, next))) {
+      break;
+    }
+    roots.unshift(next);
+    outer = enclosingGroupOf(inspectProject(next));
+  }
+  return roots;
+}
+
+// fetch, sync and branch-sync at a group root also fetch into, fast-forward
+// and write refs into the declared source repositories, so they hold each
+// usable source's locks too, in declared order; a `sync` run inside a source
+// then cannot interleave with the group's. Unusable sources (missing, not a
+// repository, behind a link) are skipped by those commands and not locked:
+// locking one would create .worktrees/ at a path Workler must not touch.
+export function syncLockRootsOf(info: ProjectInfo): string[] {
+  const roots = lockRootsOf(info);
+  if (!info.isGroup) {
+    return roots;
+  }
+  for (const project of info.projects) {
+    if (sourceBrokenReason(info.root, project) !== undefined) {
+      continue;
+    }
+    for (const root of lockRootsOf(inspectProject(memberPath(info.root, project)))) {
+      if (!roots.some((have) => pathsReferToSameLocation(have, root))) {
+        roots.push(root);
+      }
+    }
+  }
+  return roots;
 }
 
 export function initProject(rootInput: string): InitResult {
@@ -232,7 +282,7 @@ export function initProject(rootInput: string): InitResult {
     throw new WorklerError('ROOT_NOT_FOUND', `project root does not exist: ${root}`, { root });
   }
 
-  return withProjectLocks(lockRootsOf({ root, memberOf: inspectProject(root).memberOf }), 'init', () => {
+  return withProjectLocks(lockRootsOf(inspectProject(root)), 'init', () => {
     const configPath = path.join(root, CONFIG_FILE);
     const workspacesPath = path.join(root, WORKSPACES_DIR);
     const gitRepo = isGitProjectRoot(root);

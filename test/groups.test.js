@@ -749,8 +749,16 @@ test('a symbolic link on the way to a nested member is never followed: status, a
   assert.strictEqual(fs.existsSync(feat), true);
   assert.deepStrictEqual(api.removeWorkspace(root, 'feat', { force: true }), { name: 'feat', path: feat });
   assert.strictEqual(fs.existsSync(feat), false);
-  assert.deepStrictEqual(fs.readdirSync(sourceApi).sort(), before.api);
-  assert.deepStrictEqual(fs.readdirSync(sourceWeb).sort(), before.web);
+  // branch-sync at the group root locks each usable source, which leaves the
+  // empty lock directory behind; nothing else in the sources may have changed.
+  const withoutLockDir = (dir) => fs.readdirSync(dir).filter((entry) => entry !== '.worktrees').sort();
+  assert.deepStrictEqual(withoutLockDir(sourceApi), before.api);
+  assert.deepStrictEqual(withoutLockDir(sourceWeb), before.web);
+  for (const dir of [sourceApi, sourceWeb]) {
+    if (fs.existsSync(path.join(dir, '.worktrees'))) {
+      assert.deepStrictEqual(fs.readdirSync(path.join(dir, '.worktrees')), [], `${dir}: only the released lock directory`);
+    }
+  }
   assert.strictEqual(fs.lstatSync(path.join(sourceApi, '.git')).isDirectory(), true);
 });
 
@@ -1101,6 +1109,132 @@ test('every mutating command inside a member clone takes the group lock first, t
   api.removeWorkspace(clone, 'nested2', { force: true });
   assert.strictEqual(fs.existsSync(path.join(root, '.worktrees', '.workler.lock')), false);
   assert.strictEqual(fs.existsSync(path.join(clone, '.worktrees', '.workler.lock')), false);
+});
+
+test('add inside a group workspace folder (a nested group) takes the outer group lock first', (t) => {
+  const root = makeGroup(t, { projects: ['projects/api'] });
+  const feat = api.createWorkspace(root, { name: 'feat' }).path;
+  const hold = (dir) => {
+    const lock = path.join(dir, '.worktrees', '.workler.lock');
+    fs.mkdirSync(path.dirname(lock), { recursive: true });
+    fs.writeFileSync(lock, JSON.stringify({ pid: process.pid, hostname: os.hostname(), operation: 'test', createdAt: new Date().toISOString() }));
+    return () => fs.rmSync(lock, { force: true });
+  };
+
+  // `remove feat` at the outer root holds only the root's lock while it
+  // deletes feat. A nested `add` run inside feat must be blocked by that same
+  // lock, or remove could pass its check and then delete the clones being made.
+  let release = hold(root);
+  try {
+    const blocked = runCli(feat, 'add', 'feat2');
+    assert.strictEqual(blocked.status, 1, blocked.stdout);
+    assert.match(blocked.stderr, /lock/i);
+    assert.throws(() => api.createWorkspace(feat, { name: 'feat2' }), { code: 'LOCKED' });
+    assert.strictEqual(fs.existsSync(workspaceDir(feat, 'feat2')), false, 'nothing was created under the held lock');
+  } finally {
+    release();
+  }
+
+  // The nested group's own lock still guards its .worktrees/.
+  release = hold(feat);
+  try {
+    assert.throws(() => api.createWorkspace(feat, { name: 'feat2' }), { code: 'LOCKED' });
+  } finally {
+    release();
+  }
+
+  // The chain continues upwards: two levels down, the root's lock still applies.
+  const feat2 = api.createWorkspace(feat, { name: 'feat2' }).path;
+  release = hold(root);
+  try {
+    assert.throws(() => api.createWorkspace(feat2, { name: 'feat3' }), { code: 'LOCKED' });
+    assert.throws(() => api.removeWorkspace(feat, 'feat2', { force: true }), { code: 'LOCKED' });
+    assert.strictEqual(runCli(feat2, 'add', 'feat3').status, 1);
+    assert.strictEqual(fs.existsSync(workspaceDir(feat2, 'feat3')), false);
+    assert.ok(fs.existsSync(feat2), 'nothing was removed under the held lock');
+  } finally {
+    release();
+  }
+
+  // Unlocked, it runs and releases every lock it took on the way.
+  api.createWorkspace(feat2, { name: 'feat3' });
+  for (const dir of [root, feat, feat2]) {
+    assert.strictEqual(fs.existsSync(path.join(dir, '.worktrees', '.workler.lock')), false, dir);
+  }
+});
+
+test('fetch, sync and branch-sync at a group root also hold every usable source repository lock', (t) => {
+  const root = makeGroup(t);
+  api.createWorkspace(root, { name: 'feat' });
+  const source = member(root, 'projects/api');
+  // A declared source that does not exist is skipped by these commands, so it
+  // must not be locked either: that would create .worktrees/ where Workler
+  // has no business writing.
+  fs.appendFileSync(path.join(root, '.workler'), 'project projects/missing\n');
+  const hold = (dir) => {
+    const lock = path.join(dir, '.worktrees', '.workler.lock');
+    fs.mkdirSync(path.dirname(lock), { recursive: true });
+    fs.writeFileSync(lock, JSON.stringify({ pid: process.pid, hostname: os.hostname(), operation: 'test', createdAt: new Date().toISOString() }));
+    return () => fs.rmSync(lock, { force: true });
+  };
+
+  // A `sync` run inside one source holds that source's lock. The group's
+  // commands fetch into and fast-forward the very same checkout, so they must
+  // be blocked by it rather than interleave with it.
+  const release = hold(source);
+  try {
+    for (const args of [['fetch'], ['sync'], ['branch-sync']]) {
+      const blocked = runCli(root, ...args);
+      assert.strictEqual(blocked.status, 1, `${args.join(' ')} ran: ${blocked.stdout}`);
+      assert.match(blocked.stderr, /lock/i, args.join(' '));
+    }
+  } finally {
+    release();
+  }
+
+  // Unlocked, the group command takes (and releases) each usable source's
+  // lock and leaves the missing one alone.
+  for (const dir of ['projects/web', 'tools']) {
+    assert.strictEqual(fs.existsSync(path.join(member(root, dir), '.worktrees')), false, `${dir} had no .worktrees before`);
+  }
+  const synced = runCli(root, 'sync');
+  assert.strictEqual(synced.status, 0, synced.stderr);
+  for (const dir of ['projects/api', 'projects/web', 'tools']) {
+    assert.ok(fs.existsSync(path.join(member(root, dir), '.worktrees')), `${dir} was locked`);
+    assert.strictEqual(fs.existsSync(path.join(member(root, dir), '.worktrees', '.workler.lock')), false, `${dir} lock released`);
+  }
+  assert.strictEqual(fs.existsSync(member(root, 'projects/missing')), false, 'the missing source was not created by locking');
+  assert.match(synced.stdout, /main\/projects\/missing\s+skipped \(broken:/);
+  assert.strictEqual(fs.existsSync(path.join(root, '.worktrees', '.workler.lock')), false);
+});
+
+test('apply on a workspace with no member clone skips the group rules instead of recording nothing', (t) => {
+  const root = makeGroup(t, { groupRules: 'link shared\n' });
+  fs.mkdirSync(path.join(root, 'shared'));
+  fs.writeFileSync(path.join(root, 'shared', 'x.txt'), 'x\n');
+  // What createWorkspace leaves behind when the very first member clone fails.
+  const feat = workspaceDir(root, 'feat');
+  fs.mkdirSync(feat, { recursive: true });
+  fs.copyFileSync(path.join(root, '.workler'), path.join(feat, '.workler'));
+
+  // The group's copy-links mode is recorded in the member clones. With none,
+  // a copy made now could not be remembered, and the next plain apply would
+  // expect a link and report a conflict. So nothing is materialized at all.
+  const explicit = runCli(root, 'apply', 'feat', '--copy-links');
+  assert.strictEqual(explicit.status, 0, explicit.stderr);
+  assert.match(explicit.stdout, /group rules: skipped \(workspace feat has no member clone; remove it and run add again\)/);
+  assert.strictEqual(fs.existsSync(path.join(feat, 'shared')), false);
+
+  const plain = runCli(root, 'apply', 'feat');
+  assert.strictEqual(plain.status, 0, plain.stderr);
+  assert.match(plain.stdout, /group rules: skipped/);
+  assert.doesNotMatch(plain.stdout + plain.stderr, /conflict/i);
+  assert.strictEqual(fs.existsSync(path.join(feat, 'shared')), false);
+
+  // `apply --all` skips it the same way and still exits 0.
+  const all = runCli(root, 'apply', '--all');
+  assert.strictEqual(all.status, 0, all.stderr);
+  assert.match(all.stdout, /group rules: skipped/);
 });
 
 test('remove needs every member clean and nothing but members in the workspace folder', (t) => {

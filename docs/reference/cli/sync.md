@@ -21,7 +21,7 @@ Nothing is ever merged, rebased, or forced. A workspace is left untouched — wi
 - its **fetch failed** (updating against stale refs would be misleading)
 - it is a **broken** clone
 
-In a [project group](/guide/project-groups) both phases cover every member repository of the group and of its workspaces, labelled `<workspace>/<project>`.
+In a [project group](/guide/project-groups) both phases cover every member repository of the group and of its workspaces, labelled `<workspace>/<project>`. The group's lock and every usable source repository's lock are held for the duration, so a `sync` run inside a source repository at the same time fails with `LOCKED`.
 
 Every target is still reported, but the command exits non-zero after the report
 if a fetch, status inspection, or fast-forward operation failed. Intentional

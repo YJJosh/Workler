@@ -80,6 +80,14 @@ function applyWorkspace(info: ProjectInfo, workspace: Workspace, flags: ApplyFla
     applyAndPrint(memberPath(info.root, project), member, flags, { isRepo: true });
   }
 
+  if (cloned.length === 0) {
+    // The group's copy-links mode lives in the member clones, so with none
+    // there is nowhere to record the mode the next apply must honour, and add
+    // never reuses this folder, so the workspace can never gain a clone.
+    console.log(`group rules: skipped (workspace ${workspace.name} has no member clone; remove it and run add again)`);
+    return;
+  }
+
   if (readRules(info.root).length === 0) {
     // No group-level rules yet: an explicit mode is still recorded, so a
     // group rule added later is materialized the way the user last asked.
@@ -153,12 +161,13 @@ export function applyCommand(args: string[]): void {
     if (info.gitRepo) {
       const parent = parentProject(root);
       if (parent) {
-        // A member clone of a group workspace changes under the group's lock,
-        // the one `apply <name>/<project>` and `remove <name>` take, so no two
+        // A member clone of a group workspace changes under the group's locks
+        // (the group's own and every enclosing group's), the ones
+        // `apply <name>/<project>` and `remove <name>` take, so no two
         // group-level commands touch the clone at once. Its rules still come
         // from the source repository. A workspace nested inside a member clone
         // changes under that clone's locks, which include the group's.
-        const lockRoots = info.memberOf ? [info.memberOf.group] : lockRootsOf(inspectProject(parent));
+        const lockRoots = lockRootsOf(inspectProject(info.memberOf ? info.memberOf.group : parent));
         const label = info.memberOf ? `apply ${info.memberOf.workspace}/${info.memberOf.project}` : `apply ${path.basename(root)}`;
         runWithOptionalLock(lockRoots, label, dryRun, () => {
           applyAndPrint(parent, root, flags, { isRepo: true });

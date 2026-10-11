@@ -196,14 +196,20 @@ runs and read-only operations never lock.
   `branch-sync` also touches its child repositories, so do not run one
   concurrently with a mutation addressed directly to a nested project.
 - A project group locks its own `.worktrees/`. `remove <name>` and
-  `apply <name>` hold only that lock while they delete or rewrite the member
-  clones, so every mutating operation rooted at a member clone (`add`,
-  `remove`, `apply`, `fetch`, `sync`, `branch-sync`, `init`, and the API
-  functions behind them) takes the group's lock first and then the clone's
-  own. A bare `apply` inside a member clone takes just the group's lock,
-  because it changes the clone itself and not the clone's `.worktrees/`. A
-  workspace nested deeper, inside a member clone's own `.worktrees/`, follows
-  the nested-project rule above. Source repositories are only read by
-  `createWorkspace`, so they are not locked; `branch-sync` at a group root
-  does write into them (mirrored refs), so do not run it concurrently with a
-  `branch-sync` addressed to a member repository.
+  `apply <name>` hold only that lock while they delete or rewrite the
+  workspace, so every mutating operation rooted inside it (`add`, `remove`,
+  `apply`, `fetch`, `sync`, `branch-sync`, `init`, and the API functions
+  behind them) takes the group's lock first and then its own. That holds for
+  a member clone and for the workspace folder itself when `add` runs there (a
+  nested group), and it continues up through every enclosing group. A bare
+  `apply` inside a member clone takes just the group's locks, because it
+  changes the clone itself and not the clone's `.worktrees/`. A workspace
+  nested deeper, inside a member clone's own `.worktrees/`, follows the
+  nested-project rule above.
+- `fetch`, `sync`, and `branch-sync` at a group root also take the lock of
+  every usable source repository, in declared order, because they fetch into,
+  fast-forward, and write mirrored refs into those repositories. A `sync`
+  run inside a source repository therefore fails with `LOCKED` while the
+  group's is running, and the other way round. `createWorkspace` only reads
+  the sources and does not lock them; a source that is missing, not a
+  repository, or behind a symbolic link is skipped and never locked.
