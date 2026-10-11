@@ -1,8 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { MAIN_WORKSPACE_NAME, WORKSPACES_DIR } from './constants';
-import { git, gitMaybe, isGitTopLevel } from './git';
-import { groupProjects, isGroupWorkspaceDirectory, memberBrokenReason, memberPath } from './groups';
+import { git, gitMaybe } from './git';
+import { groupProjects, isGroupWorkspaceDirectory, memberBrokenReason, memberPath, sourceBrokenReason } from './groups';
 import { listWorkspaces } from './workspaces';
 import type { Workspace } from './types';
 
@@ -83,7 +83,7 @@ function listGroupSyncTargets(root: string, projects: string[]): SyncTarget[] {
       name: MAIN_WORKSPACE_NAME,
       path: source,
       project,
-      broken: !fs.existsSync(source) ? 'missing' : isGitTopLevel(source) ? undefined : 'not a Git repository top level',
+      broken: sourceBrokenReason(root, project),
     });
   }
 

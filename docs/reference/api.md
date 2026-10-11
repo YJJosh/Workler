@@ -120,7 +120,9 @@ only when every member ended on that branch, `detached` is true only when
 every member is detached, `head` is absent, and `rules` is the outcome of the
 group's own rules. Errors from one member are prefixed with its project path
 and carry `details.project`. A Git repository whose `.workler` declares
-projects fails with `CONFIG_INVALID`.
+projects fails with `CONFIG_INVALID`. A declared path that is missing, is not
+a repository, or is reached through a symbolic link fails with
+`NOT_A_GIT_REPO`; links are never followed.
 
 ### `planWorkspaceCreation(root, options): WorkspacePlan`
 

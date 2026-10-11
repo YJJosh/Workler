@@ -40,7 +40,7 @@ ready   .worktrees
 ignored .worktrees/ in .gitignore
 ```
 
-You can also write the file by hand. Quote a path that holds a space or a quote character; the parser knows no escapes, so a path with both kinds of quote cannot be declared, and `init` skips such a repository with a `skipped` line. A repository added later is never included silently: a second `init` prints a hint with the lines to add, quoted as the file needs them. The rules for `project` paths are the ones for [rule paths](/reference/configuration#path-rules), plus two of their own: projects cannot be nested in each other, and a group-level `copy`/`link` rule cannot reach into a project (that rule belongs in the project's own `.workler`).
+You can also write the file by hand. Quote a path that holds a space or a quote character; the parser knows no escapes, so a path with both kinds of quote cannot be declared, and `init` skips such a repository with a `skipped` line. A repository added later is never included silently: a second `init` prints a hint with the lines to add, quoted as the file needs them. The rules for `project` paths are the ones for [rule paths](/reference/configuration#path-rules), plus three of their own: projects cannot be nested in each other, a group-level `copy`/`link` rule cannot reach into a project (that rule belongs in the project's own `.workler`), and the path must lead to the repository through real folders. A symbolic link anywhere on the way (`projects` for `projects/api`, or the repository itself) is never followed: `add` refuses it, and `status`, `sync`, `branch-sync` and `apply` report that source as broken and leave whatever the link points at alone.
 
 A group root must be a plain folder. A Git repository whose `.workler` declares projects is rejected by `add` with a clear message rather than half-honored.
 
@@ -51,7 +51,7 @@ cd root
 workler add feat
 ```
 
-Everything is validated first, for every member: the branch or ref, the rules, and that each declared path really is a repository whose own `.workler` holds no `project` lines (a member is a repository, never another group). If any member fails, nothing is cloned. Then, per project in file order: clone, branch, mark the clone, apply that project's own rules. Finally the group's own rules (if its `.workler` has any) are applied to the workspace folder itself, next to the clones.
+Everything is validated first, for every member: the branch or ref, the rules, and that each declared path, reached through real folders and never through a symbolic link, really is a repository whose own `.workler` holds no `project` lines (a member is a repository, never another group). If any member fails, nothing is cloned. Then, per project in file order: clone, branch, mark the clone, apply that project's own rules. Finally the group's own rules (if its `.workler` has any) are applied to the workspace folder itself, next to the clones.
 
 ```text
 project projects/api

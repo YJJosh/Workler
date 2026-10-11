@@ -4,8 +4,8 @@ import { readConfig, readRules } from '../config';
 import { CONFIG_FILE, PACKAGE_NAME, ROOT_REMOTE, WORKSPACES_DIR } from '../constants';
 import { WorklerError } from '../errors';
 import { addLineIfMissing, assertInside, canonicalPath } from '../fs-utils';
-import { git, gitInfoExcludePath, gitMaybe, isGitTopLevel, isGitWorkTreeClean, localBranchExists } from '../git';
-import { memberPath } from '../groups';
+import { git, gitInfoExcludePath, gitMaybe, isGitWorkTreeClean, localBranchExists } from '../git';
+import { memberPath, sourceBrokenReason } from '../groups';
 import { withProjectLock } from '../lock';
 import { validateBranchName, validateNewWorkspaceName, validateStartRef, validateWorkspaceRefName } from '../names';
 import { applyRules } from '../rules';
@@ -264,11 +264,15 @@ function planGroupLocked(root: string, projects: string[], options: CreateWorksp
     const memberRoot = memberPath(root, project);
     const memberTarget = memberPath(target, project);
     forProject(project, () => {
-      if (!isGitTopLevel(memberRoot)) {
+      // Reached through real folders only: a symbolic link on the way would
+      // make the group clone from (and later sync into) a repository that
+      // lives somewhere else.
+      const unusable = sourceBrokenReason(root, project);
+      if (unusable !== undefined) {
         throw new WorklerError(
           'NOT_A_GIT_REPO',
-          `declared project is not a Git repository top level: ${memberRoot}\n` +
-            `clone it there, or fix the "project ${project}" line in ${CONFIG_FILE}`,
+          `declared project is ${unusable}: ${memberRoot}\n` +
+            `put the repository there as a real folder, or fix the "project ${project}" line in ${CONFIG_FILE}`,
           { root: memberRoot, project },
         );
       }

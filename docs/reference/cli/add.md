@@ -62,7 +62,7 @@ Rule lines use the same status words as [`workler apply`](/reference/cli/apply):
 
 ## In a project group
 
-Run in a [project group](/guide/project-groups) root, `add` creates `.worktrees/<name>/` holding one clone per `project` line, in the same layout as the root, with a copy of the group's `.workler` next to them. The branch options above apply to **every** member, and everything is validated for every member before anything is cloned: one member with the branch already, or without the base ref, fails the whole command and leaves nothing behind. Each clone then gets its own source repository's rules; finally the group's own rules are applied to the workspace folder. `--dry-run` prints the plan per project.
+Run in a [project group](/guide/project-groups) root, `add` creates `.worktrees/<name>/` holding one clone per `project` line, in the same layout as the root, with a copy of the group's `.workler` next to them. The branch options above apply to **every** member, and everything is validated for every member before anything is cloned: one member with the branch already, without the base ref, or whose declared path is missing, not a repository, or reached through a symbolic link (links are never followed), fails the whole command and leaves nothing behind. Each clone then gets its own source repository's rules; finally the group's own rules are applied to the workspace folder. `--dry-run` prints the plan per project.
 
 ```text
 project projects/api

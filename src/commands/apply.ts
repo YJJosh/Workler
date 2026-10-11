@@ -4,7 +4,7 @@ import { readRules } from '../config';
 import { MAIN_WORKSPACE_NAME, PACKAGE_NAME } from '../constants';
 import { inspectProject, requireProject } from '../core/project';
 import type { ProjectInfo } from '../core/project';
-import { ancestorReason, inspectMember, memberPath, requireDeclaredProject, splitWorkspaceAddress } from '../groups';
+import { ancestorReason, inspectMember, memberPath, requireDeclaredProject, sourceBrokenReason, splitWorkspaceAddress } from '../groups';
 import { withProjectLock } from '../lock';
 import { applyRules } from '../rules';
 import type { Workspace } from '../types';
@@ -71,6 +71,11 @@ function applyWorkspace(info: ProjectInfo, workspace: Workspace, flags: ApplyFla
       continue;
     }
     cloned.push(member);
+    const unusable = sourceBrokenReason(info.root, project);
+    if (unusable !== undefined) {
+      console.log(`project ${project}: skipped (source ${MAIN_WORKSPACE_NAME}/${project} is ${unusable})`);
+      continue;
+    }
     console.log(`project ${project}`);
     applyAndPrint(memberPath(info.root, project), member, flags, { isRepo: true });
   }
@@ -189,7 +194,12 @@ export function applyCommand(args: string[]): void {
     if (check.state !== 'clone') {
       throw new Error(`project ${project} in workspace ${address.workspace} is ${notACloneReason(check)}: ${member}`);
     }
-    applyAndPrint(memberPath(root, project), member, flags, { isRepo: true });
+    const source = memberPath(root, project);
+    const unusable = sourceBrokenReason(root, project);
+    if (unusable !== undefined) {
+      throw new Error(`source ${MAIN_WORKSPACE_NAME}/${project} is ${unusable}: ${source}`);
+    }
+    applyAndPrint(source, member, flags, { isRepo: true });
   });
 }
 

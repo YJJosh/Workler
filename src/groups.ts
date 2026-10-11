@@ -83,6 +83,37 @@ export function requireDeclaredProject(projects: string[], project: string): str
   return found;
 }
 
+// What lstat finds on the way from `base` to the declared `project`, never
+// following a link: the first entry that is not a real directory decides.
+// `ancestor` names that entry (relative to the base) when it was not the
+// member itself.
+interface MemberWalk {
+  kind: 'missing' | 'link' | 'file' | 'directory';
+  ancestor?: string;
+}
+
+function walkToMember(base: string, project: string): MemberWalk {
+  const segments = project.split('/');
+  for (let depth = 1; depth <= segments.length; depth += 1) {
+    const current = path.join(base, ...segments.slice(0, depth));
+    const decided = (kind: MemberWalk['kind']): MemberWalk =>
+      depth < segments.length ? { kind, ancestor: segments.slice(0, depth).join('/') } : { kind };
+    let stat: fs.Stats;
+    try {
+      stat = fs.lstatSync(current);
+    } catch (_) {
+      return { kind: 'missing' };
+    }
+    if (stat.isSymbolicLink()) {
+      return decided('link');
+    }
+    if (!stat.isDirectory()) {
+      return decided('file');
+    }
+  }
+  return { kind: 'directory' };
+}
+
 // What sits at a declared member path below a workspace folder. Only a real
 // directory with its own .git directory, reached through real directories, is
 // a clone. A symbolic link (whatever it points at, even the source
@@ -100,25 +131,19 @@ export interface MemberCheck {
 }
 
 export function inspectMember(base: string, project: string): MemberCheck {
-  const segments = project.split('/');
-  for (let depth = 1; depth <= segments.length; depth += 1) {
-    const current = path.join(base, ...segments.slice(0, depth));
-    const decided = (state: MemberState): MemberCheck =>
-      depth < segments.length ? { state, ancestor: segments.slice(0, depth).join('/') } : { state };
-    let stat: fs.Stats;
-    try {
-      stat = fs.lstatSync(current);
-    } catch (_) {
+  const walk = walkToMember(base, project);
+  const decided = (state: MemberState): MemberCheck =>
+    walk.ancestor === undefined ? { state } : { state, ancestor: walk.ancestor };
+  switch (walk.kind) {
+    case 'missing':
       return { state: 'missing' };
-    }
-    if (stat.isSymbolicLink()) {
+    case 'link':
       return decided('link');
-    }
-    if (!stat.isDirectory()) {
+    case 'file':
       return decided('not-a-clone');
-    }
+    default:
+      return { state: hasIndependentGitDirectory(memberPath(base, project)) ? 'clone' : 'not-a-clone' };
   }
-  return { state: hasIndependentGitDirectory(memberPath(base, project)) ? 'clone' : 'not-a-clone' };
 }
 
 export function memberState(base: string, project: string): MemberState {
@@ -148,6 +173,30 @@ export function memberBrokenReason(base: string, project: string): string | unde
       return ancestorReason(check) ?? 'a symbolic link, not a clone';
     default:
       return ancestorReason(check) ?? 'missing .git (not a clone)';
+  }
+}
+
+// Why a declared source repository (a `project` path below the group root)
+// cannot be used, or undefined when it can. Same walk as for members: a
+// symbolic link anywhere on the way is refused, never followed, so a group
+// only ever reaches repositories that physically live below its root. Used
+// before `add` clones from a source and by the target lister behind status,
+// sync, branch-sync and apply.
+export function sourceBrokenReason(groupRoot: string, project: string): string | undefined {
+  const walk = walkToMember(groupRoot, project);
+  switch (walk.kind) {
+    case 'missing':
+      return 'missing';
+    case 'link':
+      return walk.ancestor === undefined
+        ? 'a symbolic link, not a repository'
+        : `behind a symbolic link at ${walk.ancestor}, not a repository`;
+    case 'file':
+      return walk.ancestor === undefined
+        ? 'not a Git repository top level'
+        : `behind a file at ${walk.ancestor}, not a repository`;
+    default:
+      return isGitTopLevel(memberPath(groupRoot, project)) ? undefined : 'not a Git repository top level';
   }
 }
 

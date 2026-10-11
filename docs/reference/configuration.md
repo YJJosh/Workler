@@ -29,7 +29,7 @@ Each non-empty line is:
 | --- | --- |
 | `link <path>` | Create a symlink pointing back to the main project's `<path>`. Relative symlink on POSIX. On Windows a directory becomes a junction (no elevation needed, but its target is absolute, so moving the project breaks it) and a file becomes a real symlink (needs Developer Mode or elevation). See [Rules](/guide/rules#links-on-posix-and-on-windows). |
 | `copy <path>` | Copy the file or folder (recursively, preserving timestamps) into the workspace. |
-| `project <path>` | Declare a Git repository below this folder as a member of a [project group](/guide/project-groups). Only meaningful in a folder that is not itself a Git repository; `add` rejects a repository whose `.workler` declares projects. |
+| `project <path>` | Declare a Git repository below this folder as a member of a [project group](/guide/project-groups). Only meaningful in a folder that is not itself a Git repository; `add` rejects a repository whose `.workler` declares projects. The path must lead there through real folders: a symbolic link on the way is never followed, and the source counts as broken. |
 
 ### Comments
 

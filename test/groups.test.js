@@ -588,6 +588,64 @@ test('a symbolic link at a member path is local data: remove refuses, --force de
   assert.ok(fs.readdirSync(source).length > 1);
 });
 
+test('a source repository behind a symbolic link is refused: nothing reaches what the link points at', (t) => {
+  const dirLinkType = process.platform === 'win32' ? 'junction' : undefined;
+  const root = makeGroup(t);
+  api.createWorkspace(root, { name: 'feat' });
+  const namespace = api.groupRefNamespace(root);
+
+  // Move the real `projects` folder out of the group and leave a link behind:
+  // `projects/api` now resolves to a repository outside the group.
+  const outside = makeTempDir(t, 'workler-outside-');
+  fs.renameSync(path.join(root, 'projects'), path.join(outside, 'projects'));
+  fs.symlinkSync(path.join(outside, 'projects'), path.join(root, 'projects'), dirLinkType);
+  const externalApi = path.join(outside, 'projects', 'api');
+  const snapshot = () => ({ files: fs.readdirSync(externalApi).sort(), head: git(externalApi, 'rev-parse', 'HEAD') });
+  const externalBefore = snapshot();
+
+  const [main] = api.listWorkspaces(root);
+  const sourceOf = (project) => main.projects.find((entry) => entry.project === project);
+  assert.strictEqual(sourceOf('projects/api').broken, 'behind a symbolic link at projects, not a repository');
+  assert.strictEqual(sourceOf('projects/web').broken, 'behind a symbolic link at projects, not a repository');
+  assert.strictEqual(sourceOf('tools').broken, undefined);
+  const status = runCli(root, 'status');
+  assert.strictEqual(status.status, 0, status.stderr);
+  assert.match(status.stdout, /^main\/projects\/api\s+-\s+-\s+broken: behind a symbolic link at projects, not a repository$/m);
+
+  // sync and branch-sync skip the source and every member that depends on
+  // it: the repository behind the link is neither fast-forwarded nor given
+  // any mirror refs. The real source (tools) is handled as usual.
+  const synced = runCli(root, 'sync');
+  assert.strictEqual(synced.status, 0, synced.stderr);
+  assert.match(synced.stdout, /main\/projects\/api\s+skipped \(broken: behind a symbolic link at projects, not a repository\)/);
+  const branchSync = runCli(root, 'branch-sync');
+  assert.strictEqual(branchSync.status, 0, branchSync.stderr);
+  assert.match(branchSync.stdout, /^  skipped \(source main\/projects\/api is broken: behind a symbolic link at projects, not a repository\)$/m);
+  assert.deepStrictEqual(refs(externalApi, namespace), []);
+  assert.ok(refs(path.join(root, 'tools'), namespace).includes(`${namespace}/feat/feat`));
+
+  // apply skips the member whose source is behind the link, and refuses it
+  // when addressed directly.
+  const applied = runCli(root, 'apply', 'feat');
+  assert.strictEqual(applied.status, 0, applied.stderr);
+  assert.match(applied.stdout, /^project projects\/api: skipped \(source main\/projects\/api is behind a symbolic link at projects, not a repository\)$/m);
+  assert.match(applied.stdout, /^project tools$/m);
+  const one = runCli(root, 'apply', 'feat/projects/api');
+  assert.strictEqual(one.status, 1);
+  assert.match(one.stderr, /source main\/projects\/api is behind a symbolic link at projects, not a repository/);
+
+  // add refuses before anything is cloned.
+  assert.throws(
+    () => api.createWorkspace(root, { name: 'other' }),
+    (error) => error.code === 'NOT_A_GIT_REPO' && error.details.project === 'projects/api'
+      && /behind a symbolic link at projects, not a repository/.test(error.message),
+  );
+  assert.strictEqual(fs.existsSync(workspaceDir(root, 'other')), false);
+
+  assert.deepStrictEqual(snapshot(), externalBefore);
+});
+
+
 test('a symbolic link on the way to a nested member is never followed: status, apply, branch-sync and remove treat the member as local data', (t) => {
   const { execFileSync } = require('node:child_process');
   const refs = (cwd, prefix) => execFileSync('git', ['for-each-ref', '--format=%(refname)', prefix], { cwd, encoding: 'utf8' }).trim();
