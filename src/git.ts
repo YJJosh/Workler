@@ -3,6 +3,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import type { SpawnSyncReturns } from 'node:child_process';
 import { pathsReferToSameLocation } from './fs-utils';
+import { WORKSPACES_DIR } from './constants';
 
 function runGit(repo: string | null, args: string[], stdio: 'pipe' | 'quiet' | 'inherit'): SpawnSyncReturns<string> {
   // Use the subprocess cwd instead of `git -C <repo>`. Besides producing
@@ -146,5 +147,22 @@ export function isGitWorkTreeCleanIncludingIgnored(repo: string): boolean {
   // Remove uses this stricter data-loss guard: an ignored .env, database, or
   // nested .worktrees/ is still data that deletion would destroy. '' means
   // clean; undefined means Git failed and must not read as clean.
-  return gitMaybe(repo, ['status', '--porcelain', '--ignored=matching']) === '';
+  const status = gitMaybe(repo, ['status', '--porcelain', '--ignored=matching']);
+  if (status === undefined) {
+    return false;
+  }
+  // An EMPTY .worktrees/ is not data: it is where Workler's lock lives, so
+  // any locked operation leaves it behind (a nested workspace since removed,
+  // a group command that locked this repository as one of its sources).
+  // Git lists the excluded directory itself without looking inside, so check.
+  const lockDirectory = `!! ${WORKSPACES_DIR}/`;
+  return status.split('\n').every((line) => line === '' || (line === lockDirectory && isEmptyDirectory(path.join(repo, WORKSPACES_DIR))));
+}
+
+function isEmptyDirectory(dir: string): boolean {
+  try {
+    return fs.readdirSync(dir).length === 0;
+  } catch (_) {
+    return false;
+  }
 }

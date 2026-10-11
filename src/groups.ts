@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { readConfig } from './config';
-import { CONFIG_FILE, GROUP_WORKSPACE_REFS, WORKSPACES_DIR } from './constants';
+import { CONFIG_FILE, GROUP_WORKSPACE_REFS, ROOT_REMOTE, WORKSPACES_DIR } from './constants';
 import { WorklerError } from './errors';
 import { canonicalPath, pathsReferToSameLocation } from './fs-utils';
 import { gitMaybe, hasIndependentGitDirectory, isGitTopLevel } from './git';
@@ -157,30 +157,38 @@ export function inspectMember(base: string, project: string): MemberCheck {
 // must count as local data: not something remove may delete without --force,
 // nor something apply, sync and branch-sync may write into.
 //
-// `add` records a member in two steps (clone, then mark), so an interrupted
-// run can leave a clone with no marks yet. That half-made clone is still the
-// member when its origin remote points at the source: `git clone --local
-// <source>` leaves exactly that, and marking replaces it.
+// `add` records a member over several git commands (clone; workler.root and
+// workler.name; the remotes; workler.group; workler.groupProject), so an
+// interrupted run can leave any prefix of that sequence behind. Every mark
+// that is present must match this slot, and the clone must be anchored to
+// the source: by workler.root or, before that is written, by the origin
+// remote `git clone --local <source>` leaves (or the workler-root remote that
+// replaces it). A clone recorded for another source, workspace or group is
+// not this member, however well it fits the slot.
 function isRecordedMember(base: string, project: string, member: string): boolean {
   const group = path.dirname(path.dirname(base));
   const source = memberPath(group, project);
   const config = localGitConfig(member);
   const value = (key: string): string | undefined => config.get(key)?.[0];
+  const matchesIfSet = (recorded: string | undefined, expected: string): boolean =>
+    recorded === undefined || pathsReferToSameLocation(recorded, expected);
+
   const recordedRoot = value('workler.root');
-  if (recordedRoot === undefined) {
-    return (config.get('remote.origin.url') ?? []).some((url) => pathsReferToSameLocation(url, source));
-  }
-  if (!pathsReferToSameLocation(recordedRoot, source) || value('workler.name') !== path.basename(base)) {
+  const recordedName = value('workler.name');
+  const recordedProject = value('workler.groupproject');
+  if (
+    !matchesIfSet(recordedRoot, source) ||
+    (recordedName !== undefined && recordedName !== path.basename(base)) ||
+    !matchesIfSet(value('workler.group'), group) ||
+    (recordedProject !== undefined && recordedProject !== project)
+  ) {
     return false;
   }
-  const recordedGroup = value('workler.group');
-  const recordedProject = value('workler.groupproject');
-  if (recordedGroup === undefined && recordedProject === undefined) {
-    // Marked as a workspace of the source but not yet as a group member:
-    // `add` was interrupted between the two marking steps.
+  if (recordedRoot !== undefined) {
     return true;
   }
-  return recordedGroup !== undefined && recordedProject === project && pathsReferToSameLocation(recordedGroup, group);
+  const remoteUrls = [...(config.get('remote.origin.url') ?? []), ...(config.get(`remote.${ROOT_REMOTE}.url`) ?? [])];
+  return remoteUrls.some((url) => pathsReferToSameLocation(url, source));
 }
 
 // The repository's local git config as key -> values. Git lowercases the

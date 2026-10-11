@@ -7,7 +7,7 @@ import { addLineIfMissing, canonicalPath, pathsReferToSameLocation } from '../fs
 import { ensureGitRepo, git, gitInfoExcludePath, gitMaybe, hasIndependentGitDirectory, isGitTopLevel } from '../git';
 import { memberPath, sourceBrokenReason } from '../groups';
 import { withProjectLocks } from '../lock';
-import { groupMembership, groupWorkspaceParent, parentProject } from '../workspaces';
+import { groupWorkspaceParent, resolveParent } from '../workspaces';
 import type { GroupMembership } from '../workspaces';
 
 // True when `dir` is itself the toplevel of a git repository (not merely
@@ -34,7 +34,8 @@ export interface ProjectInfo {
   initialized: boolean;
   // Set when this project is itself a managed workspace: the immediate
   // parent project it was cloned from (nested workspaces), or the group root
-  // for a group workspace directory.
+  // for a group workspace directory. For a member clone of a group workspace
+  // it is the source repository, when that still exists.
   parent?: string;
   // The `project <path>` entries of a project group, in file order. Always
   // empty for a Git repository.
@@ -45,7 +46,10 @@ export interface ProjectInfo {
   // Set when .workler exists but cannot be parsed. inspectProject never
   // throws; the operations surface this as CONFIG_INVALID.
   configError?: string;
-  // Set when this project is a member clone of a group workspace.
+  // Set when this project is a member clone of a group workspace, whether or
+  // not `add` finished marking it (an interrupted add is recognized by the
+  // clone's location and remotes). Set even when the source repository is
+  // gone and parent is therefore undefined: the group still owns the clone.
   memberOf?: GroupMembership;
 }
 
@@ -98,10 +102,7 @@ export function inspectProject(rootInput: string): ProjectInfo {
   let parent: string | undefined;
   let memberOf: GroupMembership | undefined;
   if (gitRepo) {
-    parent = parentProject(root);
-    if (parent) {
-      memberOf = groupMembership(root);
-    }
+    ({ parent, memberOf } = resolveParent(root));
   } else {
     try {
       parent = groupWorkspaceParent(root)?.group;
@@ -261,13 +262,15 @@ export function lockRootsOf(info: Pick<ProjectInfo, 'root' | 'gitRepo' | 'parent
   return roots;
 }
 
-// fetch, sync and branch-sync at a group root also fetch into, fast-forward
-// and write refs into the declared source repositories, so they hold each
-// usable source's locks too, in declared order; a `sync` run inside a source
-// then cannot interleave with the group's. Unusable sources (missing, not a
+// Commands at a group root that read from or write into the declared source
+// repositories hold each usable source's locks too, in declared order: `add`
+// clones from them and reads their rules, `apply` reads their rules and
+// copies from them, and fetch, sync and branch-sync fetch into, fast-forward
+// and write refs into them. A `sync` or `apply` run inside a source then
+// cannot interleave with the group's. Unusable sources (missing, not a
 // repository, behind a link) are skipped by those commands and not locked:
 // locking one would create .worktrees/ at a path Workler must not touch.
-export function syncLockRootsOf(info: ProjectInfo): string[] {
+export function lockRootsWithSourcesOf(info: ProjectInfo): string[] {
   const roots = lockRootsOf(info);
   if (!info.isGroup) {
     return roots;
@@ -276,10 +279,17 @@ export function syncLockRootsOf(info: ProjectInfo): string[] {
     if (sourceBrokenReason(info.root, project) !== undefined) {
       continue;
     }
-    for (const root of lockRootsOf(inspectProject(memberPath(info.root, project)))) {
-      if (!roots.some((have) => pathsReferToSameLocation(have, root))) {
-        roots.push(root);
-      }
+    mergeLockRoots(roots, lockRootsOf(inspectProject(memberPath(info.root, project))));
+  }
+  return roots;
+}
+
+// Append to `roots` the lock roots in `more` it does not already hold; a lock
+// can only be taken once per process.
+export function mergeLockRoots(roots: string[], more: readonly string[]): string[] {
+  for (const root of more) {
+    if (!roots.some((have) => pathsReferToSameLocation(have, root))) {
+      roots.push(root);
     }
   }
   return roots;

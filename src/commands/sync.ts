@@ -1,6 +1,6 @@
 import { parseCommandArgs } from '../cli-utils';
 import { PACKAGE_NAME } from '../constants';
-import { requireRepositoryOrGroup, syncLockRootsOf } from '../core/project';
+import { requireRepositoryOrGroup, lockRootsWithSourcesOf } from '../core/project';
 import { git } from '../git';
 import { withProjectLocks } from '../lock';
 import {
@@ -36,7 +36,7 @@ covers every member repository of the group and of its workspaces.`);
 
   const root = findWorklerRoot(process.cwd());
   const info = requireRepositoryOrGroup(root, 'sync');
-  withProjectLocks(syncLockRootsOf(info), 'sync', () => syncAll(root));
+  withProjectLocks(lockRootsWithSourcesOf(info), 'sync', () => syncAll(root));
 }
 
 function syncAll(root: string): void {

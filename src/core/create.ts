@@ -11,7 +11,7 @@ import { validateBranchName, validateNewWorkspaceName, validateStartRef, validat
 import { applyRules } from '../rules';
 import type { ApplyRulesOutcome, RuleApplyResult } from '../rules';
 import { groupWorkspaceParent, setGroupWorkspaceCopiesLinks, setWorkspaceCopiesLinks } from '../workspaces';
-import { lockRootsOf, requireProject } from './project';
+import { lockRootsWithSourcesOf, requireProject } from './project';
 import type { ProjectInfo } from './project';
 
 export interface CreateWorkspaceOptions {
@@ -308,7 +308,9 @@ export function createWorkspace(rootInput: string, options: CreateWorkspaceOptio
   const root = info.root;
   const progress = options.onProgress ?? (() => {});
 
-  return withProjectLocks(lockRootsOf(info), `add ${options.name}`, () =>
+  // A group add clones from every declared source and applies its rules from
+  // there, so it holds the sources' locks as well as the group's.
+  return withProjectLocks(lockRootsWithSourcesOf(info), `add ${options.name}`, () =>
     info.isGroup ? createGroupLocked(root, info.projects, options, progress) : createSingleLocked(root, options, progress),
   );
 }

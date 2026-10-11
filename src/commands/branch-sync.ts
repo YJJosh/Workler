@@ -1,6 +1,6 @@
 import { parseCommandArgs } from '../cli-utils';
 import { GROUP_WORKSPACE_REFS, MAIN_WORKSPACE_NAME, PACKAGE_NAME, ROOT_REMOTE, WORKSPACE_REFS } from '../constants';
-import { requireRepositoryOrGroup, syncLockRootsOf } from '../core/project';
+import { requireRepositoryOrGroup, lockRootsWithSourcesOf } from '../core/project';
 import { canonicalPath, pathsReferToSameLocation } from '../fs-utils';
 import { git, gitMaybe } from '../git';
 import { groupRefNamespace } from '../groups';
@@ -45,7 +45,7 @@ two groups keeps one namespace per group.`);
 
   const root = findWorklerRoot(process.cwd());
   const info = requireRepositoryOrGroup(root, 'branch-sync');
-  withProjectLocks(syncLockRootsOf(info), 'branch-sync', () => (info.isGroup ? branchSyncGroup(root) : branchSyncAll(root)));
+  withProjectLocks(lockRootsWithSourcesOf(info), 'branch-sync', () => (info.isGroup ? branchSyncGroup(root) : branchSyncAll(root)));
 }
 
 function branchSyncAll(root: string): void {

@@ -7,7 +7,7 @@ What Workler creates and configures, and where.
 | Path | Created by | Purpose |
 | --- | --- | --- |
 | `.workler` | `workler init` or you | Optional [copy/link rules](/reference/configuration). Commit it when used. |
-| `.worktrees/` | `workler init` / `workler add`; in a group's source repositories also `fetch`, `sync`, and `branch-sync` run at the group root, whose lock lives there | One subdirectory per workspace. Never commit it. |
+| `.worktrees/` | `workler init` / `workler add`; in a group's source repositories also `add`, `apply`, `fetch`, `sync`, and `branch-sync` run at the group root, whose lock lives there | One subdirectory per workspace. Never commit it. |
 | `.git/info/exclude` | `workler init` / `workler add` | Gets a `.worktrees/` line so workspaces stay invisible to git without touching your committed `.gitignore`. (Outside a git repo, `init` falls back to `.gitignore`.) |
 | `refs/workler/<workspace>/<branch>` | `workler branch-sync` | Read-only mirrors of each workspace's local branches. Inspect with `git for-each-ref refs/workler/`; pruned automatically when a workspace is removed. |
 | `refs/workler-group/<group>/<workspace>/<branch>` | `workler branch-sync` run at a [group root](/guide/project-groups) | Read-only mirrors of the branches of this repository's clone inside a group workspace. `<group>` is the group folder's name plus a short hash of its path. A separate namespace per group, so a group workspace and one of the repository's own workspaces may share a name, and a repository that belongs to two groups keeps their mirrors apart. |
