@@ -27,7 +27,7 @@ export function initCommand(args: string[]): void {
     console.log(`project ${quoteConfigPath(project)}`);
   }
   for (const project of result.unwritableProjects) {
-    console.log(`skipped ${project}: cannot be written to ${CONFIG_FILE} (a path may not hold both " and ', or a line break); rename it to declare it`);
+    console.log(`skipped ${project}: cannot be written to ${CONFIG_FILE} (a path may not hold both " and ', a backslash, or a line break); rename it to declare it`);
   }
   const undeclared = result.discoveredProjects.filter((project) => !result.projects.includes(project));
   if (!result.configCreated && undeclared.length > 0) {

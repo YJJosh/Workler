@@ -282,14 +282,17 @@ test('init skips a repository whose name cannot be written to .workler, and says
   }
   const root = makeGroup(t, { projects: ['projects/api'], declare: false });
   const odd = `it's "odd"`;
+  const slashed = 'back\\slash';
   makeRepoAt(path.join(root, odd));
+  makeRepoAt(path.join(root, slashed));
   makeRepoAt(path.join(root, 'has space'));
 
   // Quoting covers a space or one kind of quote; both kinds cannot be spelled.
+  // Neither can a backslash: the parser would read `back\slash` as `back/slash`.
   const result = api.initProject(root);
   assert.deepStrictEqual(result.projects, ['has space', 'projects/api']);
   assert.deepStrictEqual(result.discoveredProjects, ['has space', 'projects/api']);
-  assert.deepStrictEqual(result.unwritableProjects, [odd]);
+  assert.deepStrictEqual(result.unwritableProjects, [slashed, odd]);
   assert.ok(fs.readFileSync(result.configPath, 'utf8').includes('\nproject "has space"\n'));
   const info = api.inspectProject(root);
   assert.strictEqual(info.configError, undefined);
@@ -300,7 +303,9 @@ test('init skips a repository whose name cannot be written to .workler, and says
   assert.strictEqual(cli.status, 0, cli.stderr);
   assert.match(cli.stdout, /^project "has space"$/m);
   assert.match(cli.stdout, /^skipped it's "odd": cannot be written to .workler/m);
+  assert.match(cli.stdout, /^skipped back\\slash: cannot be written to .workler/m);
   assert.doesNotMatch(cli.stdout, /^project it's/m);
+  assert.doesNotMatch(cli.stdout, /^project back/m);
 });
 
 // --- add -----------------------------------------------------------------
@@ -1084,6 +1089,38 @@ test('an edited .workler copy inside a group workspace counts as local data', (t
   assert.throws(() => api.removeWorkspace(root, 'feat'), (error) => error.code === 'WORKSPACE_DIRTY' && /\.workler: differs/.test(error.message));
   assert.deepStrictEqual(api.removeWorkspace(root, 'feat', { force: true }), { name: 'feat', path: again });
   assert.strictEqual(fs.existsSync(again), false);
+});
+
+test('a .workler copy replaced by a symbolic link counts as local data, even when its target matches', (t) => {
+  const root = makeGroup(t);
+  const feat = api.createWorkspace(root, { name: 'feat' }).path;
+  const copy = path.join(feat, '.workler');
+  const groupConfig = path.join(root, '.workler');
+  const featInfo = () => api.listWorkspaces(root).find((workspace) => workspace.name === 'feat');
+  assert.strictEqual(featInfo().clean, true);
+
+  // Byte-identical through the link, but the link itself is the user's.
+  fs.rmSync(copy);
+  fs.symlinkSync(groupConfig, copy);
+  assert.ok(fs.lstatSync(copy).isSymbolicLink());
+  assert.strictEqual(featInfo().clean, false);
+  assert.throws(
+    () => api.removeWorkspace(root, 'feat'),
+    (error) =>
+      error.code === 'WORKSPACE_DIRTY' &&
+      error.details.reasons.length === 1 &&
+      /^\.workler: a symbolic link, not the generated copy/.test(error.details.reasons[0]),
+  );
+  assert.ok(fs.lstatSync(copy).isSymbolicLink());
+  const cli = runCli(root, 'remove', 'feat');
+  assert.strictEqual(cli.status, 1);
+  assert.match(cli.stderr, /\.workler: a symbolic link, not the generated copy/);
+
+  // --force deletes the link, never the group's file behind it.
+  assert.deepStrictEqual(api.removeWorkspace(root, 'feat', { force: true }), { name: 'feat', path: feat });
+  assert.strictEqual(fs.existsSync(feat), false);
+  assert.ok(fs.existsSync(groupConfig));
+  assert.strictEqual(api.inspectProject(root).configError, undefined);
 });
 
 // --- branch-sync, fetch, sync --------------------------------------------

@@ -103,11 +103,24 @@ function groupLocalData(workspacePath: string, groupRoot: string, projects: stri
     if (covered.has(extra)) {
       continue;
     }
-    reasons.push(
-      extra === CONFIG_FILE
-        ? `${CONFIG_FILE}: differs from the group's ${CONFIG_FILE} (edited here, or the group's file changed after this workspace was created)`
-        : `${extra}: not part of a declared project`,
-    );
+    reasons.push(extra === CONFIG_FILE ? configCopyReason(workspacePath) : `${extra}: not part of a declared project`);
   }
   return reasons;
+}
+
+// Why the workspace's .workler is local data rather than the generated copy
+// (groupWorkspaceExtras already decided that it is).
+function configCopyReason(workspacePath: string): string {
+  try {
+    const stat = fs.lstatSync(path.join(workspacePath, CONFIG_FILE));
+    if (stat.isSymbolicLink()) {
+      return `${CONFIG_FILE}: a symbolic link, not the generated copy of the group's ${CONFIG_FILE}`;
+    }
+    if (!stat.isFile()) {
+      return `${CONFIG_FILE}: not a regular file, so not the generated copy of the group's ${CONFIG_FILE}`;
+    }
+  } catch (_) {
+    // Unreadable: the generic wording below still holds.
+  }
+  return `${CONFIG_FILE}: differs from the group's ${CONFIG_FILE} (edited here, or the group's file changed after this workspace was created)`;
 }

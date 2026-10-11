@@ -254,9 +254,16 @@ export function groupWorkspaceExtras(dir: string, groupRoot: string, projects: s
   return extras;
 }
 
+// The copy counts as generated only while it is a regular file holding the
+// group's exact bytes. A symbolic link in its place is the user's, even when
+// it points at the group's file: nothing follows links, so it is local data.
 function configCopyMatches(dir: string, groupRoot: string): boolean {
   try {
-    return fs.readFileSync(path.join(dir, CONFIG_FILE)).equals(fs.readFileSync(path.join(groupRoot, CONFIG_FILE)));
+    const copy = path.join(dir, CONFIG_FILE);
+    if (!fs.lstatSync(copy).isFile()) {
+      return false;
+    }
+    return fs.readFileSync(copy).equals(fs.readFileSync(path.join(groupRoot, CONFIG_FILE)));
   } catch (_) {
     return false;
   }

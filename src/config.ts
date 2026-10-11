@@ -206,9 +206,10 @@ function validateRulePath(targetPath: string, lineNumber: number, column: number
 
 // The parser knows no escapes: a path is written bare, or inside whichever
 // kind of quote it lacks. One holding both kinds, or a line break, cannot be
-// written at all.
+// written at all. Neither can one holding a backslash: the parser reads it as
+// a separator (see validateRulePath), so `foo\bar` would name `foo/bar`.
 export function canWriteConfigPath(value: string): boolean {
-  return !/[\r\n]/.test(value) && !(value.includes('"') && value.includes("'"));
+  return !/[\r\n\\]/.test(value) && !(value.includes('"') && value.includes("'"));
 }
 
 // Formats a path for a config line, and for any line shown to be pasted into

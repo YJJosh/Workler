@@ -69,7 +69,7 @@ Ordinary Git repositories do not need initialization. Idempotent;
 the result reports whether the config file was created. In a non-Git folder
 it declares the repositories `discoverProjects` finds: the result lists them
 as `projects` and `discoveredProjects`, and any it could not write (a path
-holding both quote characters, or a line break) as `unwritableProjects`.
+holding both quote characters, a backslash, or a line break) as `unwritableProjects`.
 
 ### `inspectProject(root): ProjectInfo`
 
@@ -144,7 +144,7 @@ isClone, broken?, branch?, head?, shortHead?, detached, clean? }` per
 declared project (for `main`, the source repositories). The entry's own
 `isClone` is true for every recognized group workspace, even one left behind
 with no member cloned yet; `branch` is set only when every member is on it, `clean` only when every
-member is clean and the workspace folder holds nothing but the members (real directories reached through real directories; a symbolic link or file at a member's path, or at any folder on the way to it, is local data) plus an unchanged `.workler` copy, and
+member is clean and the workspace folder holds nothing but the members (real directories reached through real directories; a symbolic link or file at a member's path, or at any folder on the way to it, is local data) plus an unchanged `.workler` copy (a regular file; a symbolic link in its place is local data), and
 `broken` joins the reasons of every broken or missing member.
 
 ### `resolveWorkspacePath(root, name): string`
