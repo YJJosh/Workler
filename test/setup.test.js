@@ -532,6 +532,23 @@ test('a failing member command stops the whole run and names the project', (t) =
   assert.deepStrictEqual(logLabels(path.join(feat, 'tools')), []);
   assert.deepStrictEqual(logLabels(feat), []);
 
+  // The retry hint repeats the address that was run: the whole workspace
+  // after `add` or `setup feat`, the one member when it was addressed
+  // directly, so the retry does not widen into every member's commands.
+  const direct = runCli(root, 'setup', 'feat/projects/api');
+  assert.strictEqual(direct.status, 1);
+  assert.match(direct.stderr, /^the workspace was kept; fix the problem and re-run `workler setup feat\/projects\/api`$/m);
+  const inMember = runCli(path.join(feat, 'projects', 'api'), 'setup');
+  assert.strictEqual(inMember.status, 1);
+  assert.match(inMember.stderr, /re-run `workler setup feat\/projects\/api`$/m);
+  const whole = runCli(root, 'setup', 'feat');
+  assert.strictEqual(whole.status, 1);
+  assert.match(whole.stderr, /re-run `workler setup feat`$/m);
+  assert.throws(
+    () => api.setupWorkspace(root, 'feat/projects/api'),
+    (error) => error.code === 'SETUP_COMMAND_FAILED' && /re-run `workler setup feat\/projects\/api`$/.test(error.message),
+  );
+
   assert.throws(
     () => api.createWorkspace(root, { name: 'feat2' }),
     (error) =>
@@ -541,6 +558,39 @@ test('a failing member command stops the whole run and names the project', (t) =
       error.details.exitCode === 3 &&
       error.details.path === path.join(root, '.worktrees', 'feat2', 'projects', 'api'),
   );
+});
+
+// Sets stale group variables in this process, which the API runs and the
+// CLI child processes inherit, and restores them when the test ends.
+function withStaleGroupEnv(t) {
+  const names = ['WORKLER_GROUP', 'WORKLER_GROUP_WORKSPACE_PATH', 'WORKLER_PROJECT'];
+  const saved = names.map((name) => process.env[name]);
+  for (const name of names) process.env[name] = 'stale';
+  t.after(() => {
+    names.forEach((name, index) => {
+      if (saved[index] === undefined) delete process.env[name];
+      else process.env[name] = saved[index];
+    });
+  });
+}
+
+test('setup commands never inherit group variables from the process that runs Workler', (t) => {
+  withStaleGroupEnv(t);
+  // A plain project: a member's command that runs `workler add` for another
+  // project must not make that workspace look like a group member.
+  const root = makeProject(t, { workler: `setup ${logGroupCommand('plain')}\n` });
+  const ws = api.createWorkspace(root, { name: 'feat' });
+  assert.deepStrictEqual(readLog(ws.path), [['plain', ws.path, 'feat', ws.path, root, '', '', '']]);
+
+  // A group: the group's own commands see the group but no WORKLER_PROJECT,
+  // and a member's see its own values, never the caller's.
+  const group = makeGroup(t, {
+    rules: { tools: `setup ${logGroupCommand('tools')}\n` },
+    groupLines: `setup ${logGroupCommand('group')}\n`,
+  });
+  const feat = api.createWorkspace(group, { name: 'feat' }).path;
+  assert.deepStrictEqual(readLog(feat), [['group', feat, 'feat', feat, group, group, feat, '']]);
+  assert.deepStrictEqual(readLog(path.join(feat, 'tools'))[0].slice(5), [group, feat, 'tools']);
 });
 
 test('setup at a group root addresses the whole workspace or one member, like apply', (t) => {

@@ -160,7 +160,17 @@ export function setupWorkspace(rootInput: string, name: string, options: Workspa
         });
   }
   const setup = forProject(project, () =>
-    runSetupCommands({ root: source, path: member, name: workspace.name, group: { root: info.root, workspacePath: workspace.path, project } }, options),
+    runSetupCommands(
+      {
+        root: source,
+        path: member,
+        name: workspace.name,
+        group: { root: info.root, workspacePath: workspace.path, project },
+        // The retry must not widen one member's run into the whole group's.
+        address: `${workspace.name}/${project}`,
+      },
+      options,
+    ),
   );
   return { name: workspace.name, path: member, root: source, project, setup };
 }

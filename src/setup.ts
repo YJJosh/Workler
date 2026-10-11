@@ -59,6 +59,9 @@ export interface SetupTarget {
   // in the workspace folder) and for every member's (then `project` names
   // the member).
   group?: { root: string; workspacePath: string; project?: string };
+  // What to hand `workler setup` to repeat this run: the workspace name
+  // (default) or `<name>/<project>` when one member was addressed directly.
+  address?: string;
 }
 
 export function validateSetupOptions(options: SetupOptions): void {
@@ -83,6 +86,13 @@ export function setupEnvironment(target: SetupTarget): NodeJS.ProcessEnv {
     WORKLER_WORKSPACE_PATH: target.path,
     WORKLER_ROOT: target.root,
   };
+  // Only this run's group variables may be present. Workler itself can be
+  // the caller (a member's command running `workler add` for another
+  // project, say), and its group context must not leak into a plain
+  // workspace or into the group's own commands.
+  delete env.WORKLER_GROUP;
+  delete env.WORKLER_GROUP_WORKSPACE_PATH;
+  delete env.WORKLER_PROJECT;
   if (target.group) {
     env.WORKLER_GROUP = target.group.root;
     env.WORKLER_GROUP_WORKSPACE_PATH = target.group.workspacePath;
@@ -132,7 +142,7 @@ export function runSetupCommands(target: SetupTarget, options: SetupOptions = {}
         'SETUP_COMMAND_FAILED',
         `setup command could not be started in ${target.path}: ${setup.command}\n` +
           `  ${result.error.message}\n` +
-          `the workspace was kept; ${retryHint(target.name)}`,
+          `the workspace was kept; ${retryHint(target.address ?? target.name)}`,
         { ...where, command: setup.command, index, commandCount: commands.length, results: outcome.results, cause: result.error.message },
       );
     }
@@ -149,7 +159,7 @@ export function runSetupCommands(target: SetupTarget, options: SetupOptions = {}
     throw new WorklerError(
       'SETUP_COMMAND_FAILED',
       `setup command failed in ${target.path}: ${setup.command} (${reason})\n` +
-        `the workspace was kept; ${retryHint(target.name)}`,
+        `the workspace was kept; ${retryHint(target.address ?? target.name)}`,
       { ...where, command: setup.command, exitCode, signal, index, commandCount: commands.length, results: outcome.results },
     );
   }
@@ -157,8 +167,9 @@ export function runSetupCommands(target: SetupTarget, options: SetupOptions = {}
   return outcome;
 }
 
-function retryHint(name: string): string {
-  return `fix the problem and re-run \`${PACKAGE_NAME} setup ${name}\``;
+// `address` is what was run: a whole workspace, or one member of a group.
+function retryHint(address: string): string {
+  return `fix the problem and re-run \`${PACKAGE_NAME} setup ${address}\``;
 }
 
 // Renders the heading the CLI prints before each command, aligned with the

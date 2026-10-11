@@ -59,6 +59,8 @@ Commands run:
 | `WORKLER_GROUP_WORKSPACE_PATH` | project groups only: the group workspace folder that holds the clones |
 | `WORKLER_PROJECT` | a member's commands in a project group only: the declared project path, e.g. `projects/api` |
 
+Only the variables that apply to a run are set. A command that runs Workler itself (a member's `workler add` for another project, say) does not pass its own group variables down.
+
 Their output streams straight to your terminal under a `setup` heading per command:
 
 ```text
@@ -121,7 +123,7 @@ setup  portler setup
 done   feat
 ```
 
-A group-level command can rely on every clone being there, so that is the place for something that works across the repositories. A failing command stops everything that follows, and the error names the member (`projects/api: setup command failed in ...`). `workler setup feat` re-runs all of it, `workler setup feat/projects/api` one member, and bare `workler setup` inside a member clone or inside the workspace folder does the matching thing. A member that is not a usable clone, or whose source repository is missing, not a repository, or behind a symbolic link, is skipped with a `project <path>: skipped (...)` line; nothing is followed or guessed, exactly as with `apply`.
+A group-level command can rely on every clone being there, so that is the place for something that works across the repositories. A failing command stops everything that follows, and the error names the member (`projects/api: setup command failed in ...`) while the retry hint repeats the address that was run. `workler setup feat` re-runs all of it, `workler setup feat/projects/api` one member, and bare `workler setup` inside a member clone or inside the workspace folder does the matching thing. A member that is not a usable clone, or whose source repository is missing, not a repository, or behind a symbolic link, is skipped with a `project <path>: skipped (...)` line; nothing is followed or guessed, exactly as with `apply`.
 
 ## Locking
 
