@@ -247,6 +247,13 @@ test('workler setup re-runs the commands for an existing workspace', (t) => {
   const none = runCli(root, 'setup', 'feat');
   assert.strictEqual(none.status, 0, none.stderr);
   assert.strictEqual(none.stdout, 'no setup commands\n');
+
+  // add announces nothing without setup lines: done/path stay the last lines.
+  fs.writeFileSync(path.join(root, '.env'), 'A=1\n');
+  const plain = runCli(root, 'add', 'plain');
+  assert.strictEqual(plain.status, 0, plain.stderr);
+  assert.doesNotMatch(plain.stdout, /no setup commands/);
+  assert.match(plain.stdout, /done {3}plain\npath {3}[^\n]+\n$/);
 });
 
 test('setupWorkspace runs the commands via the API and refuses main', (t) => {
@@ -613,6 +620,7 @@ test('setup at a group root addresses the whole workspace or one member, like ap
   const one = runCli(root, 'setup', 'feat/projects/api');
   assert.strictEqual(one.status, 0, one.stderr);
   assert.doesNotMatch(one.stdout, /group setup/);
+  assert.match(one.stdout, /^project projects\/api$/m);
   assert.match(one.stdout, /^done {3}feat\/projects\/api$/m);
   assert.deepStrictEqual(counts(), [2, 1]);
 
@@ -643,12 +651,17 @@ test('setup at a group root addresses the whole workspace or one member, like ap
     ['projects/web', 0, undefined],
     ['tools', 0, undefined],
   ]);
-  const memberResult = api.setupWorkspace(root, 'feat/projects/api');
+  const memberEvents = [];
+  const memberResult = api.setupWorkspace(root, 'feat/projects/api', {
+    onProjectSetup: (project, count, skipped) => memberEvents.push(['project', project, count, skipped]),
+    onGroupSetup: (count) => memberEvents.push(['group', count]),
+  });
   assert.strictEqual(memberResult.project, 'projects/api');
   assert.strictEqual(memberResult.path, apiClone);
   assert.strictEqual(memberResult.root, path.join(root, 'projects', 'api'));
   assert.strictEqual(memberResult.setup.commandCount, 1);
   assert.strictEqual(memberResult.projects, undefined);
+  assert.deepStrictEqual(memberEvents, [['project', 'projects/api', 1, undefined]]);
   assert.throws(() => api.setupWorkspace(root, 'feat/nope'), (error) => error.code === 'WORKSPACE_NOT_FOUND');
 
   // A member that was never cloned is skipped, not created.

@@ -47,6 +47,8 @@ setup  portler setup
 done   feat
 ```
 
+`setup <name>/<project>` prints that member's `project` heading and its commands only.
+
 Without any `setup` lines anywhere:
 
 ```text

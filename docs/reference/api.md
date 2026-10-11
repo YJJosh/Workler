@@ -171,7 +171,8 @@ and unknown names (`WORKSPACE_NOT_FOUND`). Does not take the project lock
 
 Under a project group, `name` may address one member (`"feat/projects/api"`):
 only that member's commands run, `path` is the clone, `root` its source
-repository, and `project` the declared path. Addressing the whole workspace
+repository, and `project` the declared path; `onProjectSetup` fires for it
+as in `createWorkspace`, `onGroupSetup` does not. Addressing the whole workspace
 runs every member's commands and then the group's own; `projects` then lists
 one `{ project, root, path, setup?, skipped? }` per declared project, where
 `skipped` says why a member that is not a usable clone, or whose source is

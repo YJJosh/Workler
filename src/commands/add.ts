@@ -7,7 +7,7 @@ import { applyRules } from '../rules';
 import type { ApplyRulesOutcome } from '../rules';
 import { formatSetupPlan } from '../setup';
 import { findWorklerRoot } from '../workspaces';
-import { printRuleResult, printRuleSummary, printSetupSummary, setupCallbacks } from './rule-output';
+import { printRuleResult, printRuleSummary, setupCallbacks } from './rule-output';
 
 export function addCommand(args: string[]): void {
   const usage = `${PACKAGE_NAME} add <name> [base] [--branch <branch>] [--checkout <ref>] [--copy-links] [--force] [--no-setup] [--dry-run]`;
@@ -67,8 +67,9 @@ export function addCommand(args: string[]): void {
 
   if (setup) {
     // A failing command throws SETUP_COMMAND_FAILED after the workspace is
-    // complete; the message names the command and how to retry.
-    printSetupSummary(setupWorkspace(root, result.name, setupCallbacks()));
+    // complete; the message names the command and how to retry. With no
+    // setup lines nothing is announced, so `done`/`path` stay the last lines.
+    setupWorkspace(root, result.name, setupCallbacks());
   }
 
   console.log(`done   ${result.name}`);

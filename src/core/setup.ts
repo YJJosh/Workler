@@ -159,8 +159,9 @@ export function setupWorkspace(rootInput: string, name: string, options: Workspa
           path: member,
         });
   }
-  const setup = forProject(project, () =>
-    runSetupCommands(
+  const setup = forProject(project, () => {
+    options.onProjectSetup?.(project, readSetupCommands(source).length);
+    return runSetupCommands(
       {
         root: source,
         path: member,
@@ -170,7 +171,7 @@ export function setupWorkspace(rootInput: string, name: string, options: Workspa
         address: `${workspace.name}/${project}`,
       },
       options,
-    ),
-  );
+    );
+  });
   return { name: workspace.name, path: member, root: source, project, setup };
 }
