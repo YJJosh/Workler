@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { canWriteConfigPath, quoteConfigPath, readConfig } from '../config';
+import { canWriteConfigPath, pathsOverlap, quoteConfigPath, readConfig } from '../config';
 import { CONFIG_FILE, MAIN_WORKSPACE_NAME, WORKSPACES_DIR } from '../constants';
 import { WorklerError } from '../errors';
 import { addLineIfMissing, canonicalPath, pathsReferToSameLocation } from '../fs-utils';
@@ -212,6 +212,13 @@ export interface InitResult {
   // cannot be spelled in .workler (both quote characters, or a line break).
   // Reported so the folder can be renamed.
   unwritableProjects: string[];
+  // Discovered repositories left out because the file would reject their
+  // path: it overlaps a path already declared (a rule or a project), or one
+  // discovered before it, the way the parser compares paths (case-
+  // insensitively, and a parent against its children). `API` next to `api`
+  // on a case-sensitive file system is the usual case. Each entry names the
+  // path it overlaps.
+  overlappingProjects: Array<{ path: string; overlaps: string }>;
   // Why an existing .workler could not be parsed. The file is left as is.
   configError?: string;
 }
@@ -291,13 +298,43 @@ export function initProject(rootInput: string): InitResult {
     // A plain folder holding several repositories is a project group in the
     // making: declare what is there so `add` can clone all of it.
     const found = gitRepo ? [] : discoverProjects(root);
-    const discoveredProjects = found.filter(canWriteConfigPath);
     const unwritableProjects = found.filter((project) => !canWriteConfigPath(project));
 
     let configCreated = false;
     let projects: string[] = [];
+    let declaredPaths: string[] = [];
     let configError: string | undefined;
-    if (!fs.existsSync(configPath)) {
+    const configExists = fs.existsSync(configPath);
+    if (configExists && !gitRepo) {
+      try {
+        const config = readConfig(root);
+        projects = config.projects.map((entry) => entry.path);
+        declaredPaths = [...config.rules.map((rule) => rule.targetPath), ...projects];
+      } catch (error) {
+        // init leaves an existing file alone, broken or not; the operations
+        // that need it fail on the parse error. Report it so the file is
+        // known to need fixing.
+        configError = error instanceof Error ? error.message : String(error);
+      }
+    }
+
+    // Only paths the file will accept are written or suggested: one that
+    // overlaps a declared path, or an earlier discovered one, would make the
+    // generated file fail to parse right after init reported success.
+    const discoveredProjects: string[] = [];
+    const overlappingProjects: Array<{ path: string; overlaps: string }> = [];
+    for (const candidate of found.filter(canWriteConfigPath)) {
+      const overlaps = projects.includes(candidate)
+        ? undefined
+        : [...declaredPaths, ...discoveredProjects].find((other) => pathsOverlap(candidate, other));
+      if (overlaps === undefined) {
+        discoveredProjects.push(candidate);
+      } else {
+        overlappingProjects.push({ path: candidate, overlaps });
+      }
+    }
+
+    if (!configExists) {
       if (discoveredProjects.length > 0) {
         fs.writeFileSync(configPath, groupConfigTemplate(discoveredProjects));
         projects = discoveredProjects;
@@ -305,15 +342,6 @@ export function initProject(rootInput: string): InitResult {
         fs.writeFileSync(configPath, PROJECT_CONFIG_TEMPLATE);
       }
       configCreated = true;
-    } else if (!gitRepo) {
-      try {
-        projects = readConfig(root).projects.map((entry) => entry.path);
-      } catch (error) {
-        // init leaves an existing file alone, broken or not; the operations
-        // that need it fail on the parse error. Report it so the file is
-        // known to need fixing.
-        configError = error instanceof Error ? error.message : String(error);
-      }
     }
 
     fs.mkdirSync(workspacesPath, { recursive: true });
@@ -341,6 +369,7 @@ export function initProject(rootInput: string): InitResult {
       projects,
       discoveredProjects,
       unwritableProjects,
+      overlappingProjects,
       configError,
     };
   });

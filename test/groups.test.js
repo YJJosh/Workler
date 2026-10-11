@@ -380,6 +380,78 @@ test('init skips a repository whose name cannot be written to .workler, and says
   assert.doesNotMatch(cli.stdout, /^project back/m);
 });
 
+test('init declares only one of two repositories whose paths .workler could not tell apart', (t) => {
+  // The parser compares path components case-insensitively and rejects a
+  // parent declared with its child, so `API` and `api` (or `Projects` and
+  // `projects/api`) cannot both be written: the file would fail to parse
+  // right after init reported success.
+  const probe = makeTempDir(t, 'workler-case-');
+  fs.mkdirSync(path.join(probe, 'A'));
+  if (fs.existsSync(path.join(probe, 'a'))) {
+    t.skip('needs a case-sensitive file system');
+    return;
+  }
+  const root = makeGroup(t, { projects: ['api'], declare: false });
+  makeRepoAt(path.join(root, 'API'));
+  makeRepoAt(path.join(root, 'Projects'));
+  makeRepoAt(path.join(root, 'projects', 'api'));
+
+  // Discovery is sorted, so `API` and `Projects` are found first and win.
+  const result = api.initProject(root);
+  assert.deepStrictEqual(result.discoveredProjects, ['API', 'Projects']);
+  assert.deepStrictEqual(result.overlappingProjects, [
+    { path: 'api', overlaps: 'API' },
+    { path: 'projects/api', overlaps: 'Projects' },
+  ]);
+  assert.deepStrictEqual(result.projects, ['API', 'Projects']);
+  const info = api.inspectProject(root);
+  assert.strictEqual(info.configError, undefined);
+  assert.deepStrictEqual(info.projects, ['API', 'Projects']);
+
+  fs.rmSync(result.configPath);
+  const cli = runCli(root, 'init');
+  assert.strictEqual(cli.status, 0, cli.stderr);
+  assert.match(cli.stdout, /^project API$/m);
+  assert.match(cli.stdout, /^project Projects$/m);
+  assert.match(cli.stdout, /^skipped api: overlaps API \(/m);
+  assert.match(cli.stdout, /^skipped projects\/api: overlaps Projects \(/m);
+  assert.doesNotMatch(cli.stdout, /^project api$/m);
+  assert.doesNotMatch(cli.stdout, /^project projects\/api$/m);
+  assert.strictEqual(api.inspectProject(root).configError, undefined);
+
+  // A hand-written file that declares `api` keeps it; `API` is then the one
+  // left out, and the hint never suggests a line the file would reject.
+  fs.writeFileSync(path.join(root, '.workler'), 'project api\n');
+  const again = runCli(root, 'init');
+  assert.strictEqual(again.status, 0, again.stderr);
+  assert.match(again.stdout, /^skipped API: overlaps api \(/m);
+  assert.match(again.stdout, /^  project Projects$/m);
+  assert.doesNotMatch(again.stdout, /^  project API$/m);
+  assert.deepStrictEqual(api.initProject(root).overlappingProjects, [
+    { path: 'API', overlaps: 'api' },
+    { path: 'projects/api', overlaps: 'Projects' },
+  ]);
+});
+
+test('init does not suggest a project line that overlaps a rule already in .workler', (t) => {
+  // `copy shared` and a repository at `shared/lib` cannot share one file (the
+  // rule would reach into the project), so the hint leaves it out and says so.
+  const root = makeGroup(t, { projects: ['projects/api'], declare: false });
+  makeRepoAt(path.join(root, 'shared', 'lib'));
+  fs.writeFileSync(path.join(root, '.workler'), 'project projects/api\ncopy shared\n');
+
+  const result = api.initProject(root);
+  assert.deepStrictEqual(result.projects, ['projects/api']);
+  assert.deepStrictEqual(result.discoveredProjects, ['projects/api']);
+  assert.deepStrictEqual(result.overlappingProjects, [{ path: 'shared/lib', overlaps: 'shared' }]);
+
+  const cli = runCli(root, 'init');
+  assert.strictEqual(cli.status, 0, cli.stderr);
+  assert.match(cli.stdout, /^skipped shared\/lib: overlaps shared \(/m);
+  assert.doesNotMatch(cli.stdout, /project shared/);
+  assert.doesNotMatch(cli.stdout, /^hint:/m);
+});
+
 // --- add -----------------------------------------------------------------
 
 test('init leaves a malformed .workler alone, says so, and still prepares the folder', (t) => {

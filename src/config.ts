@@ -129,12 +129,8 @@ export function readConfig(root: string): WorklerConfig {
     // project nested in another) would make two owners manage one tree.
     // Reject the ambiguous configuration instead of making behavior (and
     // safety) depend on line order.
-    const targetParts = targetPath.split('/').map((part) => part.toLowerCase());
     for (const existing of entries) {
-      const existingParts = existing.path.split('/').map((part) => part.toLowerCase());
-      const shared = Math.min(targetParts.length, existingParts.length);
-      const samePrefix = targetParts.slice(0, shared).every((part, partIndex) => part === existingParts[partIndex]);
-      if (samePrefix && (targetParts.length === shared || existingParts.length === shared)) {
+      if (pathsOverlap(targetPath, existing.path)) {
         parseError(lineNumber, pathStart + 1, rawLine, overlapMessage(entry, existing, targetPath), overlapExpectation(entry, existing));
       }
     }
@@ -158,6 +154,19 @@ export function readConfig(root: string): WorklerConfig {
   }
 
   return { rules, projects };
+}
+
+// Whether two validated paths are the same entry or a parent and its child,
+// compared the way the parser compares them: component by component and
+// case-insensitively (on a case-insensitive file system `API` and `api` are
+// one folder, so the file cannot tell them apart). Exported so `init` can
+// leave out a discovered path that the file would reject.
+export function pathsOverlap(first: string, second: string): boolean {
+  const firstParts = first.split('/').map((part) => part.toLowerCase());
+  const secondParts = second.split('/').map((part) => part.toLowerCase());
+  const shared = Math.min(firstParts.length, secondParts.length);
+  const samePrefix = firstParts.slice(0, shared).every((part, index) => part === secondParts[index]);
+  return samePrefix && (firstParts.length === shared || secondParts.length === shared);
 }
 
 function overlapMessage(entry: ConfigEntry, existing: ConfigEntry, targetPath: string): string {

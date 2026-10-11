@@ -33,6 +33,9 @@ export function initCommand(args: string[]): void {
   for (const project of result.unwritableProjects) {
     console.log(`skipped ${project}: cannot be written to ${CONFIG_FILE} (a path may not hold both " and ', a backslash, or a line break); rename it to declare it`);
   }
+  for (const project of result.overlappingProjects) {
+    console.log(`skipped ${project.path}: overlaps ${quoteConfigPath(project.overlaps)} (paths in ${CONFIG_FILE} are compared case-insensitively, and a project cannot contain another); rename one of them to declare both`);
+  }
   const undeclared = result.discoveredProjects.filter((project) => !result.projects.includes(project));
   if (!result.configCreated && undeclared.length > 0) {
     // Quoted exactly as the file needs them, so the lines paste as they are.
