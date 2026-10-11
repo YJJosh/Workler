@@ -120,10 +120,24 @@ export function runSetupCommands(target: SetupTarget, options: SetupOptions = {}
     // `--if-missing <path>`: the path is checked here, not by the shell, so
     // the guard means the same on every platform. Whatever is there counts,
     // including a link made by a `link` rule whose target exists.
-    if (setup.ifMissing !== undefined && fs.existsSync(path.join(target.path, ...setup.ifMissing.split('/')))) {
+    const guardPath = setup.ifMissing === undefined ? undefined : path.join(target.path, ...setup.ifMissing.split('/'));
+    if (guardPath !== undefined && fs.existsSync(guardPath)) {
       options.onSetupSkip?.(setup, index, commands.length);
       outcome.results.push({ command: setup.command, status: 'skipped', ifMissing: setup.ifMissing });
       continue;
+    }
+    // A link whose target is gone is "absent" to existsSync, but the command
+    // would collide with the stale entry (pnpm fails on mkdir). Stop and name
+    // it instead of running into that.
+    if (guardPath !== undefined && isDanglingLink(guardPath)) {
+      outcome.results.push({ command: setup.command, status: 'failed' });
+      throw new WorklerError(
+        'SETUP_COMMAND_FAILED',
+        `setup command not run in ${target.path}: ${setup.command}\n` +
+          `  ${setup.ifMissing} is a link whose target no longer exists, so the command would collide with it\n` +
+          `the workspace was kept; remove the link or restore its target, then re-run \`${PACKAGE_NAME} setup ${target.address ?? target.name}\``,
+        { ...where, command: setup.command, index, commandCount: commands.length, results: outcome.results, ifMissing: setup.ifMissing, cause: 'dangling link' },
+      );
     }
 
     options.onSetupCommand?.(setup, index, commands.length);
@@ -156,11 +170,18 @@ export function runSetupCommands(target: SetupTarget, options: SetupOptions = {}
     const signal = result.signal ?? undefined;
     outcome.results.push({ command: setup.command, status: 'failed', exitCode, signal });
     const reason = signal ? `terminated by signal ${signal}` : `exit code ${exitCode}`;
+    // The guard only asks whether the path exists. A command that created its
+    // path and then died (an install that stopped half-way) would be skipped
+    // by a plain re-run, which would exit 0 and look fine. Say so here.
+    const leftBehind = guardPath !== undefined && fs.existsSync(guardPath);
+    const leftover = leftBehind
+      ? `\n  ${setup.ifMissing} now exists, so \`${PACKAGE_NAME} setup\` would skip this command; remove it before re-running`
+      : '';
     throw new WorklerError(
       'SETUP_COMMAND_FAILED',
-      `setup command failed in ${target.path}: ${setup.command} (${reason})\n` +
+      `setup command failed in ${target.path}: ${setup.command} (${reason})${leftover}\n` +
         `the workspace was kept; ${retryHint(target.address ?? target.name)}`,
-      { ...where, command: setup.command, exitCode, signal, index, commandCount: commands.length, results: outcome.results },
+      { ...where, command: setup.command, exitCode, signal, index, commandCount: commands.length, results: outcome.results, ...(leftBehind ? { leftBehind: setup.ifMissing } : {}) },
     );
   }
 
@@ -170,6 +191,16 @@ export function runSetupCommands(target: SetupTarget, options: SetupOptions = {}
 // `address` is what was run: a whole workspace, or one member of a group.
 function retryHint(address: string): string {
   return `fix the problem and re-run \`${PACKAGE_NAME} setup ${address}\``;
+}
+
+// True for a symbolic link (or Windows junction) whose target is gone.
+// existsSync follows links, so it reports such a path as absent.
+function isDanglingLink(p: string): boolean {
+  try {
+    return fs.lstatSync(p).isSymbolicLink() && !fs.existsSync(p);
+  } catch {
+    return false;
+  }
 }
 
 // Renders the heading the CLI prints before each command, aligned with the

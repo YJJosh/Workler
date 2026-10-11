@@ -36,9 +36,15 @@ On POSIX, `sh` treats an unquoted `#` as the start of a comment, so the second l
 - When the main project has `node_modules`, the `link` rule puts a link to it in the workspace, and the install is **skipped**. Without the guard, `pnpm install` would write straight through the link into the main project's folder.
 - When the link found nothing to point at (a fresh checkout of the main project, or `--copy-links` with nothing to copy), the install **runs**, and the workspace gets its own `node_modules`.
 
-Workler checks the path itself, not the shell, so the guard means the same on macOS, Linux and Windows. Anything at the path counts: a file, a folder, or a link whose target exists. The path follows the [rule path syntax](/reference/configuration#path-rules): relative to the directory the command runs in, quoted when it holds a space or `#`, never absolute or reaching outside. `add` reports a skipped command as `skip   setup pnpm install (node_modules exists)`, and `add --dry-run` lists it as `would  setup pnpm install (only if node_modules is missing)`.
+Workler checks the path itself, not the shell, so the guard means the same on macOS, Linux and Windows. Anything at the path counts: a file, a folder, or a link whose target exists. A link whose target is gone is neither present nor absent: the run stops with `<path> is a link whose target no longer exists`, because the command would collide with the stale entry. Remove the link or restore its target first. The path follows the [rule path syntax](/reference/configuration#path-rules): relative to the directory the command runs in, quoted when it holds a space or `#`, never absolute or reaching outside. `add` reports a skipped command as `skip   setup pnpm install (node_modules exists)`, and `add --dry-run` lists it as `would  setup pnpm install (only if node_modules is missing)`.
 
 The guard is also the "already done" test that makes [`workler setup`](/reference/cli/setup) cheap to re-run: a guarded line only runs again after whatever it produced is gone.
+
+The guard cannot tell a finished install from one that died half-way. When a guarded command fails after creating its path, the failure message adds `<path> now exists, so workler setup would skip this command; remove it before re-running`, and the error details carry the path as `leftBehind`.
+
+::: warning Monorepos
+The `link node_modules` plus guard pairing assumes one `node_modules` at the root. pnpm and yarn workspaces keep a `node_modules` in every package and point workspace packages back at their source, so a workspace that only links the root folder cannot resolve its dependencies, and an install through the link would write into the main project. For those projects leave out the `link` line and use a plain `setup pnpm install` (or hand it to a sibling tool, `setup portler setup`); the package manager's content-addressed store makes a fresh install cheap.
+:::
 
 ## How commands run
 

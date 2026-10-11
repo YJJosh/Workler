@@ -372,6 +372,55 @@ test('setup --if-missing <path> runs the command only while the path is absent',
   assert.deepStrictEqual(readLog(fresh.path).map((fields) => fields[0]), ['install', 'quoted', 'always']);
 });
 
+test('a guarded command that created its path before failing says the re-run would skip it', (t) => {
+  // An install that dies half-way leaves node_modules behind. The guard only
+  // asks whether the path exists, so the re-run the failure recommends would
+  // skip the command and exit 0 as if nothing was wrong. The failure has to say so.
+  const halfInstall = `${NODE} -e "require('fs').mkdirSync('node_modules'); process.exit(7)"`;
+  const root = makeProject(t, { workler: `setup --if-missing node_modules ${halfInstall}\n` });
+
+  const add = runCli(root, 'add', 'feat');
+  assert.strictEqual(add.status, 1);
+  assert.match(add.stderr, /exit code 7/);
+  assert.match(add.stderr, /node_modules now exists, so `workler setup` would skip this command; remove it before re-running/);
+  const ws = path.join(root, '.worktrees', 'feat');
+  assert.ok(fs.existsSync(path.join(ws, 'node_modules')));
+
+  // The re-run does skip it, which is exactly why the hint exists.
+  const again = runCli(root, 'setup', 'feat');
+  assert.strictEqual(again.status, 0, again.stderr);
+  assert.match(again.stdout, /^skip   setup .* \(node_modules exists\)$/m);
+
+  // Via the API the details name the leftover path.
+  fs.rmSync(path.join(ws, 'node_modules'), { recursive: true });
+  assert.throws(
+    () => api.setupWorkspace(root, 'feat'),
+    (error) => error.code === 'SETUP_COMMAND_FAILED' && error.details.leftBehind === 'node_modules' && error.details.exitCode === 7,
+  );
+});
+
+test('a guard that is a link to a missing target stops the run instead of counting as absent', (t) => {
+  // `link node_modules` made a link while the main project had one; later the
+  // target was deleted. existsSync follows the link and says "absent", but an
+  // install would collide with the stale entry. Stop before running it.
+  const root = makeProject(t, { workler: `link node_modules\nsetup --if-missing node_modules ${logCommand('install')}\n` });
+  // makeProject already creates node_modules; give it content so the link has a real target.
+  fs.writeFileSync(path.join(root, 'node_modules', 'marker'), 'x');
+
+  const add = runCli(root, 'add', 'feat');
+  assert.strictEqual(add.status, 0, add.stderr);
+  assert.match(add.stdout, /^skip   setup .* \(node_modules exists\)$/m);
+  const ws = path.join(root, '.worktrees', 'feat');
+  assert.ok(fs.lstatSync(path.join(ws, 'node_modules')).isSymbolicLink());
+
+  fs.rmSync(path.join(root, 'node_modules'), { recursive: true });
+  const rerun = runCli(root, 'setup', 'feat');
+  assert.strictEqual(rerun.status, 1);
+  assert.match(rerun.stderr, /node_modules is a link whose target no longer exists/);
+  assert.match(rerun.stderr, /remove the link or restore its target, then re-run `workler setup feat`/);
+  assert.ok(!fs.existsSync(path.join(ws, 'setup.log')), 'the guarded command must not have run');
+});
+
 test('--if-missing paths are validated like rule paths and the option must be spelled right', (t) => {
   const root = makeRepo(t);
   const expectConfigError = (workler, pattern, column) => {
