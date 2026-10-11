@@ -4,7 +4,7 @@ import { CONFIG_FILE, MAIN_WORKSPACE_NAME, WORKSPACES_DIR } from '../constants';
 import { WorklerError } from '../errors';
 import { assertInside } from '../fs-utils';
 import { isGitWorkTreeCleanIncludingIgnored } from '../git';
-import { ancestorReason, groupWorkspaceExtras, inspectMember, memberPath } from '../groups';
+import { ancestorReason, foreignMemberReason, groupWorkspaceExtras, inspectMember, memberPath } from '../groups';
 import { withProjectLocks } from '../lock';
 import { findWorkspace, validateWorkspaceName } from '../workspaces';
 import { lockRootsOf, requireProject } from './project';
@@ -89,6 +89,10 @@ function groupLocalData(workspacePath: string, groupRoot: string, projects: stri
     covered.add(check.ancestor ?? project);
     if (check.state === 'link') {
       reasons.push(`${project}: ${ancestorReason(check) ?? 'a symbolic link, not a clone'}`);
+      continue;
+    }
+    if (check.state === 'foreign') {
+      reasons.push(`${project}: ${foreignMemberReason(project)}`);
       continue;
     }
     if (check.state !== 'clone') {

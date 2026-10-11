@@ -61,6 +61,8 @@ A member clone is a normal workspace of its source repository, so it has everyth
 | `workler.groupProject` | The declared project path (`projects/api`), with forward slashes. |
 | `workler.groupCopyLinks` | `true` only after `--copy-links`: the copy-links mode of the **group's own** rules, kept here because the group workspace folder is not a repository. Separate from `workler.copyLinks`, which is this clone's own mode. |
 
+These keys are also how Workler recognizes a member clone. A repository at a member path whose `workler.root`, `workler.name`, `workler.group` and `workler.groupProject` do not match the workspace it sits in is not the member but local data (`status` reports it, `apply`, `sync` and `branch-sync` skip it, `remove` needs `--force`). A clone that an interrupted `add` left without these keys still counts as the member while its `origin` points at the source, which is what `git clone --local` leaves before Workler rewrites the remotes.
+
 ## What to commit, what to ignore
 
 - **If you use `.workler`, commit it.** It documents what a working checkout needs, and nested workspaces read the committed copy.

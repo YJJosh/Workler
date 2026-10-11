@@ -141,10 +141,10 @@ shortHead?, detached, clean?, projects? }`. `clean` uses the same guard as `remo
 
 Under a project group every entry has `projects`, one `{ project, path,
 isClone, broken?, branch?, head?, shortHead?, detached, clean? }` per
-declared project (for `main`, the source repositories). The entry's own
+declared project (for `main`, the source repositories). A member's `isClone` is true only for its usable clone, so it is false whenever that member's `broken` is set. The entry's own
 `isClone` is true for every recognized group workspace, even one left behind
 with no member cloned yet; `branch` is set only when every member is on it, `clean` only when every
-member is clean and the workspace folder holds nothing but the members (real directories reached through real directories; a symbolic link or file at a member's path, or at any folder on the way to it, is local data) plus an unchanged `.workler` copy (a regular file; a symbolic link in its place is local data), and
+member is clean and the workspace folder holds nothing but the members (real directories reached through real directories that carry the recorded member identity; a symbolic link or file at a member's path, or at any folder on the way to it, is local data, and so is a repository that is not the recorded clone) plus an unchanged `.workler` copy (a regular file; a symbolic link in its place is local data), and
 `broken` joins the reasons of every broken or missing member.
 
 ### `resolveWorkspacePath(root, name): string`

@@ -86,7 +86,11 @@ export function listWorkspaceInfos(rootInput: string): WorkspaceInfo[] {
         brokenReasons.push(member.broken ?? 'not a group workspace');
         continue;
       }
-      const memberInfo: MemberInfo = { project: member.project, ...inspectTarget(member, false) };
+      const details = inspectTarget(member, false);
+      // A member is a clone only when it is the member's usable clone: a
+      // repository that is not the recorded one, or a .git reached through a
+      // link, is local data (see broken), not the member.
+      const memberInfo: MemberInfo = { project: member.project, ...details, isClone: details.isClone && details.broken === undefined };
       projects.push(memberInfo);
       if (memberInfo.broken) {
         brokenReasons.push(`${member.project}: ${memberInfo.broken}`);

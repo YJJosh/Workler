@@ -4,7 +4,7 @@ import { readRules } from '../config';
 import { MAIN_WORKSPACE_NAME, PACKAGE_NAME } from '../constants';
 import { inspectProject, lockRootsOf, requireProject } from '../core/project';
 import type { ProjectInfo } from '../core/project';
-import { ancestorReason, inspectMember, memberPath, requireDeclaredProject, sourceBrokenReason, splitWorkspaceAddress } from '../groups';
+import { ancestorReason, foreignMemberReason, inspectMember, memberPath, requireDeclaredProject, sourceBrokenReason, splitWorkspaceAddress } from '../groups';
 import { withProjectLocks } from '../lock';
 import { applyRules } from '../rules';
 import type { Workspace } from '../types';
@@ -67,7 +67,7 @@ function applyWorkspace(info: ProjectInfo, workspace: Workspace, flags: ApplyFla
     const member = memberPath(workspace.path, project);
     const check = inspectMember(workspace.path, project);
     if (check.state !== 'clone') {
-      console.log(`project ${project}: skipped (${notACloneReason(check)})`);
+      console.log(`project ${project}: skipped (${notACloneReason(check, project)})`);
       continue;
     }
     cloned.push(member);
@@ -202,7 +202,7 @@ export function applyCommand(args: string[]): void {
     const member = memberPath(workspace.path, project);
     const check = inspectMember(workspace.path, project);
     if (check.state !== 'clone') {
-      throw new Error(`project ${project} in workspace ${address.workspace} is ${notACloneReason(check)}: ${member}`);
+      throw new Error(`project ${project} in workspace ${address.workspace} is ${notACloneReason(check, project)}: ${member}`);
     }
     const source = memberPath(root, project);
     const unusable = sourceBrokenReason(root, project);
@@ -224,9 +224,19 @@ function runWithOptionalLock(roots: readonly string[], operation: string, dryRun
 // A member that apply must not touch: nothing is there yet, or a symbolic
 // link or file that is not a clone (a link to the source repository would
 // otherwise be followed and the source itself rewritten).
-function notACloneReason(check: ReturnType<typeof inspectMember>): string {
-  return (
-    ancestorReason(check) ??
-    (check.state === 'missing' ? 'not cloned' : check.state === 'link' ? 'a symbolic link, not a clone' : 'not a clone')
-  );
+function notACloneReason(check: ReturnType<typeof inspectMember>, project: string): string {
+  const own = ancestorReason(check);
+  if (own !== undefined) {
+    return own;
+  }
+  switch (check.state) {
+    case 'missing':
+      return 'not cloned';
+    case 'link':
+      return 'a symbolic link, not a clone';
+    case 'foreign':
+      return foreignMemberReason(project);
+    default:
+      return 'not a clone';
+  }
 }

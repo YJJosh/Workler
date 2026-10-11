@@ -4,8 +4,8 @@ import path from 'node:path';
 import { readConfig } from './config';
 import { CONFIG_FILE, GROUP_WORKSPACE_REFS, WORKSPACES_DIR } from './constants';
 import { WorklerError } from './errors';
-import { canonicalPath } from './fs-utils';
-import { hasIndependentGitDirectory, isGitTopLevel } from './git';
+import { canonicalPath, pathsReferToSameLocation } from './fs-utils';
+import { gitMaybe, hasIndependentGitDirectory, isGitTopLevel } from './git';
 
 // A project group is a plain folder (not a Git repository) whose .workler
 // lists the repositories below it with `project <path>` lines. `add` run
@@ -121,7 +121,7 @@ function walkToMember(base: string, project: string): MemberWalk {
 // it (`projects` for `projects/api`), is never something Workler put there:
 // it is local data, and following the link would inspect the wrong
 // directory. So every component is checked with lstat and none is followed.
-export type MemberState = 'missing' | 'clone' | 'link' | 'not-a-clone';
+export type MemberState = 'missing' | 'clone' | 'link' | 'not-a-clone' | 'foreign';
 
 export interface MemberCheck {
   state: MemberState;
@@ -141,9 +141,71 @@ export function inspectMember(base: string, project: string): MemberCheck {
       return decided('link');
     case 'file':
       return decided('not-a-clone');
-    default:
-      return { state: hasIndependentGitDirectory(memberPath(base, project)) ? 'clone' : 'not-a-clone' };
+    default: {
+      const member = memberPath(base, project);
+      if (!hasIndependentGitDirectory(member)) {
+        return { state: 'not-a-clone' };
+      }
+      return { state: isRecordedMember(base, project, member) ? 'clone' : 'foreign' };
+    }
   }
+}
+
+// Whether the repository at a member path is the clone Workler made there,
+// judged by the identity `add` records in its git config and not by the mere
+// presence of a .git directory. An unrelated repository dropped at the path
+// must count as local data: not something remove may delete without --force,
+// nor something apply, sync and branch-sync may write into.
+//
+// `add` records a member in two steps (clone, then mark), so an interrupted
+// run can leave a clone with no marks yet. That half-made clone is still the
+// member when its origin remote points at the source: `git clone --local
+// <source>` leaves exactly that, and marking replaces it.
+function isRecordedMember(base: string, project: string, member: string): boolean {
+  const group = path.dirname(path.dirname(base));
+  const source = memberPath(group, project);
+  const config = localGitConfig(member);
+  const value = (key: string): string | undefined => config.get(key)?.[0];
+  const recordedRoot = value('workler.root');
+  if (recordedRoot === undefined) {
+    return (config.get('remote.origin.url') ?? []).some((url) => pathsReferToSameLocation(url, source));
+  }
+  if (!pathsReferToSameLocation(recordedRoot, source) || value('workler.name') !== path.basename(base)) {
+    return false;
+  }
+  const recordedGroup = value('workler.group');
+  const recordedProject = value('workler.groupproject');
+  if (recordedGroup === undefined && recordedProject === undefined) {
+    // Marked as a workspace of the source but not yet as a group member:
+    // `add` was interrupted between the two marking steps.
+    return true;
+  }
+  return recordedGroup !== undefined && recordedProject === project && pathsReferToSameLocation(recordedGroup, group);
+}
+
+// The repository's local git config as key -> values. Git lowercases the
+// section and variable names in --list output, so look keys up lowercased.
+function localGitConfig(repo: string): Map<string, string[]> {
+  const values = new Map<string, string[]>();
+  const listed = gitMaybe(repo, ['config', '--local', '-z', '--list']);
+  if (listed === undefined) {
+    return values;
+  }
+  for (const record of listed.split('\0')) {
+    if (record === '') {
+      continue;
+    }
+    const newline = record.indexOf('\n');
+    const key = (newline === -1 ? record : record.slice(0, newline)).toLowerCase();
+    const value = newline === -1 ? '' : record.slice(newline + 1);
+    values.set(key, [...(values.get(key) ?? []), value]);
+  }
+  return values;
+}
+
+// Why a repository at a member path is not treated as the member's clone.
+export function foreignMemberReason(project: string): string {
+  return `not the recorded clone of ${project}: unrelated, or made for another location`;
 }
 
 export function memberState(base: string, project: string): MemberState {
@@ -171,6 +233,8 @@ export function memberBrokenReason(base: string, project: string): string | unde
       return 'missing (not cloned)';
     case 'link':
       return ancestorReason(check) ?? 'a symbolic link, not a clone';
+    case 'foreign':
+      return foreignMemberReason(project);
     default:
       return ancestorReason(check) ?? 'missing .git (not a clone)';
   }

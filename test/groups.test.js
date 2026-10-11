@@ -1269,6 +1269,112 @@ test('apply on a workspace with no member clone skips the group rules instead of
   assert.match(all.stdout, /group rules: skipped/);
 });
 
+test('a repository at a member path that is not the recorded clone counts as local data', (t) => {
+  const root = makeGroup(t, { rules: { 'projects/api': 'link node_modules\ncopy .env\n' } });
+  api.createWorkspace(root, { name: 'feat' });
+  const feat = workspaceDir(root, 'feat');
+  const apiMember = member(feat, 'projects/api');
+  const sourceApi = member(root, 'projects/api');
+  const namespace = api.groupRefNamespace(root).replace(/\/$/, '');
+
+  // Replace the member clone with an unrelated, clean repository: it has a
+  // .git directory, but none of the identity `add` records.
+  fs.rmSync(apiMember, { recursive: true, force: true });
+  makeRepoAt(apiMember, { includeWorkler: false });
+  git(apiMember, 'checkout', '-qb', 'private');
+  const foreignHead = git(apiMember, 'rev-parse', 'HEAD');
+  const before = fs.readdirSync(apiMember).sort();
+
+  // list and status report it instead of accepting it.
+  const listed = api.listWorkspaces(root).find((workspace) => workspace.name === 'feat');
+  assert.match(listed.broken, /projects\/api: not the recorded clone of projects\/api/);
+  assert.strictEqual(listed.clean, undefined);
+  const status = runCli(root, 'status');
+  assert.strictEqual(status.status, 0);
+  assert.match(status.stdout, /feat\/projects\/api[^\n]*not the recorded clone of projects\/api/);
+
+  // apply skips it and writes nothing into it, by name or by address.
+  const applied = runCli(root, 'apply', 'feat');
+  assert.strictEqual(applied.status, 0, applied.stderr);
+  assert.match(applied.stdout, /project projects\/api: skipped \(not the recorded clone of projects\/api/);
+  assert.deepStrictEqual(fs.readdirSync(apiMember).sort(), before);
+  const one = runCli(root, 'apply', 'feat/projects/api');
+  assert.strictEqual(one.status, 1);
+  assert.match(one.stderr, /not the recorded clone of projects\/api/);
+
+  // sync and branch-sync treat it as broken: no fetch, no mirror, no remote.
+  const synced = runCli(root, 'sync');
+  assert.strictEqual(synced.status, 0, synced.stderr);
+  assert.match(synced.stdout, /feat\/projects\/api[^\n]*skipped \(broken: not the recorded clone/);
+  const mirrored = runCli(root, 'branch-sync');
+  assert.strictEqual(mirrored.status, 0, mirrored.stderr);
+  assert.deepStrictEqual(refs(sourceApi, namespace), []);
+  assert.strictEqual(git(apiMember, 'remote'), '');
+  assert.strictEqual(git(apiMember, 'rev-parse', 'HEAD'), foreignHead);
+
+  // remove refuses without --force and leaves the repository alone.
+  assert.throws(
+    () => api.removeWorkspace(root, 'feat'),
+    (error) => error.code === 'WORKSPACE_DIRTY' && /projects\/api: not the recorded clone of projects\/api/.test(error.message),
+  );
+  assert.strictEqual(git(apiMember, 'rev-parse', 'HEAD'), foreignHead);
+  api.removeWorkspace(root, 'feat', { force: true });
+  assert.strictEqual(fs.existsSync(feat), false);
+
+  // A clone recorded for ANOTHER workspace is not this one's either.
+  api.createWorkspace(root, { name: 'feat' });
+  api.createWorkspace(root, { name: 'other' });
+  fs.rmSync(apiMember, { recursive: true, force: true });
+  fs.renameSync(member(workspaceDir(root, 'other'), 'projects/api'), apiMember);
+  assert.match(
+    api.listWorkspaces(root).find((workspace) => workspace.name === 'feat').broken,
+    /projects\/api: not the recorded clone of projects\/api/,
+  );
+  assert.throws(() => api.removeWorkspace(root, 'feat'), (error) => error.code === 'WORKSPACE_DIRTY');
+});
+
+test('a clone that an interrupted add left unmarked still counts as the member', (t) => {
+  const root = makeGroup(t);
+  api.createWorkspace(root, { name: 'feat' });
+  const feat = workspaceDir(root, 'feat');
+  const apiMember = member(feat, 'projects/api');
+  const sourceApi = member(root, 'projects/api');
+  const featInfo = () => api.listWorkspaces(root).find((workspace) => workspace.name === 'feat');
+
+  // Interrupted between the clone and the marking: a bare `clone --local` of
+  // the source, whose origin still points at it and which has no workler.* keys.
+  fs.rmSync(apiMember, { recursive: true, force: true });
+  git(root, 'clone', '-q', '--local', sourceApi, apiMember);
+  assert.doesNotMatch(git(apiMember, 'config', '--local', '--list'), /^workler\./m);
+  assert.strictEqual(featInfo().broken, undefined);
+  assert.strictEqual(featInfo().projects.find((project) => project.project === 'projects/api').isClone, true);
+  const status = runCli(root, 'status');
+  assert.strictEqual(status.status, 0);
+  assert.doesNotMatch(status.stdout, /broken/);
+
+  // Interrupted between the two marking steps: marked as the source's
+  // workspace, not yet as a group member.
+  const marked = api.createWorkspace(root, { name: 'marked' });
+  const markedApi = member(marked.path, 'projects/api');
+  git(markedApi, 'config', '--unset', 'workler.group');
+  git(markedApi, 'config', '--unset', 'workler.groupProject');
+  assert.strictEqual(api.listWorkspaces(root).find((workspace) => workspace.name === 'marked').broken, undefined);
+
+  // A plain remove accepts both as members (they are clean).
+  api.removeWorkspace(root, 'feat');
+  api.removeWorkspace(root, 'marked');
+  assert.strictEqual(fs.existsSync(feat), false);
+
+  // The same unmarked state cloned from the WRONG source is not the member.
+  api.createWorkspace(root, { name: 'feat' });
+  fs.rmSync(apiMember, { recursive: true, force: true });
+  git(root, 'clone', '-q', '--local', member(root, 'projects/web'), apiMember);
+  assert.match(featInfo().broken, /projects\/api: not the recorded clone of projects\/api/);
+  assert.throws(() => api.removeWorkspace(root, 'feat'), (error) => error.code === 'WORKSPACE_DIRTY');
+  api.removeWorkspace(root, 'feat', { force: true });
+  assert.strictEqual(fs.existsSync(feat), false);
+});
+
 test('remove needs every member clean and nothing but members in the workspace folder', (t) => {
   const root = makeGroup(t, { rules: { 'projects/api': 'copy .env\n' }, groupRules: 'copy .env.shared\n' });
   const feat = api.createWorkspace(root, { name: 'feat' }).path;
