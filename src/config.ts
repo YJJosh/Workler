@@ -80,6 +80,7 @@ export function readConfig(root: string): WorklerConfig {
 
   const text = fs.readFileSync(configPath, 'utf8');
   const rules: WorklerRule[] = [];
+  let configRule: { lineNumber: number; column: number; rawLine: string } | undefined;
   const projects: ProjectEntry[] = [];
   const entries: ConfigEntry[] = [];
   const lines = text.split(/\r?\n/);
@@ -113,6 +114,15 @@ export function readConfig(root: string): WorklerConfig {
     const targetPath = validateRulePath(parsedPath, lineNumber, pathStart + 1, rawLine);
     const entry: ConfigEntry = { kind: action === 'project' ? 'project' : 'rule', path: targetPath };
 
+    // Workler writes its own copy of this file into every group workspace, so
+    // a group-level rule for it could only ever conflict with that copy (or,
+    // with --force, replace the copy by a link that `remove` then protects as
+    // local data). Remember the first such rule; it is rejected below once the
+    // file turns out to declare projects.
+    if (entry.kind === 'rule' && !configRule && targetPath.split('/')[0].toLowerCase() === CONFIG_FILE.toLowerCase()) {
+      configRule = { lineNumber, column: pathStart + 1, rawLine };
+    }
+
     // Parent/child entries are not independent: a link at `cache` would make
     // a later rule for `cache/file` traverse that link, two rules for the same
     // path necessarily conflict, and a rule that reaches into a project (or a
@@ -135,6 +145,16 @@ export function readConfig(root: string): WorklerConfig {
     } else {
       rules.push({ action, targetPath, raw: rawLine.trim() });
     }
+  }
+
+  if (configRule && projects.length > 0) {
+    parseError(
+      configRule.lineNumber,
+      configRule.column,
+      configRule.rawLine,
+      `a project group cannot manage ${CONFIG_FILE}: Workler writes that file into every group workspace itself`,
+      `a path other than ${CONFIG_FILE}`,
+    );
   }
 
   return { rules, projects };

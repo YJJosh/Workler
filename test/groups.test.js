@@ -167,6 +167,46 @@ test('discovery: the group root, a folder between projects, and a project itself
   assert.strictEqual(api.findWorklerRoot(member(root, 'tools')), member(root, 'tools'));
 });
 
+test('add on a hand-written group ignores .worktrees/ in .gitignore, as init does', (t) => {
+  const outer = makeRepo(t, { includeWorkler: false });
+  const group = path.join(outer, 'services');
+  makeRepoAt(path.join(group, 'a'));
+  fs.writeFileSync(path.join(group, '.workler'), 'project a\ncopy .env.shared\n');
+  fs.writeFileSync(path.join(group, '.env.shared'), 'SHARED=1\n');
+  assert.strictEqual(fs.existsSync(path.join(group, '.gitignore')), false);
+
+  const feat = api.createWorkspace(group, { name: 'feat' });
+  assert.strictEqual(fs.readFileSync(path.join(group, '.gitignore'), 'utf8'), '.worktrees/\n');
+  // It is the group's own .gitignore that hides the clone and the group-level
+  // copy from the outer repository.
+  assert.match(git(outer, 'check-ignore', '-v', 'services/.worktrees/feat/.env.shared'), /services\/\.gitignore:1:\.worktrees\//);
+
+  // Idempotent, and a nested group workspace gets no .gitignore of its own: it
+  // already lives under a .worktrees/ that the group ignores.
+  api.createWorkspace(group, { name: 'feat2' });
+  assert.strictEqual(fs.readFileSync(path.join(group, '.gitignore'), 'utf8'), '.worktrees/\n');
+  api.createWorkspace(feat.path, { name: 'inner' });
+  assert.strictEqual(fs.existsSync(path.join(feat.path, '.gitignore')), false);
+});
+
+test('a group-level rule for .workler is a configuration error: add writes that file into every group workspace', (t) => {
+  for (const line of ['link .workler', 'copy .workler', 'copy ./.WORKLER']) {
+    const root = makeGroup(t, { projects: ['a'], groupRules: `${line}\n` });
+    assert.match(api.inspectProject(root).configError ?? '', /\.workler:2:\d+: a project group cannot manage \.workler/, line);
+    for (const operation of [() => api.createWorkspace(root, { name: 'feat' }), () => api.planWorkspaceCreation(root, { name: 'feat' })]) {
+      assert.throws(operation, (error) => error.code === 'CONFIG_INVALID' && /cannot manage \.workler/.test(error.message), line);
+    }
+    assert.strictEqual(fs.existsSync(workspaceDir(root, 'feat')), false, line);
+    const { status, stderr } = runCli(root, 'add', 'feat');
+    assert.strictEqual(status, 1, line);
+    assert.match(stderr, /cannot manage \.workler/, line);
+  }
+  // Only groups are concerned: Workler never pre-writes a plain repository's
+  // .workler into its workspaces, so the same line still parses there.
+  const repo = makeRepo(t, { workler: 'link .workler\n' });
+  assert.doesNotThrow(() => api.planWorkspaceCreation(repo, { name: 'feat' }));
+});
+
 test('a group inside an unrelated outer repository is the nearer project', (t) => {
   const outer = makeRepo(t, { includeWorkler: false });
   const group = path.join(outer, 'services');

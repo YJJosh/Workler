@@ -122,7 +122,7 @@ group's own rules. Errors from one member are prefixed with its project path
 and carry `details.project`. A Git repository whose `.workler` declares
 projects fails with `CONFIG_INVALID`. A declared path that is missing, is not
 a repository, or is reached through a symbolic link fails with
-`NOT_A_GIT_REPO`; links are never followed.
+`NOT_A_GIT_REPO`; links are never followed. A group-level rule for `.workler` itself is CONFIG_INVALID: `add` copies the group's file into every group workspace.
 
 ### `planWorkspaceCreation(root, options): WorkspacePlan`
 

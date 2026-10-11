@@ -66,7 +66,9 @@ otherwise applying them would depend on line order and could traverse a link
 created by an earlier rule. `project` lines take part in the same check: a
 project cannot contain another project, and a rule cannot reach into a project
 (`project projects/api` plus `link projects/api/node_modules` is rejected; that
-rule belongs in `projects/api/.workler`).
+rule belongs in `projects/api/.workler`). A file that declares projects also
+cannot have a rule for `.workler` itself: `add` copies the group's file into
+every group workspace, so the rule could only collide with that copy.
 
 ## Errors
 

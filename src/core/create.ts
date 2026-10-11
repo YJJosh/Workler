@@ -400,6 +400,16 @@ function createGroupLocked(
     progress(`warning: ${warning}`);
   }
 
+  // A group root is never a Git repository, so there is no info/exclude to
+  // use; mirror `init` and ignore the workspaces directory in .gitignore. That
+  // only matters when the group sits inside an outer repository, where the
+  // clones and group-level copies would otherwise show up as untracked outer
+  // content. A nested group workspace skips this: it already lives under a
+  // .worktrees/ that its parent group ignores.
+  if (path.basename(path.dirname(root)) !== WORKSPACES_DIR) {
+    addLineIfMissing(path.join(root, '.gitignore'), `${WORKSPACES_DIR}/`);
+  }
+
   fs.mkdirSync(plan.target, { recursive: true });
   fs.copyFileSync(path.join(root, CONFIG_FILE), path.join(plan.target, CONFIG_FILE));
 
