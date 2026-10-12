@@ -2000,6 +2000,20 @@ test('group and member guard paths are output only once their commands made them
   );
   fs.rmSync(record);
   fs.rmSync(path.join(other.path, 'shared.txt'));
+
+  // So is a dangling link at that name, which existsSync would call absent:
+  // setup must not rename its record over it.
+  fs.symlinkSync(path.join(other.path, 'does-not-exist.json'), record);
+  api.setupWorkspace(root, 'other');
+  assert.ok(fs.existsSync(path.join(other.path, 'shared.txt')));
+  assert.ok(fs.lstatSync(record).isSymbolicLink(), 'the dangling link is untouched');
+  assert.strictEqual(clean('other'), false);
+  assert.throws(
+    () => api.removeWorkspace(root, 'other'),
+    (error) => error.code === 'WORKSPACE_DIRTY' && /\.workler-setup\.json: not part of a declared project/.test(error.message) && /shared\.txt: not part/.test(error.message),
+  );
+  fs.unlinkSync(record);
+  fs.rmSync(path.join(other.path, 'shared.txt'));
   api.setupWorkspace(root, 'other');
   assert.deepStrictEqual(JSON.parse(fs.readFileSync(record, 'utf8')), { setupOutput: ['shared.txt'] });
   assert.strictEqual(clean('other'), true);

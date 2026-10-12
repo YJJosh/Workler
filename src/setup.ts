@@ -240,9 +240,10 @@ function recordSetupOutput(target: SetupTarget, ifMissing: string): void {
     }
     return;
   }
-  if (fs.existsSync(path.join(target.path, SETUP_RECORD_FILE)) && readSetupRecordFile(target.path) === undefined) {
-    // Something of the user's sits at the record's name: leave it alone. The
-    // path then goes unrecorded and counts as local data, the safe side.
+  if (entryExists(path.join(target.path, SETUP_RECORD_FILE)) && readSetupRecordFile(target.path) === undefined) {
+    // Something of the user's sits at the record's name (a dangling link
+    // included): leave it alone. The path then goes unrecorded and counts as
+    // local data, the safe side.
     return;
   }
   writeSetupRecord(target.path, [...recorded, ifMissing]);
@@ -398,6 +399,16 @@ export function runSetupCommands(target: SetupTarget, options: SetupOptions = {}
 // `address` is what was run: a whole workspace, or one member of a group.
 function retryHint(address: string): string {
   return `fix the problem and re-run \`${PACKAGE_NAME} setup ${address}\``;
+}
+
+// True when anything sits at the path, a link whose target is gone included.
+function entryExists(p: string): boolean {
+  try {
+    fs.lstatSync(p);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 // True for a symbolic link (or Windows junction) whose target is gone.
