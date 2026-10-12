@@ -7,7 +7,7 @@ const { spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 const { test } = require('node:test');
-const { CLI, makeRepo, makeTempDir, runCli } = require('./helpers');
+const { CLI, git, makeRepo, makeTempDir, runCli } = require('./helpers');
 
 test('init/add/list/path/remove round-trip via the CLI', (t) => {
   const root = makeRepo(t, { workler: 'copy .env\n' });
@@ -48,6 +48,23 @@ test('init/add/list/path/remove round-trip via the CLI', (t) => {
   assert.ok(!fs.existsSync(path.join(root, '.worktrees', 'feat')));
 });
 
+test('status.showUntrackedFiles=all does not turn the lock file into "uncommitted changes"', (t) => {
+  const root = makeRepo(t, { includeWorkler: false });
+  // With `all`, Git lists `?? .worktrees/.workler.lock` instead of the
+  // collapsed `?? .worktrees/`. The clean check must still see only Workler's
+  // own directory, and a real untracked file must still be reported.
+  git(root, 'config', 'status.showUntrackedFiles', 'all');
+
+  const add = runCli(root, 'add', 'plain');
+  assert.strictEqual(add.status, 0, add.stderr);
+  assert.doesNotMatch(add.stdout, /^warning:/m);
+
+  fs.writeFileSync(path.join(root, 'scratch.txt'), 'x\n');
+  const second = runCli(root, 'add', 'second');
+  assert.strictEqual(second.status, 0, second.stderr);
+  assert.match(second.stdout, /^warning: .*uncommitted changes/m);
+});
+
 test('add works directly in a plain Git repository without .workler or init', (t) => {
   const root = makeRepo(t, { includeWorkler: false });
   const subdir = path.join(root, 'src');
@@ -56,6 +73,9 @@ test('add works directly in a plain Git repository without .workler or init', (t
   const add = runCli(subdir, 'add', 'plain');
   assert.strictEqual(add.status, 0, add.stderr);
   assert.match(add.stdout, /^no workspace rules$/m);
+  // add created .worktrees/ for its lock before anything excluded it (no init
+  // ran here). Workler's own directory is not "uncommitted changes".
+  assert.doesNotMatch(add.stdout, /^warning:/m);
   assert.ok(fs.existsSync(path.join(root, '.worktrees', 'plain', '.git')));
   assert.ok(!fs.existsSync(path.join(root, '.workler')));
 
