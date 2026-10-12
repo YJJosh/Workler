@@ -87,13 +87,16 @@ export function listWorkspaceInfos(rootInput: string): WorkspaceInfo[] {
     const workspacePath = isMain ? info.root : path.join(info.root, WORKSPACES_DIR, name);
     const projects: MemberInfo[] = [];
     const brokenReasons: string[] = [];
+    // What the group's own .workler produces in this folder; a guard path of
+    // its that lies inside a member counts for that member as well.
+    const groupManaged = isMain ? [] : managedWorkspacePaths(info.root, recordedSetupOutputs(workspacePath, 'folder'));
     for (const member of members) {
       if (member.project === undefined) {
         // A directory under .worktrees/ that is not a group workspace at all.
         brokenReasons.push(member.broken ?? 'not a group workspace');
         continue;
       }
-      const details = inspectTarget(member, false, isMain ? [] : memberManagedPaths(info.root, member.project, member.path));
+      const details = inspectTarget(member, false, isMain ? [] : memberManagedPaths(info.root, member.project, member.path, groupManaged));
       // A member is a clone only when it is the member's usable clone: a
       // repository that is not the recorded one, or a .git reached through a
       // link, is local data (see broken), not the member.
@@ -107,7 +110,7 @@ export function listWorkspaceInfos(rootInput: string): WorkspaceInfo[] {
     const usable = projects.length > 0 && projects.every((project) => !project.broken);
     const branches = new Set(projects.map((project) => (project.detached ? undefined : project.branch)));
     const sameBranch = usable && branches.size === 1 && !projects[0].detached;
-    const extras = isMain || !usable ? [] : groupWorkspaceExtras(workspacePath, info.root, info.projects, managedWorkspacePaths(info.root, recordedSetupOutputs(workspacePath, 'folder')));
+    const extras = isMain || !usable ? [] : groupWorkspaceExtras(workspacePath, info.root, info.projects, groupManaged);
     const strayClone = projects.length === 0 && fs.existsSync(path.join(workspacePath, '.git'));
 
     return {

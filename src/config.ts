@@ -69,7 +69,13 @@ function parseRulePath(line: string, start: number, lineNumber: number, rawLine:
 // full-line comments apply, so this works on the raw line. The one thing
 // parsed before the command is an optional `--if-missing <path>` guard; its
 // path follows the rule-path syntax (quoted when it holds a space or "#").
-function parseSetupLine(rawLine: string, actionStart: number, lineNumber: number): SetupCommand {
+interface ParsedSetupLine {
+  setup: SetupCommand;
+  // 1-based column of the `--if-missing` path, for the reservation error below.
+  guardColumn?: number;
+}
+
+function parseSetupLine(rawLine: string, actionStart: number, lineNumber: number): ParsedSetupLine {
   let cursor = actionStart + SETUP_ACTION.length;
   // Column (1-based) right after the last thing parsed, for "missing ..."
   // errors that point at where the command should have started.
@@ -82,6 +88,7 @@ function parseSetupLine(rawLine: string, actionStart: number, lineNumber: number
   skipWhitespace();
 
   let ifMissing: string | undefined;
+  let guardColumn: number | undefined;
   const option = rawLine.slice(cursor).match(/^--\S*/)?.[0];
   if (option !== undefined) {
     if (option !== IF_MISSING_OPTION) {
@@ -95,6 +102,7 @@ function parseSetupLine(rawLine: string, actionStart: number, lineNumber: number
     }
 
     const pathStart = cursor;
+    guardColumn = pathStart + 1;
     let parsedPath: string;
     const quote = rawLine[cursor];
     if (quote === '"' || quote === "'") {
@@ -124,12 +132,30 @@ function parseSetupLine(rawLine: string, actionStart: number, lineNumber: number
   if (command.includes('\0')) {
     parseError(lineNumber, cursor + 1, rawLine, 'commands cannot contain a NUL character', 'a shell command without NUL characters');
   }
-  return ifMissing === undefined ? { command, raw: rawLine.trim() } : { command, ifMissing, raw: rawLine.trim() };
+  return ifMissing === undefined ? { setup: { command, raw: rawLine.trim() } } : { setup: { command, ifMissing, raw: rawLine.trim() }, guardColumn };
 }
 
 // The files Workler itself writes into a group workspace folder; a group's
-// own rules may not manage them.
+// own rules may not manage them, and its setup guards may not name them.
 const GROUP_WORKSPACE_FILES = [CONFIG_FILE, SETUP_RECORD_FILE];
+
+// The reserved file a group-level path would manage or guard on: the file
+// itself or anything below it (`.workler-setup.json/stamp` makes the command
+// put a folder where the record goes).
+function reservedGroupFile(targetPath: string): string | undefined {
+  const first = targetPath.split('/')[0].toLowerCase();
+  return GROUP_WORKSPACE_FILES.find((file) => first === file.toLowerCase());
+}
+
+// A group-level line that names one of GROUP_WORKSPACE_FILES, remembered
+// until the file turns out to declare projects.
+interface ReservedUse {
+  lineNumber: number;
+  column: number;
+  rawLine: string;
+  file: string;
+  use: 'rule' | 'guard';
+}
 
 // Every path-bearing line in the file, in order, for the overlap check.
 interface ConfigEntry {
@@ -206,7 +232,7 @@ export function readConfig(root: string): WorklerConfig {
 
   const text = fs.readFileSync(configPath, 'utf8');
   const rules: WorklerRule[] = [];
-  let configRule: { lineNumber: number; column: number; rawLine: string; file: string } | undefined;
+  let reservedUse: ReservedUse | undefined;
   const projects: ProjectEntry[] = [];
   const setup: SetupCommand[] = [];
   const entries: ConfigEntry[] = [];
@@ -224,7 +250,16 @@ export function readConfig(root: string): WorklerConfig {
     const rawActionStart = rawLine.length - rawLine.trimStart().length;
     const rawAction = rawLine.slice(rawActionStart).match(/^\S+/)?.[0] ?? '';
     if (rawAction === SETUP_ACTION) {
-      setup.push(parseSetupLine(rawLine, rawActionStart, lineNumber));
+      const parsed = parseSetupLine(rawLine, rawActionStart, lineNumber);
+      setup.push(parsed.setup);
+      // A guard at `.workler-setup.json` (or below it) would have the command
+      // create what `setup` then renames its record over, and one at
+      // `.workler` can never be missing in a group workspace. Rejected below
+      // once the file turns out to declare projects, like a rule for them.
+      const reserved = parsed.setup.ifMissing === undefined ? undefined : reservedGroupFile(parsed.setup.ifMissing);
+      if (reserved !== undefined && parsed.guardColumn !== undefined && !reservedUse) {
+        reservedUse = { lineNumber, column: parsed.guardColumn, rawLine, file: reserved, use: 'guard' };
+      }
       continue;
     }
 
@@ -256,9 +291,9 @@ export function readConfig(root: string): WorklerConfig {
     // file (or, with --force, replace it by a link that `remove` then
     // protects as local data). Remember the first such rule; it is rejected
     // below once the file turns out to declare projects.
-    const reserved = GROUP_WORKSPACE_FILES.find((file) => targetPath.split('/')[0].toLowerCase() === file.toLowerCase());
-    if (entry.kind === 'rule' && !configRule && reserved !== undefined) {
-      configRule = { lineNumber, column: pathStart + 1, rawLine, file: reserved };
+    const reserved = reservedGroupFile(targetPath);
+    if (entry.kind === 'rule' && !reservedUse && reserved !== undefined) {
+      reservedUse = { lineNumber, column: pathStart + 1, rawLine, file: reserved, use: 'rule' };
     }
 
     // Parent/child entries are not independent: a link at `cache` would make
@@ -281,13 +316,14 @@ export function readConfig(root: string): WorklerConfig {
     }
   }
 
-  if (configRule && projects.length > 0) {
+  if (reservedUse && projects.length > 0) {
+    const what = reservedUse.use === 'rule' ? 'manage' : 'guard a setup command with';
     parseError(
-      configRule.lineNumber,
-      configRule.column,
-      configRule.rawLine,
-      `a project group cannot manage ${configRule.file}: Workler writes that file into group workspaces itself`,
-      `a path other than ${configRule.file}`,
+      reservedUse.lineNumber,
+      reservedUse.column,
+      reservedUse.rawLine,
+      `a project group cannot ${what} ${reservedUse.file}: Workler writes that file into group workspaces itself`,
+      `a path other than ${reservedUse.file}`,
     );
   }
 
@@ -305,6 +341,22 @@ export function pathsOverlap(first: string, second: string): boolean {
   const shared = Math.min(firstParts.length, secondParts.length);
   const samePrefix = firstParts.slice(0, shared).every((part, index) => part === secondParts[index]);
   return samePrefix && (firstParts.length === shared || secondParts.length === shared);
+}
+
+// The part of `child` below `parent` when it lies strictly inside it, in
+// the child's own spelling (`generated` for `projects/api/generated` under
+// `projects/api`); undefined when it does not. Compared like pathsOverlap.
+// A group's `setup --if-missing` guard may point into a member clone (the
+// group's rules may not), and the member's cleanliness check needs that
+// part relative to the clone.
+export function pathBelow(child: string, parent: string): string | undefined {
+  const childParts = child.split('/');
+  const parentParts = parent.split('/');
+  if (childParts.length <= parentParts.length) {
+    return undefined;
+  }
+  const inside = parentParts.every((part, index) => part.toLowerCase() === childParts[index].toLowerCase());
+  return inside ? childParts.slice(parentParts.length).join('/') : undefined;
 }
 
 function overlapMessage(entry: ConfigEntry, existing: ConfigEntry, targetPath: string): string {

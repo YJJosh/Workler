@@ -51,7 +51,7 @@ Each group workspace under `.worktrees/<name>` is a plain directory holding:
 | `.workler` | A copy of the group's file, so the workspace is a group root of its own (nested group workspaces) and is recognized even before any member is cloned. `remove` treats the copy as harmless only while it is a regular file that still matches the group's file; a symbolic link in its place is local data. |
 | `.workler-setup.json` | Written by `setup` once a group-level `setup --if-missing` command has created its path: `{ "setupOutput": [paths] }`, the folder's equivalent of a member clone's `workler.setupOutput`. `remove` treats it as Workler's own while it is a regular file. |
 | `<project path>/` | One clone per `project` line, in the same layout as the root. |
-| Group rule outputs | Files and links from the group's own `copy`/`link` rules (while their source exists), and the paths of its `setup --if-missing` lines that a guarded command created (per `.workler-setup.json`), next to the clones. Like a member's rule outputs, they do not count as local data for `remove`. |
+| Group rule outputs | Files and links from the group's own `copy`/`link` rules (while their source exists), and the paths of its `setup --if-missing` lines that a guarded command created (per `.workler-setup.json`), next to the clones or, for a guard that points into a member, inside that clone (where the member's cleanliness check exempts it too). Like a member's rule outputs, they do not count as local data for `remove`. |
 
 ### Git config keys (member clone)
 

@@ -3,7 +3,7 @@ import path from 'node:path';
 import { CONFIG_FILE, MAIN_WORKSPACE_NAME, WORKSPACES_DIR } from '../constants';
 import { WorklerError } from '../errors';
 import { assertInside } from '../fs-utils';
-import { managedWorkspacePaths } from '../config';
+import { managedWorkspacePaths, pathBelow } from '../config';
 import { isGitWorkTreeFreeOfLocalData } from '../git';
 import { ancestorReason, foreignMemberReason, groupWorkspaceExtras, inspectMember, memberPath, sourceBrokenReason } from '../groups';
 import { withProjectLocks } from '../lock';
@@ -83,6 +83,10 @@ function groupLocalData(workspacePath: string, groupRoot: string, projects: stri
   // Entries the member loop explains: a link or file at a member path, or at
   // a folder on the way to one. The extras walk reports them too; skip those.
   const covered = new Set<string>();
+  // What the group's own .workler produces in the folder: its rule outputs
+  // and the guard paths its setup recorded, some of which may lie inside a
+  // member.
+  const groupManaged = managedWorkspacePaths(groupRoot, recordedSetupOutputs(workspacePath, 'folder'));
   for (const project of projects) {
     const member = memberPath(workspacePath, project);
     const check = inspectMember(workspacePath, project);
@@ -102,11 +106,11 @@ function groupLocalData(workspacePath: string, groupRoot: string, projects: stri
       reasons.push(`${project}: ${ancestorReason(check) ?? 'not a Git clone (unknown contents)'}`);
       continue;
     }
-    if (!isGitWorkTreeFreeOfLocalData(member, memberManagedPaths(groupRoot, project, member))) {
+    if (!isGitWorkTreeFreeOfLocalData(member, memberManagedPaths(groupRoot, project, member, groupManaged))) {
       reasons.push(`${project}: uncommitted changes or untracked files`);
     }
   }
-  for (const extra of groupWorkspaceExtras(workspacePath, groupRoot, projects, managedWorkspacePaths(groupRoot, recordedSetupOutputs(workspacePath, 'folder')))) {
+  for (const extra of groupWorkspaceExtras(workspacePath, groupRoot, projects, groupManaged)) {
     if (covered.has(extra)) {
       continue;
     }
@@ -118,11 +122,21 @@ function groupLocalData(workspacePath: string, groupRoot: string, projects: stri
 // What a member clone's rules produce, read from its source repository, and
 // what its guarded setup commands made, read from the clone's own record. A
 // source that is missing, not a repository, or behind a symbolic link has no
-// trustworthy .workler to read (nothing is followed), so nothing is exempt.
-export function memberManagedPaths(groupRoot: string, project: string, member: string): string[] {
-  return sourceBrokenReason(groupRoot, project) === undefined
-    ? managedWorkspacePaths(memberPath(groupRoot, project), recordedSetupOutputs(member, 'clone'))
-    : [];
+// trustworthy .workler to read (nothing is followed), so none of that is
+// exempt. `groupManaged` is what the group's own .workler produces in the
+// workspace folder (see managedWorkspacePaths); a group guard path that
+// lies inside this member (`projects/api/generated`, recorded by the group's
+// setup) is the member's output too, relative to the clone (`generated`).
+export function memberManagedPaths(groupRoot: string, project: string, member: string, groupManaged: readonly string[] = []): string[] {
+  const own =
+    sourceBrokenReason(groupRoot, project) === undefined
+      ? managedWorkspacePaths(memberPath(groupRoot, project), recordedSetupOutputs(member, 'clone'))
+      : [];
+  const fromGroup = groupManaged.flatMap((managed) => {
+    const below = pathBelow(managed, project);
+    return below === undefined ? [] : [below];
+  });
+  return [...new Set([...own, ...fromGroup])];
 }
 
 // Why the workspace's .workler is local data rather than the generated copy

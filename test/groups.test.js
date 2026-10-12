@@ -1981,3 +1981,71 @@ test('group and member guard paths are output only once their commands made them
   fs.writeFileSync(path.join(root, '.workler'), 'project projects/api\ncopy .workler-setup.json\n');
   assert.match(api.inspectProject(root).configError ?? '', /\.workler:2:\d+: a project group cannot manage \.workler-setup\.json/);
 });
+
+test('a group-level setup guard at .workler or .workler-setup.json is a configuration error', (t) => {
+  // The command would create what `setup` renames its record over (or a
+  // folder in its place), and the .workler copy is never missing.
+  for (const guard of ['.workler-setup.json', '.workler-setup.json/stamp', './.WORKLER-SETUP.JSON', '".workler-setup.json"', '.workler']) {
+    const root = makeGroup(t, { projects: ['a'], groupRules: `setup --if-missing ${guard} echo hi\n` });
+    assert.match(
+      api.inspectProject(root).configError ?? '',
+      /\.workler:2:\d+: a project group cannot guard a setup command with \.workler(-setup\.json)?: Workler writes that file into group workspaces itself/,
+      guard,
+    );
+    assert.throws(() => api.planWorkspaceCreation(root, { name: 'feat' }), (error) => error.code === 'CONFIG_INVALID' && /cannot guard a setup command/.test(error.message), guard);
+    assert.strictEqual(fs.existsSync(workspaceDir(root, 'feat')), false, guard);
+  }
+  // A plain repository's record lives in git config, so the same guard is fine there.
+  const repo = makeRepo(t, { workler: 'setup --if-missing .workler-setup.json echo hi\n' });
+  assert.doesNotThrow(() => api.planWorkspaceCreation(repo, { name: 'feat' }));
+});
+
+test("a group guard path inside a member is that member's output once the group's command made it", (t) => {
+  const node = `"${process.execPath}"`;
+  const make = `${node} -e "require('fs').mkdirSync('projects/api/generated'); require('fs').writeFileSync('projects/api/generated/out.txt', 'x')"`;
+  const root = makeGroup(t, {
+    projects: ['projects/api', 'projects/web'],
+    groupRules: `setup --if-missing projects/api/generated ${make}\n`,
+  });
+  const listed = (name) => api.listWorkspaces(root).find((entry) => entry.name === name);
+
+  // The group's record names the path from the folder; the member's own
+  // cleanliness check sees it relative to the clone.
+  const feat = api.createWorkspace(root, { name: 'feat' });
+  const apiClone = member(feat.path, 'projects/api');
+  assert.ok(fs.existsSync(path.join(apiClone, 'generated', 'out.txt')));
+  assert.deepStrictEqual(JSON.parse(fs.readFileSync(path.join(feat.path, '.workler-setup.json'), 'utf8')), { setupOutput: ['projects/api/generated'] });
+  assert.strictEqual(git(apiClone, 'config', '--default', '', '--get', 'workler.setupOutput'), '', 'the member itself recorded nothing');
+  assert.strictEqual(listed('feat').clean, true);
+  assert.strictEqual(listed('feat').projects.find((project) => project.project === 'projects/api').clean, true);
+
+  // Anything else in the member is still its local data.
+  fs.writeFileSync(path.join(apiClone, 'mine.txt'), 'mine\n');
+  assert.strictEqual(listed('feat').clean, false);
+  assert.throws(
+    () => api.removeWorkspace(root, 'feat'),
+    (error) => error.code === 'WORKSPACE_DIRTY' && /projects\/api: uncommitted changes or untracked files/.test(error.message),
+  );
+  fs.rmSync(path.join(apiClone, 'mine.txt'));
+  api.removeWorkspace(root, 'feat');
+  assert.ok(!fs.existsSync(feat.path));
+
+  // On no record (made without setup), the same folder is the member's data.
+  const bare = api.createWorkspace(root, { name: 'bare', setup: false });
+  const bareApi = member(bare.path, 'projects/api');
+  assert.strictEqual(listed('bare').clean, true);
+  fs.mkdirSync(path.join(bareApi, 'generated'));
+  fs.writeFileSync(path.join(bareApi, 'generated', 'out.txt'), 'mine\n');
+  assert.strictEqual(listed('bare').clean, false);
+  assert.throws(
+    () => api.removeWorkspace(root, 'bare'),
+    (error) => error.code === 'WORKSPACE_DIRTY' && /projects\/api: uncommitted changes or untracked files/.test(error.message),
+  );
+  // A later setup skips the command (the path exists) and records nothing.
+  api.setupWorkspace(root, 'bare');
+  assert.strictEqual(fs.existsSync(path.join(bare.path, '.workler-setup.json')), false);
+  assert.strictEqual(listed('bare').clean, false);
+  fs.rmSync(path.join(bareApi, 'generated'), { recursive: true });
+  assert.strictEqual(listed('bare').clean, true);
+  api.removeWorkspace(root, 'bare');
+});
