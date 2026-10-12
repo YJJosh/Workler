@@ -683,18 +683,19 @@ function withEnv(t, values) {
 test("setup commands do not inherit the caller's package-manager variables", (t) => {
   // `npm run` sets npm_config_* and INIT_CWD for the script it runs; a setup
   // command that runs an installer must see the workspace, not that script.
-  withEnv(t, { npm_config_example: 'from-npm', INIT_CWD: '/elsewhere', WORKLER_TEST_UNRELATED: 'kept' });
-  const names = ['npm_config_example', 'INIT_CWD', 'WORKLER_TEST_UNRELATED'];
+  // The injected variables are lowercase; a user's own uppercase installer settings pass through.
+  withEnv(t, { npm_config_example: 'from-npm', INIT_CWD: '/elsewhere', WORKLER_TEST_UNRELATED: 'kept', NPM_CONFIG_REGISTRY: 'https://registry.example', PNPM_HOME: '/pnpm' });
+  const names = ['npm_config_example', 'INIT_CWD', 'WORKLER_TEST_UNRELATED', 'NPM_CONFIG_REGISTRY', 'PNPM_HOME'];
   const fields = `[${names.map((name) => `process.env.${name}`).join(', ')}]`;
   const command = `${NODE} -e "require('fs').appendFileSync('setup.log', ${fields}.map(String).join('|') + String.fromCharCode(10))"`;
   const root = makeProject(t, { workler: `setup ${command}\n` });
 
   const ws = api.createWorkspace(root, { name: 'feat' });
-  assert.deepStrictEqual(readLog(ws.path), [['undefined', 'undefined', 'kept']]);
+  assert.deepStrictEqual(readLog(ws.path), [['undefined', 'undefined', 'kept', 'https://registry.example', '/pnpm']]);
 
   const add = runCli(root, 'add', 'cli');
   assert.strictEqual(add.status, 0, add.stderr);
-  assert.deepStrictEqual(readLog(path.join(root, '.worktrees', 'cli')), [['undefined', 'undefined', 'kept']]);
+  assert.deepStrictEqual(readLog(path.join(root, '.worktrees', 'cli')), [['undefined', 'undefined', 'kept', 'https://registry.example', '/pnpm']]);
 });
 
 test('WORKLER_NO_SETUP in the environment skips the commands for add, never for workler setup', (t) => {

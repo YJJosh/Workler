@@ -54,7 +54,7 @@ Commands run:
 - **sequentially**, in file order; the first failure stops the run;
 - with the **new workspace as the working directory**;
 - through the **platform shell** (`sh -c` on macOS/Linux, `cmd.exe` on Windows) rather than your login shell, so a committed line behaves the same for every developer;
-- with your environment, minus the variables a package manager sets for the scripts it runs (`npm_*`, `pnpm_*`, `yarn_*` and `INIT_CWD`), plus:
+- with your environment, minus the variables a package manager sets for the scripts it runs (`npm_*`, `pnpm_*`, `yarn_*` and `INIT_CWD`, in that lowercase spelling; an `NPM_CONFIG_REGISTRY` or `PNPM_HOME` you export yourself passes through), plus:
 
 | Variable | Value |
 | --- | --- |

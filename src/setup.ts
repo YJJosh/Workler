@@ -124,12 +124,15 @@ export function setupDisabledByEnvironment(env: NodeJS.ProcessEnv = process.env)
 // yarn_* and INIT_CWD. Workler is often started from such a script, and a
 // setup command that runs `pnpm install` would otherwise inherit the caller's
 // view of its own package (its cwd, its config, its lifecycle event) and
-// install into the wrong place or with the wrong settings.
-const PACKAGE_MANAGER_VARIABLE = /^(npm_|pnpm_|yarn_)/i;
+// install into the wrong place or with the wrong settings. The match is
+// case-sensitive on purpose: the injected variables are lowercase, while
+// NPM_CONFIG_REGISTRY, YARN_ENABLE_IMMUTABLE_INSTALLS or PNPM_HOME are
+// settings a user exports for the installer, and pass through.
+const PACKAGE_MANAGER_VARIABLE = /^(npm_|pnpm_|yarn_)/;
 const INIT_CWD_VARIABLE = 'INIT_CWD';
 
 function isPackageManagerVariable(name: string): boolean {
-  return PACKAGE_MANAGER_VARIABLE.test(name) || name.toUpperCase() === INIT_CWD_VARIABLE;
+  return PACKAGE_MANAGER_VARIABLE.test(name) || name === INIT_CWD_VARIABLE;
 }
 
 // Variables every command sees in addition to the caller's environment, so a

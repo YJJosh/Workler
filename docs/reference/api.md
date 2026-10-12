@@ -137,7 +137,9 @@ shell, with the workspace as `cwd` and `WORKLER_WORKSPACE`,
 `setup --if-missing <path>` line whose path exists in the workspace is
 skipped: its result has `status: 'skipped'` and `ifMissing` set. The
 caller's package-manager variables (`npm_*`, `pnpm_*`, `yarn_*`,
-`INIT_CWD`) are not passed on; everything else in `process.env` is.
+`INIT_CWD`, in that lowercase spelling) are not passed on; everything else in
+`process.env` is, including uppercase installer settings such as
+`NPM_CONFIG_REGISTRY`.
 
 By default (`setupStdio: 'inherit'`) the commands share the caller's stdin,
 stdout and stderr, as the CLI does; `setupStdout: 'stderr'` routes their
