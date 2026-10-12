@@ -82,7 +82,17 @@ project cannot contain another project, and a rule cannot reach into a project
 (`project projects/api` plus `link projects/api/node_modules` is rejected; that
 rule belongs in `projects/api/.workler`). A file that declares projects also
 cannot have a rule for `.workler` itself: `add` copies the group's file into
-every group workspace, so the rule could only collide with that copy.
+every group workspace, so the rule could only collide with that copy. The same
+goes for `.workler-setup.json`, where `setup` records what the group's guarded
+commands made, and a `setup --if-missing` guard may name neither file (nor a
+path below them): `a project group cannot guard a setup command with
+.workler-setup.json`. A guard may point into a project, though
+(`setup --if-missing projects/api/generated ...`); what the command makes there
+counts as that member's output, see [setup](/guide/setup#project-groups). It
+must spell the project's path as the `project` line does: on a case-sensitive
+file system `PROJECTS/API/generated` would be another tree, so that guard is
+rejected (`setup guard "PROJECTS/API/generated" spells the project path
+"projects/api" differently`).
 
 ## Errors
 

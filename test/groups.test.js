@@ -8,7 +8,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { test } = require('node:test');
-const { addOrigin, api, git, makeRepo, makeTempDir, remotes, runCli } = require('./helpers');
+const { addOrigin, api, git, makeRepo, makeTempDir, recordedPaths, remotes, runCli } = require('./helpers');
 
 // A repo on branch `main` with one commit at an explicit location (the
 // shared makeRepo picks its own temp dir).
@@ -1679,22 +1679,30 @@ test('commands inside a clone that add left unmarked still take the group lock',
   assert.strictEqual(fs.existsSync(nested), false);
 });
 
-test('remove needs every member clean and nothing but members in the workspace folder', (t) => {
+test('remove needs every member clean and nothing but members and rule outputs in the workspace folder', (t) => {
   const root = makeGroup(t, { rules: { 'projects/api': 'copy .env\n' }, groupRules: 'copy .env.shared\n' });
   const feat = api.createWorkspace(root, { name: 'feat' }).path;
 
+  // What the rules produced (the member's .env, the group's .env.shared) is
+  // not local data; anything next to it is.
+  assert.ok(fs.existsSync(path.join(feat, '.env.shared')));
+  assert.strictEqual(api.listWorkspaces(root).find((entry) => entry.name === 'feat').clean, true);
+  fs.writeFileSync(path.join(member(feat, 'projects/api'), 'wip.txt'), 'x\n');
+  fs.writeFileSync(path.join(feat, 'notes.txt'), 'x\n');
+  assert.strictEqual(api.listWorkspaces(root).find((entry) => entry.name === 'feat').clean, false);
   assert.throws(
     () => api.removeWorkspace(root, 'feat'),
     (error) =>
       error.code === 'WORKSPACE_DIRTY' &&
       error.details.reasons.includes('projects/api: uncommitted changes or untracked files') &&
-      error.details.reasons.includes('.env.shared: not part of a declared project') &&
+      error.details.reasons.includes('notes.txt: not part of a declared project') &&
+      !error.details.reasons.some((reason) => reason.startsWith('.env.shared')) &&
       /Use --force/.test(error.message),
   );
   assert.ok(fs.existsSync(feat));
   const cli = runCli(root, 'remove', 'feat');
   assert.strictEqual(cli.status, 1);
-  assert.match(cli.stderr, /\.env\.shared: not part of a declared project/);
+  assert.match(cli.stderr, /notes\.txt: not part of a declared project/);
 
   assert.deepStrictEqual(api.removeWorkspace(root, 'feat', { force: true }), { name: 'feat', path: feat });
   assert.strictEqual(fs.existsSync(feat), false);
@@ -1911,4 +1919,212 @@ test('help describes project groups', () => {
   assert.strictEqual(help.status, 0, help.stderr);
   assert.match(help.stdout, /project group/);
   assert.match(help.stdout, /path <name>\[\/<project>\]/);
+});
+
+test('group and member guard paths are output only once their commands made them', (t) => {
+  const node = `"${process.execPath}"`;
+  const stamp = (file) => `${node} -e "require('fs').writeFileSync('${file}', 'x')"`;
+  const root = makeGroup(t, {
+    projects: ['projects/api'],
+    rules: { 'projects/api': `setup --if-missing stamp.txt ${stamp('stamp.txt')}\n` },
+    groupRules: `setup --if-missing shared.txt ${stamp('shared.txt')}\n`,
+  });
+  const clean = (name) => api.listWorkspaces(root).find((entry) => entry.name === name).clean;
+
+  // Set up by `add`: the member records its path in its git config, the
+  // folder (no git config there) in a file next to the .workler copy.
+  const feat = api.createWorkspace(root, { name: 'feat' });
+  const apiClone = member(feat.path, 'projects/api');
+  assert.ok(fs.existsSync(path.join(apiClone, 'stamp.txt')));
+  assert.ok(fs.existsSync(path.join(feat.path, 'shared.txt')));
+  assert.deepStrictEqual(recordedPaths([git(apiClone, 'config', '--get-all', 'workler.setupOutput')]), ['stamp.txt']);
+  assert.deepStrictEqual(recordedPaths(JSON.parse(fs.readFileSync(path.join(feat.path, '.workler-setup.json'), 'utf8')).setupOutput), ['shared.txt']);
+  assert.strictEqual(clean('feat'), true);
+  // A file of the user's put in place of a recorded entry is data, at either
+  // level; once setup makes the path again it is output again.
+  for (const file of [path.join(feat.path, 'shared.txt'), path.join(apiClone, 'stamp.txt')]) {
+    fs.rmSync(file);
+    fs.writeFileSync(file, 'mine\n');
+    assert.strictEqual(clean('feat'), false, `a replaced ${path.basename(file)} is data`);
+    fs.rmSync(file);
+    const rerun = runCli(root, 'setup', 'feat');
+    assert.strictEqual(rerun.status, 0, rerun.stderr);
+    assert.strictEqual(clean('feat'), true);
+  }
+  api.removeWorkspace(root, 'feat');
+  assert.ok(!fs.existsSync(feat.path));
+
+  // Made without setup: files at the same paths are the user's, at either level.
+  const bare = api.createWorkspace(root, { name: 'bare', setup: false });
+  assert.strictEqual(clean('bare'), true);
+  fs.writeFileSync(path.join(bare.path, 'shared.txt'), 'mine\n');
+  assert.strictEqual(clean('bare'), false);
+  assert.throws(
+    () => api.removeWorkspace(root, 'bare'),
+    (error) => error.code === 'WORKSPACE_DIRTY' && /shared\.txt: not part of a declared project/.test(error.message),
+  );
+  fs.rmSync(path.join(bare.path, 'shared.txt'));
+  fs.writeFileSync(path.join(member(bare.path, 'projects/api'), 'stamp.txt'), 'mine\n');
+  assert.strictEqual(clean('bare'), false);
+  assert.throws(
+    () => api.removeWorkspace(root, 'bare'),
+    (error) => error.code === 'WORKSPACE_DIRTY' && /projects\/api: uncommitted changes or untracked files/.test(error.message),
+  );
+  fs.rmSync(path.join(member(bare.path, 'projects/api'), 'stamp.txt'));
+
+  // A later setup makes and records both; the record itself is Workler's
+  // only while it is a regular file.
+  api.setupWorkspace(root, 'bare');
+  assert.strictEqual(clean('bare'), true);
+  fs.rmSync(path.join(bare.path, '.workler-setup.json'));
+  fs.mkdirSync(path.join(bare.path, '.workler-setup.json'));
+  assert.strictEqual(clean('bare'), false, 'no record: shared.txt is data again, and the folder at the record name too');
+  assert.throws(
+    () => api.removeWorkspace(root, 'bare'),
+    (error) => error.code === 'WORKSPACE_DIRTY' && /\.workler-setup\.json: not part of a declared project/.test(error.message) && /shared\.txt: not part/.test(error.message),
+  );
+  fs.rmdirSync(path.join(bare.path, '.workler-setup.json'));
+  fs.rmSync(path.join(bare.path, 'shared.txt'));
+  assert.strictEqual(clean('bare'), true);
+  api.removeWorkspace(root, 'bare');
+
+  // A file at the record's name that Workler did not write is the user's,
+  // malformed or merely spelled differently: it is data, and a later setup
+  // leaves it alone, so the guard path it made stays data too.
+  const other = api.createWorkspace(root, { name: 'other', setup: false });
+  const record = path.join(other.path, '.workler-setup.json');
+  const handMade = '{\n  "setupOutput": [\n    "shared.txt"\n  ],\n  "mine": true\n}\n';
+  // The second-to-last is laid out as Workler writes it but names a path
+  // without the identity of the entry it stands for.
+  const noIdentity = '{\n  "setupOutput": [\n    "shared.txt"\n  ]\n}\n';
+  for (const text of ['{not json', '{"setupOutput":["shared.txt"]}', noIdentity, handMade]) {
+    fs.writeFileSync(record, text);
+    assert.strictEqual(clean('other'), false, text);
+    assert.throws(
+      () => api.removeWorkspace(root, 'other'),
+      (error) => error.code === 'WORKSPACE_DIRTY' && /\.workler-setup\.json: not part of a declared project/.test(error.message),
+    );
+  }
+  api.setupWorkspace(root, 'other');
+  assert.ok(fs.existsSync(path.join(other.path, 'shared.txt')));
+  assert.strictEqual(fs.readFileSync(record, 'utf8'), handMade, 'the user\'s file is untouched');
+  assert.throws(
+    () => api.removeWorkspace(root, 'other'),
+    (error) => error.code === 'WORKSPACE_DIRTY' && /shared\.txt: not part/.test(error.message),
+  );
+  fs.rmSync(record);
+  fs.rmSync(path.join(other.path, 'shared.txt'));
+
+  // So is a dangling link at that name, which existsSync would call absent:
+  // setup must not rename its record over it.
+  fs.symlinkSync(path.join(other.path, 'does-not-exist.json'), record);
+  api.setupWorkspace(root, 'other');
+  assert.ok(fs.existsSync(path.join(other.path, 'shared.txt')));
+  assert.ok(fs.lstatSync(record).isSymbolicLink(), 'the dangling link is untouched');
+  assert.strictEqual(clean('other'), false);
+  assert.throws(
+    () => api.removeWorkspace(root, 'other'),
+    (error) => error.code === 'WORKSPACE_DIRTY' && /\.workler-setup\.json: not part of a declared project/.test(error.message) && /shared\.txt: not part/.test(error.message),
+  );
+  fs.unlinkSync(record);
+  fs.rmSync(path.join(other.path, 'shared.txt'));
+  api.setupWorkspace(root, 'other');
+  assert.deepStrictEqual(recordedPaths(JSON.parse(fs.readFileSync(record, 'utf8')).setupOutput), ['shared.txt']);
+  assert.strictEqual(clean('other'), true);
+  api.removeWorkspace(root, 'other');
+  assert.ok(!fs.existsSync(other.path));
+
+  // The group's own rules may not manage the record, as with .workler.
+  fs.writeFileSync(path.join(root, '.workler'), 'project projects/api\ncopy .workler-setup.json\n');
+  assert.match(api.inspectProject(root).configError ?? '', /\.workler:2:\d+: a project group cannot manage \.workler-setup\.json/);
+});
+
+test('a group-level setup guard at .workler or .workler-setup.json is a configuration error', (t) => {
+  // The command would create what `setup` renames its record over (or a
+  // folder in its place), and the .workler copy is never missing.
+  for (const guard of ['.workler-setup.json', '.workler-setup.json/stamp', './.WORKLER-SETUP.JSON', '".workler-setup.json"', '.workler']) {
+    const root = makeGroup(t, { projects: ['a'], groupRules: `setup --if-missing ${guard} echo hi\n` });
+    assert.match(
+      api.inspectProject(root).configError ?? '',
+      /\.workler:2:\d+: a project group cannot guard a setup command with \.workler(-setup\.json)?: Workler writes that file into group workspaces itself/,
+      guard,
+    );
+    assert.throws(() => api.planWorkspaceCreation(root, { name: 'feat' }), (error) => error.code === 'CONFIG_INVALID' && /cannot guard a setup command/.test(error.message), guard);
+    assert.strictEqual(fs.existsSync(workspaceDir(root, 'feat')), false, guard);
+  }
+  // A plain repository's record lives in git config, so the same guard is fine there.
+  const repo = makeRepo(t, { workler: 'setup --if-missing .workler-setup.json echo hi\n' });
+  assert.doesNotThrow(() => api.planWorkspaceCreation(repo, { name: 'feat' }));
+});
+
+test("a group-level setup guard must spell a project's path the way the project line does", (t) => {
+  // Overlap is judged case-insensitively (one file system cannot tell `API`
+  // from `api`); on a case-sensitive one the command would create
+  // `PROJECTS/API/generated` outside the member while the member's check
+  // exempted its own `api/generated`. Reject the spelling instead.
+  for (const guard of ['PROJECTS/API/generated', 'projects/Api', 'PROJECTS', 'Projects/api/node_modules']) {
+    const root = makeGroup(t, { projects: ['projects/api'], groupRules: `setup --if-missing ${guard} echo hi\n` });
+    assert.match(
+      api.inspectProject(root).configError ?? '',
+      /\.workler:2:\d+: setup guard ".*" spells the project path "projects\/api" differently/,
+      guard,
+    );
+    assert.throws(() => api.planWorkspaceCreation(root, { name: 'feat' }), (error) => error.code === 'CONFIG_INVALID' && /spells the project path/.test(error.message), guard);
+    assert.strictEqual(fs.existsSync(workspaceDir(root, 'feat')), false, guard);
+  }
+  // The project line's spelling, or a path beside the project, is fine.
+  for (const guard of ['projects/api/generated', 'projects/API-docs/out', 'shared.txt', 'projects/api']) {
+    const root = makeGroup(t, { projects: ['projects/api'], groupRules: `setup --if-missing ${guard} echo hi\n` });
+    assert.ok(!api.inspectProject(root).configError, `${guard}: ${api.inspectProject(root).configError}`);
+  }
+});
+
+test("a group guard path inside a member is that member's output once the group's command made it", (t) => {
+  const node = `"${process.execPath}"`;
+  const make = `${node} -e "require('fs').mkdirSync('projects/api/generated'); require('fs').writeFileSync('projects/api/generated/out.txt', 'x')"`;
+  const root = makeGroup(t, {
+    projects: ['projects/api', 'projects/web'],
+    groupRules: `setup --if-missing projects/api/generated ${make}\n`,
+  });
+  const listed = (name) => api.listWorkspaces(root).find((entry) => entry.name === name);
+
+  // The group's record names the path from the folder; the member's own
+  // cleanliness check sees it relative to the clone.
+  const feat = api.createWorkspace(root, { name: 'feat' });
+  const apiClone = member(feat.path, 'projects/api');
+  assert.ok(fs.existsSync(path.join(apiClone, 'generated', 'out.txt')));
+  assert.deepStrictEqual(recordedPaths(JSON.parse(fs.readFileSync(path.join(feat.path, '.workler-setup.json'), 'utf8')).setupOutput), ['projects/api/generated']);
+  assert.strictEqual(git(apiClone, 'config', '--default', '', '--get', 'workler.setupOutput'), '', 'the member itself recorded nothing');
+  assert.strictEqual(listed('feat').clean, true);
+  assert.strictEqual(listed('feat').projects.find((project) => project.project === 'projects/api').clean, true);
+
+  // Anything else in the member is still its local data.
+  fs.writeFileSync(path.join(apiClone, 'mine.txt'), 'mine\n');
+  assert.strictEqual(listed('feat').clean, false);
+  assert.throws(
+    () => api.removeWorkspace(root, 'feat'),
+    (error) => error.code === 'WORKSPACE_DIRTY' && /projects\/api: uncommitted changes or untracked files/.test(error.message),
+  );
+  fs.rmSync(path.join(apiClone, 'mine.txt'));
+  api.removeWorkspace(root, 'feat');
+  assert.ok(!fs.existsSync(feat.path));
+
+  // On no record (made without setup), the same folder is the member's data.
+  const bare = api.createWorkspace(root, { name: 'bare', setup: false });
+  const bareApi = member(bare.path, 'projects/api');
+  assert.strictEqual(listed('bare').clean, true);
+  fs.mkdirSync(path.join(bareApi, 'generated'));
+  fs.writeFileSync(path.join(bareApi, 'generated', 'out.txt'), 'mine\n');
+  assert.strictEqual(listed('bare').clean, false);
+  assert.throws(
+    () => api.removeWorkspace(root, 'bare'),
+    (error) => error.code === 'WORKSPACE_DIRTY' && /projects\/api: uncommitted changes or untracked files/.test(error.message),
+  );
+  // A later setup skips the command (the path exists) and records nothing.
+  api.setupWorkspace(root, 'bare');
+  assert.strictEqual(fs.existsSync(path.join(bare.path, '.workler-setup.json')), false);
+  assert.strictEqual(listed('bare').clean, false);
+  fs.rmSync(path.join(bareApi, 'generated'), { recursive: true });
+  assert.strictEqual(listed('bare').clean, true);
+  api.removeWorkspace(root, 'bare');
 });

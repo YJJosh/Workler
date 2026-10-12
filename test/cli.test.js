@@ -36,7 +36,9 @@ test('init/add/list/path/remove round-trip via the CLI', (t) => {
     fs.realpathSync.native(path.join(root, '.worktrees', 'feat')),
   );
 
-  // The copied .env is untracked, so plain remove refuses (data-loss guard).
+  // The copied .env is the rule's output and does not block removal; a file
+  // of the user's own does (data-loss guard).
+  fs.writeFileSync(path.join(root, '.worktrees', 'feat', 'notes.txt'), 'wip\n');
   const removeDirty = runCli(root, 'remove', 'feat');
   assert.strictEqual(removeDirty.status, 1);
   assert.match(removeDirty.stderr, /^workler: workspace has local changes:/m);

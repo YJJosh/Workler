@@ -1,12 +1,15 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { MAIN_WORKSPACE_NAME, WORKSPACES_DIR } from '../constants';
-import { gitMaybe, isGitWorkTreeCleanIncludingIgnored } from '../git';
+import { managedWorkspacePaths } from '../config';
+import { gitMaybe, isGitWorkTreeFreeOfLocalData } from '../git';
 import { groupWorkspaceExtras, memberPath, requireDeclaredProject, splitWorkspaceAddress } from '../groups';
 import { listSyncTargets } from '../multi-git';
+import { recordedSetupOutputs } from '../setup';
 import type { SyncTarget } from '../multi-git';
 import { findWorkspace } from '../workspaces';
 import { requireProject } from './project';
+import { memberManagedPaths } from './remove';
 
 // One member clone of a group workspace (or one source repository of the
 // group itself, for the "main" entry).
@@ -44,7 +47,9 @@ export interface WorkspaceInfo {
   head?: string;
   shortHead?: string;
   detached: boolean;
-  // No uncommitted changes, untracked files included — matches the guard
+  // No local changes: nothing modified, staged, untracked or ignored beyond
+  // what the project's .workler rules produce (copy/link destinations,
+  // `setup --if-missing` paths) and an empty .worktrees/. Matches the guard
   // `remove` uses, so for non-main workspaces clean === removable without
   // force. Undefined when broken.
   clean?: boolean;
@@ -61,7 +66,9 @@ export function listWorkspaceInfos(rootInput: string): WorkspaceInfo[] {
   if (!info.isGroup) {
     return targets.map((target) => {
       const isMain = target.path === info.root;
-      return { name: target.name, isMain, ...inspectTarget(target, isMain) };
+      // The main checkout holds the rules' sources, not their outputs: nothing is exempt there.
+      const managed = isMain ? [] : managedWorkspacePaths(info.root, target.path, recordedSetupOutputs(target.path, 'clone'));
+      return { name: target.name, isMain, ...inspectTarget(target, isMain, managed) };
     });
   }
 
@@ -80,13 +87,16 @@ export function listWorkspaceInfos(rootInput: string): WorkspaceInfo[] {
     const workspacePath = isMain ? info.root : path.join(info.root, WORKSPACES_DIR, name);
     const projects: MemberInfo[] = [];
     const brokenReasons: string[] = [];
+    // What the group's own .workler produces in this folder; a guard path of
+    // its that lies inside a member counts for that member as well.
+    const groupManaged = isMain ? [] : managedWorkspacePaths(info.root, workspacePath, recordedSetupOutputs(workspacePath, 'folder'));
     for (const member of members) {
       if (member.project === undefined) {
         // A directory under .worktrees/ that is not a group workspace at all.
         brokenReasons.push(member.broken ?? 'not a group workspace');
         continue;
       }
-      const details = inspectTarget(member, false);
+      const details = inspectTarget(member, false, isMain ? [] : memberManagedPaths(info.root, member.project, member.path, groupManaged));
       // A member is a clone only when it is the member's usable clone: a
       // repository that is not the recorded one, or a .git reached through a
       // link, is local data (see broken), not the member.
@@ -100,7 +110,7 @@ export function listWorkspaceInfos(rootInput: string): WorkspaceInfo[] {
     const usable = projects.length > 0 && projects.every((project) => !project.broken);
     const branches = new Set(projects.map((project) => (project.detached ? undefined : project.branch)));
     const sameBranch = usable && branches.size === 1 && !projects[0].detached;
-    const extras = isMain || !usable ? [] : groupWorkspaceExtras(workspacePath, info.root, info.projects);
+    const extras = isMain || !usable ? [] : groupWorkspaceExtras(workspacePath, info.root, info.projects, groupManaged);
     const strayClone = projects.length === 0 && fs.existsSync(path.join(workspacePath, '.git'));
 
     return {
@@ -123,7 +133,7 @@ export function listWorkspaceInfos(rootInput: string): WorkspaceInfo[] {
 
 type TargetDetails = Omit<WorkspaceInfo, 'name' | 'isMain' | 'projects'>;
 
-function inspectTarget(target: SyncTarget, isMain: boolean): TargetDetails {
+function inspectTarget(target: SyncTarget, isMain: boolean, managedPaths: readonly string[]): TargetDetails {
   const isClone = isMain || fs.existsSync(path.join(target.path, '.git'));
 
   if (target.broken) {
@@ -139,7 +149,7 @@ function inspectTarget(target: SyncTarget, isMain: boolean): TargetDetails {
     head: gitMaybe(target.path, ['rev-parse', 'HEAD']),
     shortHead: gitMaybe(target.path, ['rev-parse', '--short', 'HEAD']),
     detached,
-    clean: isGitWorkTreeCleanIncludingIgnored(target.path),
+    clean: isGitWorkTreeFreeOfLocalData(target.path, managedPaths),
   };
 }
 

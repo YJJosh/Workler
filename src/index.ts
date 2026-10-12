@@ -14,6 +14,7 @@ export type { InitResult, ProjectInfo } from './core/project';
 export { createWorkspace, planWorkspaceCreation } from './core/create';
 export type {
   CheckoutPlan,
+  CreatedWorkspace,
   CreateWorkspaceOptions,
   CreateWorkspaceResult,
   MemberCreateResult,

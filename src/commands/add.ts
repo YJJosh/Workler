@@ -2,10 +2,11 @@ import { parseCommandArgs } from '../cli-utils';
 import { PACKAGE_NAME } from '../constants';
 import { createWorkspace, planWorkspaceCreation } from '../core/create';
 import type { CheckoutPlan, CreateWorkspaceOptions, WorkspacePlan } from '../core/create';
-import { setupWorkspace } from '../core/setup';
+import { requireProject } from '../core/project';
+import { declaredSetupCommandCount, setupWorkspace } from '../core/setup';
 import { applyRules } from '../rules';
 import type { ApplyRulesOutcome } from '../rules';
-import { formatSetupPlan } from '../setup';
+import { NO_SETUP_VARIABLE, formatSetupPlan, formatSetupSkipped, setupDisabledByEnvironment } from '../setup';
 import { findWorklerRoot } from '../workspaces';
 import { printRuleResult, printRuleSummary, setupCallbacks } from './rule-output';
 
@@ -33,7 +34,8 @@ export function addCommand(args: string[]): void {
     copyLinks: parsed.flags['copy-links'] === true,
   };
   const dryRun = parsed.flags['dry-run'] === true;
-  const setup = parsed.flags['no-setup'] !== true;
+  // The flag wins the wording when both are present; the effect is the same.
+  const skipSetup = parsed.flags['no-setup'] === true ? '--no-setup' : setupDisabledByEnvironment() ? NO_SETUP_VARIABLE : undefined;
 
   const root = findWorklerRoot(process.cwd());
 
@@ -43,8 +45,10 @@ export function addCommand(args: string[]): void {
       console.log(`warning: ${warning}`);
     }
     printPlan(plan, options.force === true, options.copyLinks === true);
-    if (setup) {
+    if (skipSetup === undefined) {
       printSetupPlan(plan);
+    } else {
+      printSetupSkipped(plan.setup.length + (plan.projects ?? []).reduce((sum, member) => sum + member.setup.length, 0), skipSetup);
     }
     return;
   }
@@ -65,11 +69,15 @@ export function addCommand(args: string[]): void {
     printRuleSummary(result.rules);
   }
 
-  if (setup) {
+  if (skipSetup === undefined) {
     // A failing command throws SETUP_COMMAND_FAILED after the workspace is
     // complete; the message names the command and how to retry. With no
     // setup lines nothing is announced, so `done`/`path` stay the last lines.
     setupWorkspace(root, result.name, setupCallbacks());
+  } else {
+    // Say that declared commands were left out, and why, so a workspace that
+    // is missing its install is not a mystery.
+    printSetupSkipped(declaredSetupCommandCount(requireProject(root)), skipSetup);
   }
 
   console.log(`done   ${result.name}`);
@@ -122,6 +130,14 @@ function printSetupPlan(plan: WorkspacePlan): void {
     for (const command of plan.setup) {
       console.log(formatSetupPlan(command));
     }
+  }
+}
+
+// One line for the setup commands --no-setup or WORKLER_NO_SETUP skipped;
+// nothing when none were declared.
+function printSetupSkipped(count: number, reason: string): void {
+  if (count > 0) {
+    console.log(formatSetupSkipped(count, reason));
   }
 }
 

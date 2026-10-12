@@ -2,10 +2,11 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { readConfig } from './config';
-import { CONFIG_FILE, GROUP_WORKSPACE_REFS, ROOT_REMOTE, WORKSPACES_DIR } from './constants';
+import { CONFIG_FILE, GROUP_WORKSPACE_REFS, ROOT_REMOTE, SETUP_RECORD_FILE, WORKSPACES_DIR } from './constants';
 import { WorklerError } from './errors';
 import { canonicalPath, pathsReferToSameLocation } from './fs-utils';
 import { gitMaybe, hasIndependentGitDirectory, isGitTopLevel } from './git';
+import { readSetupRecordFile } from './setup';
 
 // A project group is a plain folder (not a Git repository) whose .workler
 // lists the repositories below it with `project <path>` lines. `add` run
@@ -274,11 +275,13 @@ export function sourceBrokenReason(groupRoot: string, project: string): string |
 
 // Entries in a group workspace directory that belong to no declared project:
 // not an unchanged .workler copy, not a project or a directory on the way
-// to one.
-// Files a group-level `copy` rule produced count too, exactly like a copied
-// .env inside a clone counts as local data for `remove`. An empty nested
-// .worktrees/ (left behind by a lock) holds nothing and is ignored.
-export function groupWorkspaceExtras(dir: string, groupRoot: string, projects: string[]): string[] {
+// to one, not one of `managedPaths`, what the group's own rules produce
+// next to the clones (copy and link destinations, `setup --if-missing` guard
+// paths; see managedWorkspacePaths), which `apply` and `setup` regenerate,
+// and not the file in which `setup` records those guard paths.
+// An empty nested .worktrees/ (left behind by a lock) holds nothing and is
+// ignored.
+export function groupWorkspaceExtras(dir: string, groupRoot: string, projects: string[], managedPaths: readonly string[] = []): string[] {
   const extras: string[] = [];
   const visit = (relative: string): void => {
     const current = relative ? memberPath(dir, relative) : dir;
@@ -301,6 +304,13 @@ export function groupWorkspaceExtras(dir: string, groupRoot: string, projects: s
         extras.push(entryPath);
         continue;
       }
+      if (!relative && entry.name === SETUP_RECORD_FILE && readSetupRecordFile(dir) !== undefined) {
+        // Workler's own record of what the group's guarded setup commands
+        // made (see readSetupRecordFile in setup.ts). Only a file that reads
+        // exactly as Workler writes it is ours to delete; anything else at
+        // that name is the user's.
+        continue;
+      }
       if (projects.includes(entryPath)) {
         // A member is a directory: a clone, or one still to be made. A
         // symbolic link or a file at a declared path is local data.
@@ -310,7 +320,12 @@ export function groupWorkspaceExtras(dir: string, groupRoot: string, projects: s
         extras.push(entryPath);
         continue;
       }
-      if (entry.isDirectory() && projects.some((project) => project.startsWith(`${entryPath}/`))) {
+      if (managedPaths.includes(entryPath)) {
+        // A rule's output (whatever is there: `apply` and `setup` own it).
+        continue;
+      }
+      if (entry.isDirectory() && [...projects, ...managedPaths].some((below) => below.startsWith(`${entryPath}/`))) {
+        // A folder on the way to a member or a rule output: look inside.
         visit(entryPath);
         continue;
       }

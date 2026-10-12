@@ -71,6 +71,21 @@ export function setupCommandCount(outcome: WorkspaceSetupOutcome): number {
   return outcome.setup.commandCount + (outcome.projects ?? []).reduce((sum, member) => sum + (member.setup?.commandCount ?? 0), 0);
 }
 
+// How many setup commands `add` would run for a new workspace of the project:
+// the project's own, or for a group every usable source's plus the group's.
+// What `add --no-setup` reports as skipped.
+export function declaredSetupCommandCount(info: ProjectInfo): number {
+  let count = readSetupCommands(info.root).length;
+  if (info.isGroup) {
+    for (const project of info.projects) {
+      if (sourceBrokenReason(info.root, project) === undefined) {
+        count += readSetupCommands(memberPath(info.root, project)).length;
+      }
+    }
+  }
+  return count;
+}
+
 // Why a member of a group workspace gets no setup run: it is not the usable
 // clone Workler made (nothing is followed or guessed at), or its source is
 // not a usable repository, so there is no trustworthy .workler to read.
