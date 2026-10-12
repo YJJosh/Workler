@@ -6,6 +6,7 @@ import { CONFIG_FILE, GROUP_WORKSPACE_REFS, ROOT_REMOTE, SETUP_RECORD_FILE, WORK
 import { WorklerError } from './errors';
 import { canonicalPath, pathsReferToSameLocation } from './fs-utils';
 import { gitMaybe, hasIndependentGitDirectory, isGitTopLevel } from './git';
+import { readSetupRecordFile } from './setup';
 
 // A project group is a plain folder (not a Git repository) whose .workler
 // lists the repositories below it with `project <path>` lines. `add` run
@@ -303,10 +304,11 @@ export function groupWorkspaceExtras(dir: string, groupRoot: string, projects: s
         extras.push(entryPath);
         continue;
       }
-      if (!relative && entry.name === SETUP_RECORD_FILE && entry.isFile()) {
+      if (!relative && entry.name === SETUP_RECORD_FILE && readSetupRecordFile(dir) !== undefined) {
         // Workler's own record of what the group's guarded setup commands
-        // made (see recordedSetupOutputs in setup.ts). A regular file is ours
-        // to delete; anything else at that name is the user's.
+        // made (see readSetupRecordFile in setup.ts). Only a file that reads
+        // exactly as Workler writes it is ours to delete; anything else at
+        // that name is the user's.
         continue;
       }
       if (projects.includes(entryPath)) {

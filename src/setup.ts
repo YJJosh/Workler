@@ -196,17 +196,34 @@ export function recordedSetupOutputs(dir: string, kind: SetupRecordKind): string
     const listed = gitMaybeUntrimmed(dir, ['config', '--local', '-z', '--get-all', SETUP_OUTPUT_KEY]);
     return listed === undefined ? [] : listed.split('\0').filter((value) => value !== '');
   }
+  return readSetupRecordFile(dir) ?? [];
+}
+
+// A group folder's record, or undefined when the file at that name is not one
+// Workler wrote: only a regular file whose text is exactly what
+// writeSetupRecord writes counts. Anything else there (malformed, edited by
+// hand, a link or a directory) is the user's, names no outputs, and is local
+// data for `remove`.
+export function readSetupRecordFile(dir: string): string[] | undefined {
   try {
     const file = path.join(dir, SETUP_RECORD_FILE);
     if (!fs.lstatSync(file).isFile()) {
-      return [];
+      return undefined;
     }
-    const parsed: unknown = JSON.parse(fs.readFileSync(file, 'utf8'));
+    const text = fs.readFileSync(file, 'utf8');
+    const parsed: unknown = JSON.parse(text);
     const outputs = (parsed as { setupOutput?: unknown } | null)?.setupOutput;
-    return Array.isArray(outputs) && outputs.every((value) => typeof value === 'string') ? outputs : [];
+    if (!Array.isArray(outputs) || !outputs.every((value) => typeof value === 'string')) {
+      return undefined;
+    }
+    return text === serializeSetupRecord(outputs) ? outputs : undefined;
   } catch (_) {
-    return [];
+    return undefined;
   }
+}
+
+function serializeSetupRecord(outputs: string[]): string {
+  return `${JSON.stringify({ setupOutput: outputs }, null, 2)}\n`;
 }
 
 function recordSetupOutput(target: SetupTarget, ifMissing: string): void {
@@ -221,6 +238,11 @@ function recordSetupOutput(target: SetupTarget, ifMissing: string): void {
     if (hasIndependentGitDirectory(target.path)) {
       git(target.path, ['config', '--local', '--add', SETUP_OUTPUT_KEY, ifMissing]);
     }
+    return;
+  }
+  if (fs.existsSync(path.join(target.path, SETUP_RECORD_FILE)) && readSetupRecordFile(target.path) === undefined) {
+    // Something of the user's sits at the record's name: leave it alone. The
+    // path then goes unrecorded and counts as local data, the safe side.
     return;
   }
   writeSetupRecord(target.path, [...recorded, ifMissing]);
@@ -254,7 +276,7 @@ function forgetSetupOutput(target: SetupTarget, ifMissing: string): void {
 function writeSetupRecord(dir: string, outputs: string[]): void {
   const file = path.join(dir, SETUP_RECORD_FILE);
   const staging = `${file}.${process.pid}.tmp`;
-  fs.writeFileSync(staging, `${JSON.stringify({ setupOutput: outputs }, null, 2)}\n`);
+  fs.writeFileSync(staging, serializeSetupRecord(outputs));
   fs.renameSync(staging, file);
 }
 

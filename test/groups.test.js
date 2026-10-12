@@ -1977,6 +1977,35 @@ test('group and member guard paths are output only once their commands made them
   assert.strictEqual(clean('bare'), true);
   api.removeWorkspace(root, 'bare');
 
+  // A file at the record's name that Workler did not write is the user's,
+  // malformed or merely spelled differently: it is data, and a later setup
+  // leaves it alone, so the guard path it made stays data too.
+  const other = api.createWorkspace(root, { name: 'other', setup: false });
+  const record = path.join(other.path, '.workler-setup.json');
+  const handMade = '{\n  "setupOutput": [\n    "shared.txt"\n  ],\n  "mine": true\n}\n';
+  for (const text of ['{not json', '{"setupOutput":["shared.txt"]}', handMade]) {
+    fs.writeFileSync(record, text);
+    assert.strictEqual(clean('other'), false, text);
+    assert.throws(
+      () => api.removeWorkspace(root, 'other'),
+      (error) => error.code === 'WORKSPACE_DIRTY' && /\.workler-setup\.json: not part of a declared project/.test(error.message),
+    );
+  }
+  api.setupWorkspace(root, 'other');
+  assert.ok(fs.existsSync(path.join(other.path, 'shared.txt')));
+  assert.strictEqual(fs.readFileSync(record, 'utf8'), handMade, 'the user\'s file is untouched');
+  assert.throws(
+    () => api.removeWorkspace(root, 'other'),
+    (error) => error.code === 'WORKSPACE_DIRTY' && /shared\.txt: not part/.test(error.message),
+  );
+  fs.rmSync(record);
+  fs.rmSync(path.join(other.path, 'shared.txt'));
+  api.setupWorkspace(root, 'other');
+  assert.deepStrictEqual(JSON.parse(fs.readFileSync(record, 'utf8')), { setupOutput: ['shared.txt'] });
+  assert.strictEqual(clean('other'), true);
+  api.removeWorkspace(root, 'other');
+  assert.ok(!fs.existsSync(other.path));
+
   // The group's own rules may not manage the record, as with .workler.
   fs.writeFileSync(path.join(root, '.workler'), 'project projects/api\ncopy .workler-setup.json\n');
   assert.match(api.inspectProject(root).configError ?? '', /\.workler:2:\d+: a project group cannot manage \.workler-setup\.json/);
