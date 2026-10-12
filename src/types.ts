@@ -13,9 +13,22 @@ export interface ProjectEntry {
   raw: string;
 }
 
+// A `setup [--if-missing <path>] <command>` line: a shell command run in a
+// new workspace after the copy/link rules (and again by `workler setup`).
+export interface SetupCommand {
+  // The command exactly as written, surrounding whitespace trimmed.
+  command: string;
+  // With `--if-missing <path>`: the command only runs while nothing exists
+  // at this path, relative to the directory the command runs in (portable
+  // forward-slash spelling, validated like a rule path).
+  ifMissing?: string;
+  raw: string;
+}
+
 export interface WorklerConfig {
   rules: WorklerRule[];
   projects: ProjectEntry[];
+  setup: SetupCommand[];
 }
 
 export interface Workspace {

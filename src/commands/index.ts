@@ -9,6 +9,7 @@ import { initCommand } from './init';
 import { listCommand } from './list';
 import { pathCommand } from './path';
 import { removeCommand } from './remove';
+import { setupCommand } from './setup';
 import { shellInitCommand } from './shell-init';
 import { versionCommand } from './version';
 import { PACKAGE_NAME } from '../constants';
@@ -45,6 +46,9 @@ export function runCommand(command: string | undefined, args: string[]): void {
     case 'remove':
     case 'rm':
       removeCommand(args);
+      break;
+    case 'setup':
+      setupCommand(args);
       break;
     case 'shell-init':
       shellInitCommand(args);

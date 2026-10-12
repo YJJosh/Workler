@@ -6,7 +6,7 @@ What Workler creates and configures, and where.
 
 | Path | Created by | Purpose |
 | --- | --- | --- |
-| `.workler` | `workler init` or you | Optional [copy/link rules](/reference/configuration). Commit it when used. |
+| `.workler` | `workler init` or you | Optional [copy/link rules and setup commands](/reference/configuration). Commit it when used. |
 | `.worktrees/` | `workler init` / `workler add`; in a group's source repositories also `add`, `apply`, `fetch`, `sync`, and `branch-sync` run at the group root, whose lock lives there | One subdirectory per workspace. Never commit it. |
 | `.git/info/exclude` | `workler init` / `workler add` | Gets a `.worktrees/` line so workspaces stay invisible to git without touching your committed `.gitignore`. (Outside a git repo, `init` falls back to `.gitignore`.) |
 | `refs/workler/<workspace>/<branch>` | `workler branch-sync` | Read-only mirrors of each workspace's local branches. Inspect with `git for-each-ref refs/workler/`; pruned automatically when a workspace is removed. |
@@ -39,7 +39,7 @@ A [project group](/guide/project-groups) root is a plain folder, so there is no 
 
 | Path | Created by | Purpose |
 | --- | --- | --- |
-| `.workler` | `workler init` or you | `project <path>` lines naming the repositories below, plus optional group-level copy/link rules. |
+| `.workler` | `workler init` or you | `project <path>` lines naming the repositories below, plus optional group-level copy/link rules and setup commands. |
 | `.worktrees/` | `workler init` / `workler add` | One subdirectory per group workspace. |
 | `.gitignore` | `workler init` / `workler add` | Gets a `.worktrees/` line (only matters if the folder sits inside some outer repository). Not written into a nested group workspace, which already lives under an ignored `.worktrees/`. |
 

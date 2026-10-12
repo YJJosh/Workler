@@ -52,6 +52,7 @@ export default defineConfig({
           items: [
             { text: "Workspaces & branches", link: "/guide/workspaces" },
             { text: "Copy & link rules", link: "/guide/rules" },
+            { text: "Setup commands", link: "/guide/setup" },
             { text: "Safety, --force, --dry-run", link: "/guide/safety" },
           ],
         },
@@ -82,6 +83,7 @@ export default defineConfig({
             { text: "workler init", link: "/reference/cli/init" },
             { text: "workler add", link: "/reference/cli/add" },
             { text: "workler apply", link: "/reference/cli/apply" },
+            { text: "workler setup", link: "/reference/cli/setup" },
             { text: "workler list", link: "/reference/cli/list" },
             { text: "workler path", link: "/reference/cli/path" },
             { text: "workler remove", link: "/reference/cli/remove" },

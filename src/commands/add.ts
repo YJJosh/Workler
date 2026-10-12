@@ -2,17 +2,19 @@ import { parseCommandArgs } from '../cli-utils';
 import { PACKAGE_NAME } from '../constants';
 import { createWorkspace, planWorkspaceCreation } from '../core/create';
 import type { CheckoutPlan, CreateWorkspaceOptions, WorkspacePlan } from '../core/create';
+import { setupWorkspace } from '../core/setup';
 import { applyRules } from '../rules';
 import type { ApplyRulesOutcome } from '../rules';
+import { formatSetupPlan } from '../setup';
 import { findWorklerRoot } from '../workspaces';
-import { printRuleResult, printRuleSummary } from './rule-output';
+import { printRuleResult, printRuleSummary, setupCallbacks } from './rule-output';
 
 export function addCommand(args: string[]): void {
-  const usage = `${PACKAGE_NAME} add <name> [base] [--branch <branch>] [--checkout <ref>] [--copy-links] [--force] [--dry-run]`;
+  const usage = `${PACKAGE_NAME} add <name> [base] [--branch <branch>] [--checkout <ref>] [--copy-links] [--force] [--no-setup] [--dry-run]`;
   const parsed = parseCommandArgs(args, {
     command: 'add',
     usage,
-    booleanFlags: ['--copy-links', '--force', '--dry-run'],
+    booleanFlags: ['--copy-links', '--force', '--no-setup', '--dry-run'],
     valueFlags: ['--branch', '--checkout'],
     minPositionals: 1,
     maxPositionals: 2,
@@ -31,6 +33,7 @@ export function addCommand(args: string[]): void {
     copyLinks: parsed.flags['copy-links'] === true,
   };
   const dryRun = parsed.flags['dry-run'] === true;
+  const setup = parsed.flags['no-setup'] !== true;
 
   const root = findWorklerRoot(process.cwd());
 
@@ -40,11 +43,17 @@ export function addCommand(args: string[]): void {
       console.log(`warning: ${warning}`);
     }
     printPlan(plan, options.force === true, options.copyLinks === true);
+    if (setup) {
+      printSetupPlan(plan);
+    }
     return;
   }
 
+  // Setup runs here rather than inside createWorkspace so the rule summary
+  // lands before the first command's heading, in the order things happened.
   const result = createWorkspace(root, {
     ...options,
+    setup: false,
     onProgress: (message) => console.log(message),
     onRuleResult: printRuleResult,
   });
@@ -54,6 +63,13 @@ export function addCommand(args: string[]): void {
     printRuleSummary(combinedOutcome([result.rules, ...result.projects.map((project) => project.rules)]));
   } else {
     printRuleSummary(result.rules);
+  }
+
+  if (setup) {
+    // A failing command throws SETUP_COMMAND_FAILED after the workspace is
+    // complete; the message names the command and how to retry. With no
+    // setup lines nothing is announced, so `done`/`path` stay the last lines.
+    setupWorkspace(root, result.name, setupCallbacks());
   }
 
   console.log(`done   ${result.name}`);
@@ -81,6 +97,32 @@ function printPlan(plan: WorkspacePlan, force: boolean, copyLinks: boolean): voi
   }
   const groupOutcome = applyRules(plan.root, plan.target, { force, copyLinks, dryRun: true, onResult: printRuleResult });
   printRuleSummary(combinedOutcome([groupOutcome, ...outcomes]));
+}
+
+// The setup commands in the order they would run: after every clone, each
+// member's from its source repository, then the group's own.
+function printSetupPlan(plan: WorkspacePlan): void {
+  if (!plan.projects) {
+    for (const command of plan.setup) {
+      console.log(formatSetupPlan(command));
+    }
+    return;
+  }
+  for (const member of plan.projects) {
+    if (member.setup.length === 0) {
+      continue;
+    }
+    console.log(`project ${member.project}`);
+    for (const command of member.setup) {
+      console.log(formatSetupPlan(command));
+    }
+  }
+  if (plan.setup.length > 0) {
+    console.log('group setup');
+    for (const command of plan.setup) {
+      console.log(formatSetupPlan(command));
+    }
+  }
 }
 
 function printClonePlan(root: string, target: string, plan: CheckoutPlan): void {

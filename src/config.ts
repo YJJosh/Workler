@@ -2,10 +2,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { CONFIG_FILE, WORKSPACES_DIR } from './constants';
 import { WorklerError } from './errors';
-import type { ProjectEntry, WorklerConfig, WorklerRule } from './types';
+import type { ProjectEntry, SetupCommand, WorklerConfig, WorklerRule } from './types';
 
 const EXPECTED_SYNTAX =
-  'copy <path> | link <path> | project <path>  (quote paths that contain spaces, "#" after whitespace starts a comment)';
+  'copy <path> | link <path> | project <path> | setup [--if-missing <path>] <command>  (quote paths that contain spaces, "#" after whitespace starts a comment)';
+const SETUP_ACTION = 'setup';
+const IF_MISSING_OPTION = '--if-missing';
 
 // Throws with .workler:<line>:<column>, the offending line, and what was
 // expected, so config mistakes are easy to locate and fix.
@@ -60,28 +62,99 @@ function parseRulePath(line: string, start: number, lineNumber: number, rawLine:
   return line.slice(start).trim();
 }
 
+// A setup line is a shell command, taken verbatim: Workler must not strip a
+// "#" the shell would treat as part of the command (cmd.exe has no "#"
+// comments at all, and sh only sees one where the shell says so). Only
+// full-line comments apply, so this works on the raw line. The one thing
+// parsed before the command is an optional `--if-missing <path>` guard; its
+// path follows the rule-path syntax (quoted when it holds a space or "#").
+function parseSetupLine(rawLine: string, actionStart: number, lineNumber: number): SetupCommand {
+  let cursor = actionStart + SETUP_ACTION.length;
+  // Column (1-based) right after the last thing parsed, for "missing ..."
+  // errors that point at where the command should have started.
+  let afterLast = cursor + 1;
+  const skipWhitespace = (): void => {
+    while (cursor < rawLine.length && /\s/.test(rawLine[cursor])) {
+      cursor++;
+    }
+  };
+  skipWhitespace();
+
+  let ifMissing: string | undefined;
+  const option = rawLine.slice(cursor).match(/^--\S*/)?.[0];
+  if (option !== undefined) {
+    if (option !== IF_MISSING_OPTION) {
+      parseError(lineNumber, cursor + 1, rawLine, `unknown setup option "${option}"`, `${IF_MISSING_OPTION} <path> before the command, or the command itself`);
+    }
+    cursor += option.length;
+    afterLast = cursor + 1;
+    skipWhitespace();
+    if (cursor >= rawLine.length) {
+      parseError(lineNumber, afterLast, rawLine, `missing path after "${IF_MISSING_OPTION}"`, `a path relative to the workspace, then the command`);
+    }
+
+    const pathStart = cursor;
+    let parsedPath: string;
+    const quote = rawLine[cursor];
+    if (quote === '"' || quote === "'") {
+      const end = rawLine.indexOf(quote, cursor + 1);
+      if (end === -1) {
+        parseError(lineNumber, cursor + 1, rawLine, `unterminated ${quote}...${quote} quoted path`, `a closing ${quote} before the command`);
+      }
+      parsedPath = rawLine.slice(cursor + 1, end);
+      cursor = end + 1;
+      if (cursor < rawLine.length && !/\s/.test(rawLine[cursor])) {
+        parseError(lineNumber, cursor + 1, rawLine, `unexpected text after quoted path: "${rawLine.slice(cursor).match(/^\S+/)?.[0]}"`, 'whitespace, then the command');
+      }
+    } else {
+      parsedPath = rawLine.slice(cursor).match(/^\S+/)?.[0] ?? '';
+      cursor += parsedPath.length;
+    }
+    ifMissing = validateRulePath(parsedPath, lineNumber, pathStart + 1, rawLine);
+    afterLast = cursor + 1;
+    skipWhitespace();
+  }
+
+  const command = rawLine.slice(cursor).trim();
+  if (!command) {
+    const after = ifMissing === undefined ? SETUP_ACTION : `${IF_MISSING_OPTION} ${ifMissing}`;
+    parseError(lineNumber, afterLast, rawLine, `missing command after "${after}"`, 'a shell command, e.g. setup pnpm install');
+  }
+  if (command.includes('\0')) {
+    parseError(lineNumber, cursor + 1, rawLine, 'commands cannot contain a NUL character', 'a shell command without NUL characters');
+  }
+  return ifMissing === undefined ? { command, raw: rawLine.trim() } : { command, ifMissing, raw: rawLine.trim() };
+}
+
 // Every path-bearing line in the file, in order, for the overlap check.
 interface ConfigEntry {
   kind: 'rule' | 'project';
   path: string;
 }
 
-// The copy/link rules of a project. `project` lines are parsed and validated
-// too (so a broken file fails everywhere), but only readConfig exposes them.
+// The copy/link rules of a project. `project` and `setup` lines are parsed
+// and validated too (so a broken file fails everywhere), but only readConfig
+// exposes them.
 export function readRules(root: string): WorklerRule[] {
   return readConfig(root).rules;
+}
+
+// The `setup` commands of a project, in file order.
+export function readSetupCommands(root: string): SetupCommand[] {
+  return readConfig(root).setup;
 }
 
 export function readConfig(root: string): WorklerConfig {
   const configPath = path.join(root, CONFIG_FILE);
   if (!fs.existsSync(configPath)) {
-    return { rules: [], projects: [] };
+    return { rules: [], projects: [], setup: [] };
   }
 
   const text = fs.readFileSync(configPath, 'utf8');
   const rules: WorklerRule[] = [];
   let configRule: { lineNumber: number; column: number; rawLine: string } | undefined;
   const projects: ProjectEntry[] = [];
+  const setup: SetupCommand[] = [];
   const entries: ConfigEntry[] = [];
   const lines = text.split(/\r?\n/);
 
@@ -89,6 +162,15 @@ export function readConfig(root: string): WorklerConfig {
     const rawLine = lines[index];
     const lineNumber = index + 1;
     if (!rawLine.trim() || rawLine.trimStart().startsWith('#')) {
+      continue;
+    }
+
+    // Decide on the raw line whether this is a setup line, so the
+    // inline-comment stripping below never touches a command.
+    const rawActionStart = rawLine.length - rawLine.trimStart().length;
+    const rawAction = rawLine.slice(rawActionStart).match(/^\S+/)?.[0] ?? '';
+    if (rawAction === SETUP_ACTION) {
+      setup.push(parseSetupLine(rawLine, rawActionStart, lineNumber));
       continue;
     }
 
@@ -153,7 +235,7 @@ export function readConfig(root: string): WorklerConfig {
     );
   }
 
-  return { rules, projects };
+  return { rules, projects, setup };
 }
 
 // Whether two validated paths are the same entry or a parent and its child,

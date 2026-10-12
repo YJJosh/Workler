@@ -23,6 +23,8 @@ For each rule, an up-to-date destination is reported `ok` and left alone; a miss
 
 Typical reasons to re-run `apply`: you edited `.workler`, `.env` changed in the main project, or a rule was skipped earlier because its source didn't exist yet.
 
+`apply` only handles `copy` and `link` lines. It never runs the `setup` commands, so refreshing a file cannot trigger a reinstall; [`workler setup`](/reference/cli/setup) re-runs those.
+
 ## Converting links to copies
 
 `workler apply <name> --copy-links` turns a workspace that was created with symlinks into one with its own files:

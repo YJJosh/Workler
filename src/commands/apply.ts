@@ -4,7 +4,7 @@ import { readRules } from '../config';
 import { MAIN_WORKSPACE_NAME, PACKAGE_NAME } from '../constants';
 import { inspectProject, lockRootsOf, lockRootsWithSourcesOf, mergeLockRoots, requireProject } from '../core/project';
 import type { ProjectInfo } from '../core/project';
-import { ancestorReason, foreignMemberReason, inspectMember, memberPath, requireDeclaredProject, sourceBrokenReason, splitWorkspaceAddress } from '../groups';
+import { inspectMember, memberPath, notACloneReason, requireDeclaredProject, sourceBrokenReason, splitWorkspaceAddress } from '../groups';
 import { withProjectLocks } from '../lock';
 import { applyRules } from '../rules';
 import type { Workspace } from '../types';
@@ -233,25 +233,5 @@ function runWithOptionalLock(roots: readonly string[], operation: string, dryRun
     fn();
   } else {
     withProjectLocks(roots, operation, fn);
-  }
-}
-
-// A member that apply must not touch: nothing is there yet, or a symbolic
-// link or file that is not a clone (a link to the source repository would
-// otherwise be followed and the source itself rewritten).
-function notACloneReason(check: ReturnType<typeof inspectMember>, project: string): string {
-  const own = ancestorReason(check);
-  if (own !== undefined) {
-    return own;
-  }
-  switch (check.state) {
-    case 'missing':
-      return 'not cloned';
-    case 'link':
-      return 'a symbolic link, not a clone';
-    case 'foreign':
-      return foreignMemberReason(project);
-    default:
-      return 'not a clone';
   }
 }
