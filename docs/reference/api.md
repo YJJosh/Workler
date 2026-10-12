@@ -135,7 +135,9 @@ run after the locks are released, sequentially, through the platform
 shell, with the workspace as `cwd` and `WORKLER_WORKSPACE`,
 `WORKLER_WORKSPACE_PATH`, and `WORKLER_ROOT` added to `process.env`. A
 `setup --if-missing <path>` line whose path exists in the workspace is
-skipped: its result has `status: 'skipped'` and `ifMissing` set. Their
+skipped: its result has `status: 'skipped'` and `ifMissing` set. The
+caller's package-manager variables (`npm_*`, `pnpm_*`, `yarn_*`,
+`INIT_CWD`) are not passed on; everything else in `process.env` is. Their
 stdin/stderr are inherited; `setupStdout: 'stderr'` routes their stdout to
 stderr (the CLI does this when its stdout is not a terminal), the default
 `'inherit'` shares the caller's stdout. `onSetupCommand(command, index,

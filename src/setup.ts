@@ -75,17 +75,36 @@ export function validateSetupOptions(options: SetupOptions): void {
   }
 }
 
+// Variables a package manager sets for the scripts it runs (`npm run`, `pnpm
+// exec`, `yarn`): npm_config_*, npm_package_*, npm_lifecycle_*, pnpm_*,
+// yarn_* and INIT_CWD. Workler is often started from such a script, and a
+// setup command that runs `pnpm install` would otherwise inherit the caller's
+// view of its own package (its cwd, its config, its lifecycle event) and
+// install into the wrong place or with the wrong settings.
+const PACKAGE_MANAGER_VARIABLE = /^(npm_|pnpm_|yarn_)/i;
+const INIT_CWD_VARIABLE = 'INIT_CWD';
+
+function isPackageManagerVariable(name: string): boolean {
+  return PACKAGE_MANAGER_VARIABLE.test(name) || name.toUpperCase() === INIT_CWD_VARIABLE;
+}
+
 // Variables every command sees in addition to the caller's environment, so a
 // script can tell workspaces apart or reach back to the parent project. In a
 // project group the group root, the group workspace folder and (for a
-// member's commands) the declared project path come along too.
+// member's commands) the declared project path come along too. The caller's
+// package-manager variables are dropped (see isPackageManagerVariable);
+// everything else is passed through.
 export function setupEnvironment(target: SetupTarget): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {
-    ...process.env,
     WORKLER_WORKSPACE: target.name,
     WORKLER_WORKSPACE_PATH: target.path,
     WORKLER_ROOT: target.root,
   };
+  for (const [name, value] of Object.entries(process.env)) {
+    if (!isPackageManagerVariable(name) && !(name in env)) {
+      env[name] = value;
+    }
+  }
   // Only this run's group variables may be present. Workler itself can be
   // the caller (a member's command running `workler add` for another
   // project, say), and its group context must not leak into a plain

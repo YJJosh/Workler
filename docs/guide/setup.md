@@ -54,7 +54,7 @@ Commands run:
 - **sequentially**, in file order; the first failure stops the run;
 - with the **new workspace as the working directory**;
 - through the **platform shell** (`sh -c` on macOS/Linux, `cmd.exe` on Windows) rather than your login shell, so a committed line behaves the same for every developer;
-- with your environment, plus:
+- with your environment, minus the variables a package manager sets for the scripts it runs (`npm_*`, `pnpm_*`, `yarn_*` and `INIT_CWD`), plus:
 
 | Variable | Value |
 | --- | --- |
@@ -66,6 +66,8 @@ Commands run:
 | `WORKLER_PROJECT` | a member's commands in a project group only: the declared project path, e.g. `projects/api` |
 
 Only the variables that apply to a run are set. A command that runs Workler itself (a member's `workler add` for another project, say) does not pass its own group variables down.
+
+The package-manager variables are dropped because Workler is often started from such a script (`"ws": "workler add"` in `package.json`, say): a `setup pnpm install` that inherited the caller's `npm_config_*`, `npm_lifecycle_event` or `INIT_CWD` would see the main project's package and configuration instead of the workspace's own.
 
 Their output streams straight to your terminal under a `setup` heading per command:
 

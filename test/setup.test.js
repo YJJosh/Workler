@@ -649,6 +649,37 @@ test('setup commands never inherit group variables from the process that runs Wo
   assert.deepStrictEqual(readLog(path.join(feat, 'tools'))[0].slice(5), [group, feat, 'tools']);
 });
 
+// Sets variables for the rest of the test (and the CLI children it spawns),
+// restoring the previous values afterwards.
+function withEnv(t, values) {
+  const saved = Object.fromEntries(Object.keys(values).map((name) => [name, process.env[name]]));
+  const assign = (name, value) => {
+    if (value === undefined) delete process.env[name];
+    else process.env[name] = value;
+  };
+  for (const [name, value] of Object.entries(values)) assign(name, value);
+  t.after(() => {
+    for (const [name, value] of Object.entries(saved)) assign(name, value);
+  });
+}
+
+test("setup commands do not inherit the caller's package-manager variables", (t) => {
+  // `npm run` sets npm_config_* and INIT_CWD for the script it runs; a setup
+  // command that runs an installer must see the workspace, not that script.
+  withEnv(t, { npm_config_example: 'from-npm', INIT_CWD: '/elsewhere', WORKLER_TEST_UNRELATED: 'kept' });
+  const names = ['npm_config_example', 'INIT_CWD', 'WORKLER_TEST_UNRELATED'];
+  const fields = `[${names.map((name) => `process.env.${name}`).join(', ')}]`;
+  const command = `${NODE} -e "require('fs').appendFileSync('setup.log', ${fields}.map(String).join('|') + String.fromCharCode(10))"`;
+  const root = makeProject(t, { workler: `setup ${command}\n` });
+
+  const ws = api.createWorkspace(root, { name: 'feat' });
+  assert.deepStrictEqual(readLog(ws.path), [['undefined', 'undefined', 'kept']]);
+
+  const add = runCli(root, 'add', 'cli');
+  assert.strictEqual(add.status, 0, add.stderr);
+  assert.deepStrictEqual(readLog(path.join(root, '.worktrees', 'cli')), [['undefined', 'undefined', 'kept']]);
+});
+
 test('setup at a group root addresses the whole workspace or one member, like apply', (t) => {
   const root = makeGroup(t, {
     rules: { 'projects/api': `setup ${logGroupCommand('api')}\n` },
