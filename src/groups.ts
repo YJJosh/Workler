@@ -274,11 +274,12 @@ export function sourceBrokenReason(groupRoot: string, project: string): string |
 
 // Entries in a group workspace directory that belong to no declared project:
 // not an unchanged .workler copy, not a project or a directory on the way
-// to one.
-// Files a group-level `copy` rule produced count too, exactly like a copied
-// .env inside a clone counts as local data for `remove`. An empty nested
-// .worktrees/ (left behind by a lock) holds nothing and is ignored.
-export function groupWorkspaceExtras(dir: string, groupRoot: string, projects: string[]): string[] {
+// to one, and not one of `managedPaths`, what the group's own rules produce
+// next to the clones (copy and link destinations, `setup --if-missing` guard
+// paths; see managedWorkspacePaths), which `apply` and `setup` regenerate.
+// An empty nested .worktrees/ (left behind by a lock) holds nothing and is
+// ignored.
+export function groupWorkspaceExtras(dir: string, groupRoot: string, projects: string[], managedPaths: readonly string[] = []): string[] {
   const extras: string[] = [];
   const visit = (relative: string): void => {
     const current = relative ? memberPath(dir, relative) : dir;
@@ -310,7 +311,12 @@ export function groupWorkspaceExtras(dir: string, groupRoot: string, projects: s
         extras.push(entryPath);
         continue;
       }
-      if (entry.isDirectory() && projects.some((project) => project.startsWith(`${entryPath}/`))) {
+      if (managedPaths.includes(entryPath)) {
+        // A rule's output (whatever is there: `apply` and `setup` own it).
+        continue;
+      }
+      if (entry.isDirectory() && [...projects, ...managedPaths].some((below) => below.startsWith(`${entryPath}/`))) {
+        // A folder on the way to a member or a rule output: look inside.
         visit(entryPath);
         continue;
       }

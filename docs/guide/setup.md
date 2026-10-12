@@ -38,7 +38,7 @@ On POSIX, `sh` treats an unquoted `#` as the start of a comment, so the second l
 
 Workler checks the path itself, not the shell, so the guard means the same on macOS, Linux and Windows. Anything at the path counts: a file, a folder, or a link whose target exists. A link whose target is gone is neither present nor absent: the run stops with `<path> is a link whose target no longer exists`, because the command would collide with the stale entry. Remove the link or restore its target first. The path follows the [rule path syntax](/reference/configuration#path-rules): relative to the directory the command runs in, quoted when it holds a space or `#`, never absolute or reaching outside. `add` reports a skipped command as `skip   setup pnpm install (node_modules exists)`, and `add --dry-run` lists it as `would  setup pnpm install (only if node_modules is missing)`.
 
-The guard is also the "already done" test that makes [`workler setup`](/reference/cli/setup) cheap to re-run: a guarded line only runs again after whatever it produced is gone.
+The guard is also the "already done" test that makes [`workler setup`](/reference/cli/setup) cheap to re-run: a guarded line only runs again after whatever it produced is gone. And because `setup` can regenerate it, the guard path is not local data for [`workler remove`](/reference/cli/remove): an installed `node_modules` does not force a `--force`.
 
 The guard cannot tell a finished install from one that died half-way. When a guarded command fails after creating its path, the failure message adds `<path> now exists, so workler setup would skip this command; remove it before re-running`, and the error details carry the path as `leftBehind`.
 

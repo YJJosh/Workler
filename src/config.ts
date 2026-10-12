@@ -144,6 +144,32 @@ export function readSetupCommands(root: string): SetupCommand[] {
   return readConfig(root).setup;
 }
 
+// The paths a project's .workler produces inside each of its workspaces, in
+// the file's portable spelling and relative to the workspace: the copy and
+// link destinations, and the `setup --if-missing` guard paths (what the
+// guarded command creates). `workler apply` and `workler setup` regenerate
+// them, so `remove` and the listing's `clean` do not count them as local
+// data. A file that cannot be parsed produces nothing here; the operations
+// that need it fail on the parse error themselves.
+export function managedWorkspacePaths(root: string): string[] {
+  let config: WorklerConfig;
+  try {
+    config = readConfig(root);
+  } catch (error) {
+    if (error instanceof WorklerError && error.code === 'CONFIG_INVALID') {
+      return [];
+    }
+    throw error;
+  }
+  const paths = new Set<string>(config.rules.map((rule) => rule.targetPath));
+  for (const command of config.setup) {
+    if (command.ifMissing !== undefined) {
+      paths.add(command.ifMissing);
+    }
+  }
+  return [...paths];
+}
+
 export function readConfig(root: string): WorklerConfig {
   const configPath = path.join(root, CONFIG_FILE);
   if (!fs.existsSync(configPath)) {

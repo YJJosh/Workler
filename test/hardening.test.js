@@ -6,6 +6,9 @@ const path = require('node:path');
 const { test } = require('node:test');
 const { api, git, makeProject, makeTempDir, runCli } = require('./helpers');
 
+// node itself as a portable setup command; quoted for paths with spaces.
+const NODE = `"${process.execPath}"`;
+
 test('rule paths cannot target the workspace root or bypass protected paths with dot components', (t) => {
   const root = makeProject(t);
   const workspace = api.createWorkspace(root, { name: 'safe' });
@@ -234,6 +237,54 @@ test('remove treats ignored local files as data and requires --force', (t) => {
   assert.throws(() => api.removeWorkspace(root, 'ignored-data'), (error) => error.code === 'WORKSPACE_DIRTY');
   assert.strictEqual(fs.readFileSync(path.join(workspace.path, '.env'), 'utf8'), 'SECRET=keep-me\n');
   api.removeWorkspace(root, 'ignored-data', { force: true });
+});
+
+test('remove does not count what the rules produce, ignored or not, but everything else still counts', (t) => {
+  const stamp = `${NODE} -e "require('fs').mkdirSync('out', { recursive: true }); require('fs').writeFileSync('out/stamp.txt', 'x')"`;
+  const root = makeProject(t, { workler: `copy .env\nlink node_modules\nsetup --if-missing out/stamp.txt ${stamp}\n` });
+  fs.writeFileSync(path.join(root, '.gitignore'), '.env\nnode_modules\nlocal.db\n');
+  git(root, 'add', '.gitignore');
+  git(root, 'commit', '-qm', 'ignore local files');
+  const workspace = api.createWorkspace(root, { name: 'feat' });
+  const clean = () => api.listWorkspaces(root).find((entry) => entry.name === 'feat').clean;
+
+  // The copied (ignored) .env, the linked (ignored) node_modules and the
+  // untracked out/stamp.txt the guarded command made are all rule outputs.
+  for (const output of ['.env', 'node_modules', path.join('out', 'stamp.txt')]) {
+    assert.ok(fs.existsSync(path.join(workspace.path, output)), output);
+  }
+  assert.strictEqual(clean(), true, 'rule outputs are not local data');
+  // Nor does editing a copied file make it one: `apply` regenerates it.
+  fs.appendFileSync(path.join(workspace.path, '.env'), 'MORE=1\n');
+  assert.strictEqual(clean(), true);
+
+  // An ignored file no rule produced is data, as before.
+  fs.writeFileSync(path.join(workspace.path, 'local.db'), 'rows\n');
+  assert.strictEqual(clean(), false, 'the listing must agree with remove');
+  assert.throws(() => api.removeWorkspace(root, 'feat'), (error) => error.code === 'WORKSPACE_DIRTY');
+  fs.rmSync(path.join(workspace.path, 'local.db'));
+
+  // So is an untracked file next to a rule output inside the folder git
+  // reports as one entry.
+  fs.writeFileSync(path.join(workspace.path, 'out', 'notes.txt'), 'wip\n');
+  assert.throws(() => api.removeWorkspace(root, 'feat'), (error) => error.code === 'WORKSPACE_DIRTY');
+  fs.rmSync(path.join(workspace.path, 'out', 'notes.txt'));
+
+  // And a nested workspace, until it is removed itself (the empty .worktrees/
+  // its lock leaves behind does not count).
+  api.createWorkspace(workspace.path, { name: 'inner', setup: false });
+  assert.strictEqual(clean(), false);
+  assert.throws(() => api.removeWorkspace(root, 'feat'), (error) => error.code === 'WORKSPACE_DIRTY');
+  api.removeWorkspace(workspace.path, 'inner');
+  assert.ok(fs.existsSync(path.join(workspace.path, '.worktrees')));
+
+  assert.strictEqual(clean(), true);
+  const removed = runCli(root, 'remove', 'feat');
+  assert.strictEqual(removed.status, 0, removed.stderr);
+  assert.ok(!fs.existsSync(workspace.path));
+  // The sources behind the copy and the link are untouched.
+  assert.strictEqual(fs.readFileSync(path.join(root, '.env'), 'utf8'), 'SECRET=1\n');
+  assert.ok(fs.existsSync(path.join(root, 'node_modules', 'marker.txt')));
 });
 
 test('workspace listings are deterministic regardless of creation order', (t) => {

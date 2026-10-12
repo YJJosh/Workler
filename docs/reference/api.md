@@ -200,7 +200,7 @@ group's own commands.
 The main project plus every entry under `.worktrees/`, including broken
 ones: `{ name, path, isMain, isClone, broken?, branch?, head?,
 shortHead?, detached, clean?, projects? }`. `clean` uses the same guard as `remove`
-(untracked and ignored files count as dirty; an empty `.worktrees/`, Workler's own lock directory, does not), so for a non-main workspace
+(untracked and ignored files count as dirty, except what the project's `.workler` produces: copy and link destinations and `setup --if-missing` paths; an empty `.worktrees/`, Workler's own lock directory, does not count either), so for a non-main workspace
 `clean === true` means removable without force.
 
 Under a project group every entry has `projects`, one `{ project, path,
@@ -222,7 +222,9 @@ Throws `WORKSPACE_NOT_FOUND` for unknown names. Under a project group,
 ### `removeWorkspace(root, name, { force? }): RemoveWorkspaceResult`
 
 Same as `workler remove`: refuses to remove `main`, and refuses a
-workspace with uncommitted changes (including untracked and ignored files) unless
+workspace with local data (uncommitted changes, untracked and ignored files;
+not the copy/link destinations and `setup --if-missing` paths of the
+project's `.workler`, which `apply` and `setup` regenerate) unless
 `force` is set — that failure is `WORKSPACE_DIRTY`.
 
 ### `groupRefNamespace(groupRoot): string`

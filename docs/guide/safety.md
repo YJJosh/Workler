@@ -63,13 +63,13 @@ or destination's parent path is never followed and cannot be overridden with
 copied .env (replaced existing regular file)
 ```
 
-`--force` also appears on [`workler remove`](/reference/cli/remove), where it means something different: remove the workspace even though it has uncommitted changes.
+`--force` also appears on [`workler remove`](/reference/cli/remove), where it means something different: remove the workspace even though it has local data.
 
 ## The same caution everywhere else
 
 The safety-first stance runs through the whole CLI:
 
-- [`workler remove`](/reference/cli/remove) refuses to delete a workspace with any local changes — untracked and ignored files included, since deletion is permanent.
+- [`workler remove`](/reference/cli/remove) refuses to delete a workspace with any local data — untracked and ignored files included, since deletion is permanent. Only what `.workler` itself produces (rule destinations, `setup --if-missing` paths) is exempt, because `apply` and `setup` can make it again.
 - [`workler sync`](/reference/cli/sync) only ever fast-forwards; dirty workspaces and diverged branches are skipped, never merged or rebased.
 - [`workler branch-sync`](/reference/cli/branch-sync) never moves a checked-out branch or one with local-only commits.
-- Untracked files created by copy rules never count as "dirty" for `status` and `sync`. Only `remove` treats them as blocking — it is the one command that would delete them.
+- Untracked files created by copy rules never count as "dirty" for `status` and `sync`, and since they are regenerable they do not block `remove` either. Any other untracked or ignored file does block `remove` — it is the one command that would delete it.

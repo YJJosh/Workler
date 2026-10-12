@@ -31,7 +31,7 @@ Each workspace under `.worktrees/<name>` is a normal clone, plus:
 | Remote `origin` | Inherits the main project's fetch URL(s), separate push URL(s), and actual remote-tracking snapshot; relative local URLs are made absolute so they retain their meaning. Synthetic refs created by the local clone are removed. (No `origin` in the main project → none here.) |
 | Remote `workler-root` | Points at the parent project's path; used by [`workler branch-sync`](/reference/cli/branch-sync). Recreated/fixed on every `branch-sync`. |
 | `.git/info/exclude` | Gets a `.worktrees/` line, so the workspace can host nested workspaces. |
-| Rule outputs | Symlinks from `link` rules and files/folders from `copy` rules. They do not count as dirty for tracked-only `status`/`sync`, but `remove` treats untracked and ignored outputs as local data and refuses without `--force`. |
+| Rule outputs | Symlinks from `link` rules and files/folders from `copy` rules, and whatever a `setup --if-missing <path>` line creates at its path. They do not count as dirty for tracked-only `status`/`sync`, and `remove` does not count them as local data either (`apply` and `setup` regenerate them); every other untracked or ignored file makes `remove` refuse without `--force`. |
 
 ## In a project group
 
@@ -49,7 +49,7 @@ Each group workspace under `.worktrees/<name>` is a plain directory holding:
 | --- | --- |
 | `.workler` | A copy of the group's file, so the workspace is a group root of its own (nested group workspaces) and is recognized even before any member is cloned. `remove` treats the copy as harmless only while it is a regular file that still matches the group's file; a symbolic link in its place is local data. |
 | `<project path>/` | One clone per `project` line, in the same layout as the root. |
-| Group rule outputs | Files and links from the group's own `copy`/`link` rules, next to the clones. They count as local data for `remove`. |
+| Group rule outputs | Files and links from the group's own `copy`/`link` rules, and the paths of its `setup --if-missing` lines, next to the clones. Like a member's rule outputs, they do not count as local data for `remove`. |
 
 ### Git config keys (member clone)
 

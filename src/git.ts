@@ -154,20 +154,91 @@ export function isGitWorkTreeClean(repo: string): boolean {
   return status !== undefined && status.split('\n').every((line) => line === '' || line.startsWith(`?? ${WORKSPACES_DIR}/`));
 }
 
-export function isGitWorkTreeCleanIncludingIgnored(repo: string): boolean {
-  // Remove uses this stricter data-loss guard: an ignored .env, database, or
-  // nested .worktrees/ is still data that deletion would destroy. '' means
-  // clean; undefined means Git failed and must not read as clean.
-  const status = gitMaybe(repo, ['status', '--porcelain', '--ignored=matching']);
-  if (status === undefined) {
+// Remove's data-loss guard (the listing's `clean` uses it too). True when the
+// working tree holds nothing that deletion would destroy: no change to a
+// tracked file, nothing staged, and no untracked or ignored entry, with two
+// exceptions.
+//  - `managedPaths`: what the project's .workler produces in the workspace
+//    (copy and link destinations, `setup --if-missing` guard paths), in the
+//    rules' portable spelling, relative to `repo`. `workler apply` and
+//    `workler setup` regenerate them, so a copied .env or an installed
+//    node_modules is not local data, ignored or not. Every other ignored
+//    entry still is: an ignored database or a hand-made .env is data that
+//    deletion would destroy, and deletion is forever.
+//  - An EMPTY .worktrees/: Workler's lock lives there, so any locked
+//    operation leaves it behind (a nested workspace since removed, a group
+//    command that locked this repository as one of its sources). A non-empty
+//    one holds nested workspaces and counts. Git lists the excluded directory
+//    itself without looking inside, so check.
+// A failed git must never read as clean.
+export function isGitWorkTreeFreeOfLocalData(repo: string, managedPaths: readonly string[] = []): boolean {
+  // -z: one NUL-terminated record per path, never quoted, whatever the name.
+  const result = runGit(repo, ['status', '--porcelain', '-z', '--ignored=matching'], 'quiet');
+  if (result.status !== 0 || gitProcessFailure(result) !== undefined) {
     return false;
   }
-  // An EMPTY .worktrees/ is not data: it is where Workler's lock lives, so
-  // any locked operation leaves it behind (a nested workspace since removed,
-  // a group command that locked this repository as one of its sources).
-  // Git lists the excluded directory itself without looking inside, so check.
-  const lockDirectory = `!! ${WORKSPACES_DIR}/`;
-  return status.split('\n').every((line) => line === '' || (line === lockDirectory && isEmptyDirectory(path.join(repo, WORKSPACES_DIR))));
+  for (const record of (result.stdout ?? '').split('\0')) {
+    if (record === '') {
+      continue;
+    }
+    // Git lists tracked changes before untracked and ignored entries, so a
+    // rename's second record (the old name, after `R  new`) is never reached:
+    // the rename itself already decided.
+    const code = record.slice(0, 2);
+    if (code !== '??' && code !== '!!') {
+      return false;
+    }
+    const isDirectory = record.endsWith('/');
+    const entryPath = isDirectory ? record.slice(3, -1) : record.slice(3);
+    if (entryPath === WORKSPACES_DIR) {
+      if (!isEmptyDirectory(path.join(repo, WORKSPACES_DIR))) {
+        return false;
+      }
+      continue;
+    }
+    if (!isManagedEntry(repo, entryPath, isDirectory, managedPaths)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function isUnderManagedPath(entryPath: string, managedPaths: readonly string[]): boolean {
+  return managedPaths.some((managed) => entryPath === managed || entryPath.startsWith(`${managed}/`));
+}
+
+// An untracked or ignored entry is managed when it is a managed path or sits
+// below one. Git folds an untracked directory into one record, so a folder on
+// the way to a managed path (an untracked `config/` holding the copied
+// `config/local.json`) is managed only when everything inside it is.
+function isManagedEntry(repo: string, entryPath: string, isDirectory: boolean, managedPaths: readonly string[]): boolean {
+  if (isUnderManagedPath(entryPath, managedPaths)) {
+    return true;
+  }
+  if (!isDirectory || !managedPaths.some((managed) => managed.startsWith(`${entryPath}/`))) {
+    return false;
+  }
+  return holdsOnlyManagedPaths(path.join(repo, ...entryPath.split('/')), entryPath, managedPaths);
+}
+
+function holdsOnlyManagedPaths(dir: string, relative: string, managedPaths: readonly string[]): boolean {
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch (_) {
+    return false;
+  }
+  return entries.every((entry) => {
+    const entryPath = `${relative}/${entry.name}`;
+    if (isUnderManagedPath(entryPath, managedPaths)) {
+      return true;
+    }
+    return (
+      entry.isDirectory() &&
+      managedPaths.some((managed) => managed.startsWith(`${entryPath}/`)) &&
+      holdsOnlyManagedPaths(path.join(dir, entry.name), entryPath, managedPaths)
+    );
+  });
 }
 
 function isEmptyDirectory(dir: string): boolean {

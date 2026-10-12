@@ -1679,22 +1679,30 @@ test('commands inside a clone that add left unmarked still take the group lock',
   assert.strictEqual(fs.existsSync(nested), false);
 });
 
-test('remove needs every member clean and nothing but members in the workspace folder', (t) => {
+test('remove needs every member clean and nothing but members and rule outputs in the workspace folder', (t) => {
   const root = makeGroup(t, { rules: { 'projects/api': 'copy .env\n' }, groupRules: 'copy .env.shared\n' });
   const feat = api.createWorkspace(root, { name: 'feat' }).path;
 
+  // What the rules produced (the member's .env, the group's .env.shared) is
+  // not local data; anything next to it is.
+  assert.ok(fs.existsSync(path.join(feat, '.env.shared')));
+  assert.strictEqual(api.listWorkspaces(root).find((entry) => entry.name === 'feat').clean, true);
+  fs.writeFileSync(path.join(member(feat, 'projects/api'), 'wip.txt'), 'x\n');
+  fs.writeFileSync(path.join(feat, 'notes.txt'), 'x\n');
+  assert.strictEqual(api.listWorkspaces(root).find((entry) => entry.name === 'feat').clean, false);
   assert.throws(
     () => api.removeWorkspace(root, 'feat'),
     (error) =>
       error.code === 'WORKSPACE_DIRTY' &&
       error.details.reasons.includes('projects/api: uncommitted changes or untracked files') &&
-      error.details.reasons.includes('.env.shared: not part of a declared project') &&
+      error.details.reasons.includes('notes.txt: not part of a declared project') &&
+      !error.details.reasons.some((reason) => reason.startsWith('.env.shared')) &&
       /Use --force/.test(error.message),
   );
   assert.ok(fs.existsSync(feat));
   const cli = runCli(root, 'remove', 'feat');
   assert.strictEqual(cli.status, 1);
-  assert.match(cli.stderr, /\.env\.shared: not part of a declared project/);
+  assert.match(cli.stderr, /notes\.txt: not part of a declared project/);
 
   assert.deepStrictEqual(api.removeWorkspace(root, 'feat', { force: true }), { name: 'feat', path: feat });
   assert.strictEqual(fs.existsSync(feat), false);
