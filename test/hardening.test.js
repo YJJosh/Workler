@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { test } = require('node:test');
-const { api, git, makeProject, makeTempDir, runCli } = require('./helpers');
+const { api, git, makeProject, makeTempDir, recordedPaths, runCli } = require('./helpers');
 
 // node itself as a portable setup command; quoted for paths with spaces.
 const NODE = `"${process.execPath}"`;
@@ -410,7 +410,7 @@ test('a guard path is rule output only once its guarded command made it', (t) =>
   const clean = () => api.listWorkspaces(root).find((entry) => entry.name === 'feat').clean;
   const recorded = () => {
     try {
-      return git(workspace.path, 'config', '--get-all', 'workler.setupOutput');
+      return recordedPaths(git(workspace.path, 'config', '--get-all', 'workler.setupOutput').split(/\r?\n/)).join('\n');
     } catch (_) {
       return '';
     }
@@ -448,6 +448,34 @@ test('a guard path is rule output only once its guarded command made it', (t) =>
   assert.ok(!fs.existsSync(workspace.path));
 });
 
+test('a recorded guard path stops counting as output once something else takes its entry\'s place', (t) => {
+  const make = `${NODE} -e "require('fs').writeFileSync('generated.txt', 'x')"`;
+  const root = makeProject(t, { workler: `setup --if-missing generated.txt ${make}\n` });
+  const workspace = api.createWorkspace(root, { name: 'feat' });
+  const clean = () => api.listWorkspaces(root).find((entry) => entry.name === 'feat').clean;
+  const file = path.join(workspace.path, 'generated.txt');
+  assert.strictEqual(fs.readFileSync(file, 'utf8'), 'x');
+  assert.strictEqual(clean(), true, 'what the command made is output');
+
+  // The output is deleted and a file of the user's put at the path before
+  // setup runs again: the record still names the path, but not this entry.
+  fs.rmSync(file);
+  fs.writeFileSync(file, 'mine\n');
+  assert.strictEqual(clean(), false, 'a file in place of the recorded entry is data');
+  assert.throws(() => api.removeWorkspace(root, 'feat'), (error) => error.code === 'WORKSPACE_DIRTY');
+  // setup skips the command (the path exists) and does not adopt the file.
+  assert.strictEqual(api.setupWorkspace(root, 'feat').setup.results[0].status, 'skipped');
+  assert.strictEqual(clean(), false);
+  assert.strictEqual(fs.readFileSync(file, 'utf8'), 'mine\n');
+
+  // Gone again, the command runs, and the entry it makes is on record.
+  fs.rmSync(file);
+  assert.strictEqual(api.setupWorkspace(root, 'feat').setup.results[0].status, 'ok');
+  assert.strictEqual(clean(), true);
+  api.removeWorkspace(root, 'feat');
+  assert.ok(!fs.existsSync(workspace.path));
+});
+
 test('a guarded command that runs again starts without its earlier record', (t) => {
   const make = `${NODE} -e "require('fs').mkdirSync('out', { recursive: true }); require('fs').writeFileSync('out/stamp.txt', 'x')"`;
   const makeAndDie = `${NODE} -e "require('fs').mkdirSync('out', { recursive: true }); require('fs').writeFileSync('out/stamp.txt', 'half'); process.exit(3)"`;
@@ -458,7 +486,7 @@ test('a guarded command that runs again starts without its earlier record', (t) 
   const clean = () => api.listWorkspaces(root).find((entry) => entry.name === 'feat').clean;
   const recorded = () => {
     try {
-      return git(workspace.path, 'config', '--get-all', 'workler.setupOutput').split(/\r?\n/);
+      return recordedPaths(git(workspace.path, 'config', '--get-all', 'workler.setupOutput').split(/\r?\n/));
     } catch (_) {
       return [];
     }

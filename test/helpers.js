@@ -89,10 +89,16 @@ function runCli(cwd, ...args) {
   return { status: result.status, stdout: result.stdout, stderr: result.stderr };
 }
 
+// The paths in a setup record, without the entry identity Workler keeps
+// in front of each (`<dev>:<ino>:<birth> <path>`).
+function recordedPaths(values) {
+  return values.map((value) => value.replace(/^\d+:\d+:\d+ /, ''));
+}
+
 // A pid that is guaranteed dead: spawn a no-op node process and wait for it.
 function deadPid() {
   const result = spawnSync(process.execPath, ['-e', ''], { encoding: 'utf8' });
   return result.pid;
 }
 
-module.exports = { addOrigin, api, CLI, git, makeTempDir, makeRepo, makeProject, remotes, runCli, deadPid };
+module.exports = { addOrigin, api, CLI, git, makeTempDir, makeRepo, makeProject, recordedPaths, remotes, runCli, deadPid };

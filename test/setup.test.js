@@ -7,7 +7,7 @@ const { spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 const { test } = require('node:test');
-const { api, CLI, git, makeRepo, makeProject, makeTempDir, runCli } = require('./helpers');
+const { api, CLI, git, makeRepo, makeProject, makeTempDir, recordedPaths, runCli } = require('./helpers');
 
 // Shell commands that work under sh and cmd.exe alike by running node itself.
 // node is quoted because its path may contain spaces (Program Files).
@@ -377,7 +377,9 @@ test('setup --if-missing <path> runs the command only while the path is absent',
   // What the guarded command made is on record for remove's guard; what the
   // link rule put at node_modules is the rule's output, not the command's.
   assert.ok(fs.existsSync(path.join(ws.path, 'with space', 'marker.txt')));
-  assert.strictEqual(git(ws.path, 'config', '--get-all', 'workler.setupOutput'), 'with space/marker.txt');
+  const record = git(ws.path, 'config', '--get-all', 'workler.setupOutput');
+  assert.match(record, /^\d+:\d+:\d+ with space\/marker\.txt$/, 'the path, behind the identity of the entry the command made');
+  assert.deepStrictEqual(recordedPaths([record]), ['with space/marker.txt']);
 
   // Once the guarded path exists the command is skipped on re-runs too; when
   // it goes away again the command runs.
@@ -394,7 +396,7 @@ test('setup --if-missing <path> runs the command only while the path is absent',
   assert.deepStrictEqual(readLog(ws.path).map((fields) => fields[0]), ['quoted', 'always', 'always', 'install', 'always']);
   // Now the install made node_modules itself, so it joins the record.
   assert.ok(fs.statSync(path.join(ws.path, 'node_modules')).isDirectory());
-  assert.strictEqual(git(ws.path, 'config', '--get-all', 'workler.setupOutput'), 'with space/marker.txt\nnode_modules');
+  assert.deepStrictEqual(recordedPaths(git(ws.path, 'config', '--get-all', 'workler.setupOutput').split(/\r?\n/)), ['with space/marker.txt', 'node_modules']);
 
   // A workspace whose link rule found no source (root without node_modules)
   // runs the install: the guard looks at the workspace, not the root.

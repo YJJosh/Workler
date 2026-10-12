@@ -5,7 +5,7 @@ import { readSetupCommands } from './config';
 import { PACKAGE_NAME, SETUP_OUTPUT_KEY, SETUP_RECORD_FILE } from './constants';
 import { WorklerError } from './errors';
 import { pathsReferToSameLocation } from './fs-utils';
-import { git, gitMaybeUntrimmed, hasIndependentGitDirectory } from './git';
+import { git, gitConfigUnset, gitMaybeUntrimmed, hasIndependentGitDirectory } from './git';
 import type { SetupCommand } from './types';
 
 // How much of a command's output `setupStdio: 'pipe'` keeps per stream.
@@ -185,16 +185,72 @@ function recordKind(target: Pick<SetupTarget, 'group'>): SetupRecordKind {
   return target.group !== undefined && target.group.project === undefined ? 'folder' : 'clone';
 }
 
-// The guard paths recorded for a workspace, in the .workler's portable
-// spelling. A record that cannot be read, or is not one Workler wrote, names
-// nothing: the paths then count as local data, which errs on the safe side.
+// One recorded guard path: the path in the .workler's portable spelling, and
+// the entry the command left there as `lstat` identifies it (device, inode,
+// creation time). The identity tells the command's entry from one that took
+// its place later: the user deleting the output and putting their own file
+// there. Stored as `<identity> <path>`, split at the first space, so a path
+// keeps any whitespace it is spelled with.
+export interface SetupRecordEntry {
+  id: string;
+  path: string;
+}
+
+const RECORD_VALUE = /^(\d+:\d+:\d+) (.+)$/s;
+
+function parseRecordValues(values: string[]): SetupRecordEntry[] | undefined {
+  const entries: SetupRecordEntry[] = [];
+  for (const value of values) {
+    const match = RECORD_VALUE.exec(value);
+    if (match === null) {
+      return undefined;
+    }
+    entries.push({ id: match[1], path: match[2] });
+  }
+  return entries;
+}
+
+function formatRecordValue(entry: SetupRecordEntry): string {
+  return `${entry.id} ${entry.path}`;
+}
+
+// The identity of whatever sits at the path, a link itself rather than its
+// target, or undefined when nothing does. The creation time tells a reused
+// inode apart where the file system reports one (0 where it does not).
+function entryIdentity(p: string): string | undefined {
+  try {
+    const stat = fs.lstatSync(p, { bigint: true });
+    return `${stat.dev}:${stat.ino}:${stat.birthtimeNs}`;
+  } catch {
+    return undefined;
+  }
+}
+
+// The guard paths recorded for a workspace whose entry is still the one the
+// command made, in the .workler's portable spelling. A record that cannot be
+// read, or is not one Workler wrote, names nothing, and neither does an entry
+// that has been replaced since: those paths count as local data, which errs on
+// the safe side.
 export function recordedSetupOutputs(dir: string, kind: SetupRecordKind): string[] {
+  return readSetupRecord(dir, kind)
+    .filter((entry) => entryIdentity(path.join(dir, ...entry.path.split('/'))) === entry.id)
+    .map((entry) => entry.path);
+}
+
+function readSetupRecord(dir: string, kind: SetupRecordKind): SetupRecordEntry[] {
   if (kind === 'clone') {
     if (!hasIndependentGitDirectory(dir)) {
       return [];
     }
     const listed = gitMaybeUntrimmed(dir, ['config', '--local', '-z', '--get-all', SETUP_OUTPUT_KEY]);
-    return listed === undefined ? [] : listed.split('\0').filter((value) => value !== '');
+    if (listed === undefined) {
+      return [];
+    }
+    // A value Workler cannot read names nothing; the others still count.
+    return listed
+      .split('\0')
+      .filter((value) => value !== '')
+      .flatMap((value) => parseRecordValues([value]) ?? []);
   }
   return readSetupRecordFile(dir) ?? [];
 }
@@ -204,7 +260,7 @@ export function recordedSetupOutputs(dir: string, kind: SetupRecordKind): string
 // writeSetupRecord writes counts. Anything else there (malformed, edited by
 // hand, a link or a directory) is the user's, names no outputs, and is local
 // data for `remove`.
-export function readSetupRecordFile(dir: string): string[] | undefined {
+export function readSetupRecordFile(dir: string): SetupRecordEntry[] | undefined {
   try {
     const file = path.join(dir, SETUP_RECORD_FILE);
     if (!fs.lstatSync(file).isFile()) {
@@ -212,41 +268,47 @@ export function readSetupRecordFile(dir: string): string[] | undefined {
     }
     const text = fs.readFileSync(file, 'utf8');
     const parsed: unknown = JSON.parse(text);
-    const outputs = (parsed as { setupOutput?: unknown } | null)?.setupOutput;
-    if (!Array.isArray(outputs) || !outputs.every((value) => typeof value === 'string')) {
+    const values = (parsed as { setupOutput?: unknown } | null)?.setupOutput;
+    if (!Array.isArray(values) || !values.every((value) => typeof value === 'string')) {
       return undefined;
     }
-    return text === serializeSetupRecord(outputs) ? outputs : undefined;
+    if (text !== serializeSetupRecord(values)) {
+      return undefined;
+    }
+    return parseRecordValues(values);
   } catch (_) {
     return undefined;
   }
 }
 
-function serializeSetupRecord(outputs: string[]): string {
-  return `${JSON.stringify({ setupOutput: outputs }, null, 2)}\n`;
+function serializeSetupRecord(values: string[]): string {
+  return `${JSON.stringify({ setupOutput: values }, null, 2)}\n`;
 }
 
-function recordSetupOutput(target: SetupTarget, ifMissing: string): void {
+// Records the entry a guarded command just made at its path, replacing any
+// earlier record of that path.
+function recordSetupOutput(target: SetupTarget, ifMissing: string, guardPath: string): void {
+  const id = entryIdentity(guardPath);
+  if (id === undefined) {
+    return;
+  }
   const kind = recordKind(target);
-  const recorded = recordedSetupOutputs(target.path, kind);
-  if (recorded.includes(ifMissing)) {
+  // Only a clone of Workler's own making has a config of its own to write
+  // to; a .git file would reach some other repository's.
+  if (kind === 'clone' && !hasIndependentGitDirectory(target.path)) {
     return;
   }
-  if (kind === 'clone') {
-    // Only a clone of Workler's own making has a config of its own to write
-    // to; a .git file would reach some other repository's.
-    if (hasIndependentGitDirectory(target.path)) {
-      git(target.path, ['config', '--local', '--add', SETUP_OUTPUT_KEY, ifMissing]);
-    }
-    return;
-  }
-  if (entryExists(path.join(target.path, SETUP_RECORD_FILE)) && readSetupRecordFile(target.path) === undefined) {
+  if (kind === 'folder' && entryExists(path.join(target.path, SETUP_RECORD_FILE)) && readSetupRecordFile(target.path) === undefined) {
     // Something of the user's sits at the record's name (a dangling link
     // included): leave it alone. The path then goes unrecorded and counts as
     // local data, the safe side.
     return;
   }
-  writeSetupRecord(target.path, [...recorded, ifMissing]);
+  const recorded = readSetupRecord(target.path, kind);
+  if (recorded.some((entry) => entry.path === ifMissing && entry.id === id)) {
+    return;
+  }
+  writeRecord(target, kind, [...recorded.filter((entry) => entry.path !== ifMissing), { id, path: ifMissing }]);
 }
 
 // Drops a guard path from the record. The runner calls it when it finds the
@@ -256,28 +318,31 @@ function recordSetupOutput(target: SetupTarget, ifMissing: string): void {
 // not leave `remove` trusting the old record. Success records it again.
 function forgetSetupOutput(target: SetupTarget, ifMissing: string): void {
   const kind = recordKind(target);
-  const recorded = recordedSetupOutputs(target.path, kind);
-  if (!recorded.includes(ifMissing)) {
+  const recorded = readSetupRecord(target.path, kind);
+  if (!recorded.some((entry) => entry.path === ifMissing)) {
     return;
   }
-  const remaining = recorded.filter((value) => value !== ifMissing);
+  writeRecord(target, kind, recorded.filter((entry) => entry.path !== ifMissing));
+}
+
+function writeRecord(target: SetupTarget, kind: SetupRecordKind, entries: SetupRecordEntry[]): void {
   if (kind === 'clone') {
     // Clear the key and write the rest back (`--fixed-value` needs git 2.30).
-    git(target.path, ['config', '--local', '--unset-all', SETUP_OUTPUT_KEY]);
-    for (const value of remaining) {
-      git(target.path, ['config', '--local', '--add', SETUP_OUTPUT_KEY, value]);
+    gitConfigUnset(target.path, SETUP_OUTPUT_KEY);
+    for (const entry of entries) {
+      git(target.path, ['config', '--local', '--add', SETUP_OUTPUT_KEY, formatRecordValue(entry)]);
     }
     return;
   }
-  writeSetupRecord(target.path, remaining);
+  writeSetupRecord(target.path, entries.map(formatRecordValue));
 }
 
 // Written whole and moved into place, so an interrupted write never leaves
 // half a record behind.
-function writeSetupRecord(dir: string, outputs: string[]): void {
+function writeSetupRecord(dir: string, values: string[]): void {
   const file = path.join(dir, SETUP_RECORD_FILE);
   const staging = `${file}.${process.pid}.tmp`;
-  fs.writeFileSync(staging, serializeSetupRecord(outputs));
+  fs.writeFileSync(staging, serializeSetupRecord(values));
   fs.renameSync(staging, file);
 }
 
@@ -369,7 +434,7 @@ export function runSetupCommands(target: SetupTarget, options: SetupOptions = {}
       // From now on the guard finds the command's work there: remember it, so
       // `remove` can tell it from something the user put at that path.
       if (setup.ifMissing !== undefined && guardPath !== undefined && fs.existsSync(guardPath)) {
-        recordSetupOutput(target, setup.ifMissing);
+        recordSetupOutput(target, setup.ifMissing, guardPath);
       }
       continue;
     }

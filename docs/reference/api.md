@@ -138,8 +138,10 @@ shell, with the workspace as `cwd` and `WORKLER_WORKSPACE`,
 skipped: its result has `status: 'skipped'` and `ifMissing` set. One whose
 command ran and created its path is recorded (`workler.setupOutput` in the
 clone's git config, `.workler-setup.json` in a group workspace folder) for
-the local-data guard of `remove`; the record is dropped when the path is
-missing and the command runs again, until that run succeeds. The
+the local-data guard of `remove`, together with the identity of the entry it
+made, so it counts only while that entry is still there; the record is
+dropped when the path is missing and the command runs again, until that run
+succeeds. The
 caller's package-manager variables (`npm_*`, `pnpm_*`, `yarn_*`,
 `INIT_CWD`, in that lowercase spelling) are not passed on; everything else in
 `process.env` is, including uppercase installer settings such as

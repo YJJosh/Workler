@@ -8,7 +8,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { test } = require('node:test');
-const { addOrigin, api, git, makeRepo, makeTempDir, remotes, runCli } = require('./helpers');
+const { addOrigin, api, git, makeRepo, makeTempDir, recordedPaths, remotes, runCli } = require('./helpers');
 
 // A repo on branch `main` with one commit at an explicit location (the
 // shared makeRepo picks its own temp dir).
@@ -1937,9 +1937,20 @@ test('group and member guard paths are output only once their commands made them
   const apiClone = member(feat.path, 'projects/api');
   assert.ok(fs.existsSync(path.join(apiClone, 'stamp.txt')));
   assert.ok(fs.existsSync(path.join(feat.path, 'shared.txt')));
-  assert.strictEqual(git(apiClone, 'config', '--get-all', 'workler.setupOutput'), 'stamp.txt');
-  assert.deepStrictEqual(JSON.parse(fs.readFileSync(path.join(feat.path, '.workler-setup.json'), 'utf8')), { setupOutput: ['shared.txt'] });
+  assert.deepStrictEqual(recordedPaths([git(apiClone, 'config', '--get-all', 'workler.setupOutput')]), ['stamp.txt']);
+  assert.deepStrictEqual(recordedPaths(JSON.parse(fs.readFileSync(path.join(feat.path, '.workler-setup.json'), 'utf8')).setupOutput), ['shared.txt']);
   assert.strictEqual(clean('feat'), true);
+  // A file of the user's put in place of a recorded entry is data, at either
+  // level; once setup makes the path again it is output again.
+  for (const file of [path.join(feat.path, 'shared.txt'), path.join(apiClone, 'stamp.txt')]) {
+    fs.rmSync(file);
+    fs.writeFileSync(file, 'mine\n');
+    assert.strictEqual(clean('feat'), false, `a replaced ${path.basename(file)} is data`);
+    fs.rmSync(file);
+    const rerun = runCli(root, 'setup', 'feat');
+    assert.strictEqual(rerun.status, 0, rerun.stderr);
+    assert.strictEqual(clean('feat'), true);
+  }
   api.removeWorkspace(root, 'feat');
   assert.ok(!fs.existsSync(feat.path));
 
@@ -1983,7 +1994,10 @@ test('group and member guard paths are output only once their commands made them
   const other = api.createWorkspace(root, { name: 'other', setup: false });
   const record = path.join(other.path, '.workler-setup.json');
   const handMade = '{\n  "setupOutput": [\n    "shared.txt"\n  ],\n  "mine": true\n}\n';
-  for (const text of ['{not json', '{"setupOutput":["shared.txt"]}', handMade]) {
+  // The second-to-last is laid out as Workler writes it but names a path
+  // without the identity of the entry it stands for.
+  const noIdentity = '{\n  "setupOutput": [\n    "shared.txt"\n  ]\n}\n';
+  for (const text of ['{not json', '{"setupOutput":["shared.txt"]}', noIdentity, handMade]) {
     fs.writeFileSync(record, text);
     assert.strictEqual(clean('other'), false, text);
     assert.throws(
@@ -2015,7 +2029,7 @@ test('group and member guard paths are output only once their commands made them
   fs.unlinkSync(record);
   fs.rmSync(path.join(other.path, 'shared.txt'));
   api.setupWorkspace(root, 'other');
-  assert.deepStrictEqual(JSON.parse(fs.readFileSync(record, 'utf8')), { setupOutput: ['shared.txt'] });
+  assert.deepStrictEqual(recordedPaths(JSON.parse(fs.readFileSync(record, 'utf8')).setupOutput), ['shared.txt']);
   assert.strictEqual(clean('other'), true);
   api.removeWorkspace(root, 'other');
   assert.ok(!fs.existsSync(other.path));
@@ -2079,7 +2093,7 @@ test("a group guard path inside a member is that member's output once the group'
   const feat = api.createWorkspace(root, { name: 'feat' });
   const apiClone = member(feat.path, 'projects/api');
   assert.ok(fs.existsSync(path.join(apiClone, 'generated', 'out.txt')));
-  assert.deepStrictEqual(JSON.parse(fs.readFileSync(path.join(feat.path, '.workler-setup.json'), 'utf8')), { setupOutput: ['projects/api/generated'] });
+  assert.deepStrictEqual(recordedPaths(JSON.parse(fs.readFileSync(path.join(feat.path, '.workler-setup.json'), 'utf8')).setupOutput), ['projects/api/generated']);
   assert.strictEqual(git(apiClone, 'config', '--default', '', '--get', 'workler.setupOutput'), '', 'the member itself recorded nothing');
   assert.strictEqual(listed('feat').clean, true);
   assert.strictEqual(listed('feat').projects.find((project) => project.project === 'projects/api').clean, true);
