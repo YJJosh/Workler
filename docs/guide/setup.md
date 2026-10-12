@@ -107,6 +107,13 @@ cd "$(workler path feature-a)" && workler setup
 
 `workler add <name> --no-setup` creates the workspace without running the commands; `workler setup <name>` runs them later. `add --dry-run` lists what would run as `would  setup ...` lines.
 
+Setup lines run commands from the repository, the way a package manager runs a project's lifecycle scripts. To opt out for a whole shell or CI job rather than one `add`, set `WORKLER_NO_SETUP=1` in the environment: every `workler add` then behaves as with `--no-setup` (`0` and the empty value mean off, any other value on). Either way `add` prints one line naming what it skipped, `skip   setup (3 commands, --no-setup)` or `skip   setup (3 commands, WORKLER_NO_SETUP)`, and nothing when the project declares no commands. The variable does not stop an explicit `workler setup <name>`: you asked for the commands.
+
+```bash
+WORKLER_NO_SETUP=1 workler add quick     # clone and rules only
+workler setup quick                      # runs the commands anyway
+```
+
 [`workler apply`](/reference/cli/apply) is unaffected: it (re-)applies only the copy/link rules and never runs commands, so refreshing `.env` cannot trigger a reinstall.
 
 ## Nested workspaces

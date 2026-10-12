@@ -75,6 +75,18 @@ export function validateSetupOptions(options: SetupOptions): void {
   }
 }
 
+// `WORKLER_NO_SETUP` in the environment makes `add` skip the setup commands
+// the way --no-setup does, for a shell or CI job that never wants a clone to
+// run commands from the repository. "0" and the empty value mean off; any
+// other value means on. Only `add` honors it: an explicit `workler setup`
+// asked for the commands.
+export const NO_SETUP_VARIABLE = 'WORKLER_NO_SETUP';
+
+export function setupDisabledByEnvironment(env: NodeJS.ProcessEnv = process.env): boolean {
+  const value = env[NO_SETUP_VARIABLE];
+  return value !== undefined && value !== '' && value !== '0';
+}
+
 // Variables a package manager sets for the scripts it runs (`npm run`, `pnpm
 // exec`, `yarn`): npm_config_*, npm_package_*, npm_lifecycle_*, pnpm_*,
 // yarn_* and INIT_CWD. Workler is often started from such a script, and a
@@ -231,6 +243,12 @@ export function formatSetupHeading(command: SetupCommand): string {
 // The line for a command whose `--if-missing` path exists.
 export function formatSetupSkip(command: SetupCommand): string {
   return `skip   setup ${command.command} (${command.ifMissing} exists)`;
+}
+
+// The line `add` prints instead of running anything when --no-setup or
+// WORKLER_NO_SETUP skipped `count` declared commands (`reason` names which).
+export function formatSetupSkipped(count: number, reason: string): string {
+  return `skip   setup (${count} command${count === 1 ? '' : 's'}, ${reason})`;
 }
 
 // The `add --dry-run` line for a command.

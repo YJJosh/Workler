@@ -21,7 +21,7 @@ workler setup [name[/<project>]]
 
 The commands run exactly as at the end of [`workler add`](/reference/cli/add): sequentially, in file order, through the platform shell, with the workspace as the working directory and `WORKLER_WORKSPACE`, `WORKLER_WORKSPACE_PATH`, and `WORKLER_ROOT` (plus the group variables in a project group) in the environment. A `setup --if-missing <path>` line is skipped while its path exists. The first failing command stops the run and `setup` exits non-zero. Copy/link rules are not touched — that is [`workler apply`](/reference/cli/apply).
 
-Typical reasons to run it: a command failed during `add` and the cause is fixed, the workspace was created with `--no-setup`, `.workler` gained a `setup` line, or something a guarded line produces (a `node_modules` folder, say) was deleted.
+Typical reasons to run it: a command failed during `add` and the cause is fixed, the workspace was created with `--no-setup` or under `WORKLER_NO_SETUP`, `.workler` gained a `setup` line, or something a guarded line produces (a `node_modules` folder, say) was deleted.
 
 `setup` does not take the project lock, so it can run while sibling workspaces are added or removed.
 

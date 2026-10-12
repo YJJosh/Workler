@@ -197,14 +197,30 @@ test('a command that cannot be started reports the results of the commands befor
   assert.deepStrictEqual(readLog(`${target}-moved`).map((fields) => fields[0]), ['one', 'two']);
 });
 
-test('--no-setup / setup: false skip the commands', (t) => {
-  const root = makeProject(t, { workler: `setup ${logCommand('one')}\n` });
+test('--no-setup / setup: false skip the commands, and add says how many it skipped', (t) => {
+  const root = makeProject(t, { workler: `setup ${logCommand('one')}\nsetup ${logCommand('two')}\n` });
 
   const add = runCli(root, 'add', 'quiet', '--no-setup');
   assert.strictEqual(add.status, 0, add.stderr);
   assert.ok(!add.stdout.includes('setup  '));
-  assert.match(add.stdout, /^done {3}quiet$/m);
+  const lines = add.stdout.split('\n');
+  const skipped = lines.indexOf('skip   setup (2 commands, --no-setup)');
+  assert.ok(skipped >= 0 && skipped < lines.indexOf('done   quiet'), add.stdout);
   assert.ok(!fs.existsSync(path.join(root, '.worktrees', 'quiet', 'setup.log')));
+
+  // The dry run reports the skip the same way instead of listing the plan.
+  const dry = runCli(root, 'add', 'dry', '--dry-run', '--no-setup');
+  assert.strictEqual(dry.status, 0, dry.stderr);
+  assert.match(dry.stdout, /^skip {3}setup \(2 commands, --no-setup\)$/m);
+  assert.ok(!dry.stdout.includes('would  setup'));
+
+  // One command is singular; without any command nothing is announced.
+  fs.writeFileSync(path.join(root, '.workler'), `setup ${logCommand('one')}\n`);
+  assert.match(runCli(root, 'add', 'single', '--no-setup').stdout, /^skip {3}setup \(1 command, --no-setup\)$/m);
+  const bare = makeProject(t);
+  const none = runCli(bare, 'add', 'quiet', '--no-setup');
+  assert.strictEqual(none.status, 0, none.stderr);
+  assert.ok(!none.stdout.includes('skip   setup'), none.stdout);
 
   const ws = api.createWorkspace(root, { name: 'api-quiet', setup: false });
   assert.strictEqual(ws.setup, undefined);
@@ -678,6 +694,48 @@ test("setup commands do not inherit the caller's package-manager variables", (t)
   const add = runCli(root, 'add', 'cli');
   assert.strictEqual(add.status, 0, add.stderr);
   assert.deepStrictEqual(readLog(path.join(root, '.worktrees', 'cli')), [['undefined', 'undefined', 'kept']]);
+});
+
+test('WORKLER_NO_SETUP in the environment skips the commands for add, never for workler setup', (t) => {
+  withEnv(t, { WORKLER_NO_SETUP: '1' });
+  const root = makeProject(t, { workler: `setup ${logCommand('one')}\n` });
+
+  const add = runCli(root, 'add', 'feat');
+  assert.strictEqual(add.status, 0, add.stderr);
+  assert.match(add.stdout, /^skip {3}setup \(1 command, WORKLER_NO_SETUP\)$/m);
+  assert.ok(!add.stdout.includes('setup  '));
+  const feat = path.join(root, '.worktrees', 'feat');
+  assert.ok(!fs.existsSync(path.join(feat, 'setup.log')));
+
+  // The explicit command was asked for: it runs.
+  const setup = runCli(root, 'setup', 'feat');
+  assert.strictEqual(setup.status, 0, setup.stderr);
+  assert.deepStrictEqual(readLog(feat).map((fields) => fields[0]), ['one']);
+
+  // The flag wins the wording when both are given; the dry run agrees.
+  assert.match(runCli(root, 'add', 'both', '--no-setup').stdout, /^skip {3}setup \(1 command, --no-setup\)$/m);
+  assert.match(runCli(root, 'add', 'dry', '--dry-run').stdout, /^skip {3}setup \(1 command, WORKLER_NO_SETUP\)$/m);
+
+  // "0" and the empty value mean off.
+  for (const [value, name] of [['0', 'zero'], ['', 'empty']]) {
+    process.env.WORKLER_NO_SETUP = value;
+    const run = runCli(root, 'add', name);
+    assert.strictEqual(run.status, 0, run.stderr);
+    assert.ok(!run.stdout.includes('skip   setup'), run.stdout);
+    assert.deepStrictEqual(readLog(path.join(root, '.worktrees', name)).map((fields) => fields[0]), ['one']);
+  }
+
+  // The API reads no environment: it runs unless told not to.
+  process.env.WORKLER_NO_SETUP = 'yes';
+  const ws = api.createWorkspace(root, { name: 'api' });
+  assert.strictEqual(ws.setup.commandCount, 1);
+  assert.deepStrictEqual(readLog(ws.path).map((fields) => fields[0]), ['one']);
+
+  // In a group the count covers every member's commands and the group's own.
+  const group = makeGroup(t, { rules: { tools: 'setup one\n', 'projects/api': 'setup two\n' }, groupLines: 'setup three\n' });
+  const groupAdd = runCli(group, 'add', 'feat');
+  assert.strictEqual(groupAdd.status, 0, groupAdd.stderr);
+  assert.match(groupAdd.stdout, /^skip {3}setup \(3 commands, WORKLER_NO_SETUP\)$/m);
 });
 
 test('setup at a group root addresses the whole workspace or one member, like apply', (t) => {

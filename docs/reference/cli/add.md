@@ -12,7 +12,7 @@ workler add <name> [base] [--branch <branch>] [--checkout <ref>] [--copy-links] 
 2. Sets up the branch (see below).
 3. Configures the workspace: `workler.root`/`workler.name` git config, all `origin` fetch/separate push URLs inherited from the project (relative local URLs are made absolute; `origin` is removed entirely when the project has none), the root's actual origin-ref snapshot instead of local-clone synthetic refs, a `workler-root` remote back to the parent, and `.worktrees/` excluded in the clone.
 4. Applies the parent's optional [copy/link rules](/reference/configuration) when `.workler` is present.
-5. Runs the parent's optional [`setup` commands](/guide/setup) (`setup pnpm install`, ...) inside the finished workspace: sequentially, in file order, through the platform shell, with `WORKLER_WORKSPACE`, `WORKLER_WORKSPACE_PATH`, and `WORKLER_ROOT` in the environment and the caller's package-manager variables (`npm_*`, `pnpm_*`, `yarn_*`, `INIT_CWD`) left out. A `setup --if-missing <path>` line is skipped while that path exists in the workspace. The project lock is released before this step, so sibling workspaces can be added meanwhile.
+5. Runs the parent's optional [`setup` commands](/guide/setup) (`setup pnpm install`, ...) inside the finished workspace: sequentially, in file order, through the platform shell, with `WORKLER_WORKSPACE`, `WORKLER_WORKSPACE_PATH`, and `WORKLER_ROOT` in the environment and the caller's package-manager variables (`npm_*`, `pnpm_*`, `yarn_*`, `INIT_CWD`) left out. A `setup --if-missing <path>` line is skipped while that path exists in the workspace. The project lock is released before this step, so sibling workspaces can be added meanwhile. `--no-setup`, or `WORKLER_NO_SETUP` set to anything but `0` or empty in the environment, skips the step and prints one `skip` line saying how many commands were left out.
 
 The workspace/branch names and every rule and setup line are validated **before** the clone, so invalid names, malformed rules, and existing source symlink-ancestor traversal fail immediately without leaving a half-built clone behind.
 
@@ -40,7 +40,7 @@ If a setup command fails, the workspace is complete and is **kept**. `add` print
 | `--checkout <ref>` | Check out an existing branch/tag/commit; never creates a branch |
 | `--copy-links` | Copy what `link` rules would symlink, so the workspace shares nothing with the main project; remembered for later `apply` runs. See [Copying instead of linking](/guide/rules#copying-instead-of-linking) |
 | `--force` | Replace rule destinations that already exist and differ |
-| `--no-setup` | Skip the `setup` commands; run them later with `workler setup <name>` |
+| `--no-setup` | Skip the `setup` commands; run them later with `workler setup <name>`. `WORKLER_NO_SETUP=1` in the environment does the same for every `add` |
 | `--dry-run` | Print the whole plan (clone, branch, rules, setup commands) without creating anything |
 
 ## Output
@@ -58,7 +58,7 @@ done   feature-a
 path   /path/to/project/.worktrees/feature-a
 ```
 
-Rule lines use the same status words as [`workler apply`](/reference/cli/apply): `ok`, `linked`, `copied`, `skip`, `would`, `conflict`. Each setup command is announced with a `setup` heading and then prints whatever it prints; a guarded command whose `--if-missing` path exists gets a `skip` line instead; with no `setup` lines, nothing is announced. When stdout is not a terminal, the commands' stdout is routed to stderr, so a script reading the `path` line sees only Workler's own output. With `--dry-run`, commands are listed as `would  setup ...` (`... (only if <path> is missing)` for a guarded one).
+Rule lines use the same status words as [`workler apply`](/reference/cli/apply): `ok`, `linked`, `copied`, `skip`, `would`, `conflict`. Each setup command is announced with a `setup` heading and then prints whatever it prints; a guarded command whose `--if-missing` path exists gets a `skip` line instead; with no `setup` lines, nothing is announced. When `--no-setup` or `WORKLER_NO_SETUP` skips declared commands, one line says so and names which: `skip   setup (3 commands, --no-setup)` or `skip   setup (1 command, WORKLER_NO_SETUP)` (the flag is named when both are present). When stdout is not a terminal, the commands' stdout is routed to stderr, so a script reading the `path` line sees only Workler's own output. With `--dry-run`, commands are listed as `would  setup ...` (`... (only if <path> is missing)` for a guarded one).
 
 ## Errors
 
