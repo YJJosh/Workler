@@ -287,6 +287,53 @@ test('remove does not count what the rules produce, ignored or not, but everythi
   assert.ok(fs.existsSync(path.join(root, 'node_modules', 'marker.txt')));
 });
 
+test('a rule destination whose source is missing in the main project is data, not output', (t) => {
+  // `copy .env` is committed but the main project has no .env: apply skips the
+  // rule, so nothing regenerates a .env a user then makes in the workspace.
+  const root = makeProject(t, { workler: 'copy .env\n' });
+  fs.rmSync(path.join(root, '.env'), { force: true });
+  assert.ok(!fs.existsSync(path.join(root, '.env')));
+  fs.writeFileSync(path.join(root, '.gitignore'), '.env\n');
+  git(root, 'add', '.gitignore');
+  git(root, 'commit', '-qm', 'ignore local env');
+  const workspace = api.createWorkspace(root, { name: 'feat' });
+  const clean = () => api.listWorkspaces(root).find((entry) => entry.name === 'feat').clean;
+  assert.strictEqual(clean(), true, 'nothing was copied, nothing is there');
+
+  fs.writeFileSync(path.join(workspace.path, '.env'), 'SECRET=mine\n');
+  assert.strictEqual(clean(), false, 'a hand-made .env with no source behind it is data');
+  assert.throws(() => api.removeWorkspace(root, 'feat'), (error) => error.code === 'WORKSPACE_DIRTY');
+  assert.strictEqual(fs.readFileSync(path.join(workspace.path, '.env'), 'utf8'), 'SECRET=mine\n');
+
+  // Once the main project has the source, the destination is rule output again.
+  fs.writeFileSync(path.join(root, '.env'), 'SECRET=1\n');
+  assert.strictEqual(clean(), true);
+  api.removeWorkspace(root, 'feat');
+  assert.ok(!fs.existsSync(workspace.path));
+});
+
+test("the main checkout's rule sources are local data, not rule outputs", (t) => {
+  // In the main checkout .env is the source of `copy .env`, not something
+  // apply regenerates, so the listing's `clean` for main has to count it.
+  const root = makeProject(t, { workler: 'copy .env\n' });
+  fs.rmSync(path.join(root, 'node_modules'), { recursive: true, force: true });
+  fs.writeFileSync(path.join(root, '.gitignore'), '.env\n');
+  git(root, 'add', '.gitignore');
+  git(root, 'commit', '-qm', 'ignore local env');
+  const mainClean = () => api.listWorkspaces(root).find((entry) => entry.isMain).clean;
+  assert.strictEqual(mainClean(), false, 'the ignored .env in main is data');
+  // Nothing else in main counts: with the .env gone, main is clean.
+  // Remove it (a rename inside the repo would itself be an untracked file).
+  fs.rmSync(path.join(root, '.env'));
+  assert.strictEqual(mainClean(), true);
+  fs.writeFileSync(path.join(root, '.env'), 'SECRET=1\n');
+  assert.strictEqual(mainClean(), false);
+
+  // The copy of it in a workspace is output, as before.
+  api.createWorkspace(root, { name: 'feat' });
+  assert.strictEqual(api.listWorkspaces(root).find((entry) => entry.name === 'feat').clean, true);
+});
+
 test('workspace listings are deterministic regardless of creation order', (t) => {
   const root = makeProject(t);
   api.createWorkspace(root, { name: 'z-last' });

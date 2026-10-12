@@ -220,7 +220,7 @@ group's own commands.
 The main project plus every entry under `.worktrees/`, including broken
 ones: `{ name, path, isMain, isClone, broken?, branch?, head?,
 shortHead?, detached, clean?, projects? }`. `clean` uses the same guard as `remove`
-(untracked and ignored files count as dirty, except what the project's `.workler` produces: copy and link destinations and `setup --if-missing` paths; an empty `.worktrees/`, Workler's own lock directory, does not count either), so for a non-main workspace
+(untracked and ignored files count as dirty, except, in a workspace, what the project's `.workler` produces: copy and link destinations whose source exists in the main project, and `setup --if-missing` paths; in the main checkout everything counts, since the rules' sources live there, not their outputs; an empty `.worktrees/`, Workler's own lock directory, does not count either), so for a non-main workspace
 `clean === true` means removable without force.
 
 Under a project group every entry has `projects`, one `{ project, path,

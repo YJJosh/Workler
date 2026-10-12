@@ -31,7 +31,7 @@ Each workspace under `.worktrees/<name>` is a normal clone, plus:
 | Remote `origin` | Inherits the main project's fetch URL(s), separate push URL(s), and actual remote-tracking snapshot; relative local URLs are made absolute so they retain their meaning. Synthetic refs created by the local clone are removed. (No `origin` in the main project → none here.) |
 | Remote `workler-root` | Points at the parent project's path; used by [`workler branch-sync`](/reference/cli/branch-sync). Recreated/fixed on every `branch-sync`. |
 | `.git/info/exclude` | Gets a `.worktrees/` line, so the workspace can host nested workspaces. |
-| Rule outputs | Symlinks from `link` rules and files/folders from `copy` rules, and whatever a `setup --if-missing <path>` line creates at its path. They do not count as dirty for tracked-only `status`/`sync`, and `remove` does not count them as local data either (`apply` and `setup` regenerate them); every other untracked or ignored file makes `remove` refuse without `--force`. |
+| Rule outputs | Symlinks from `link` rules and files/folders from `copy` rules (while their source exists in the main project; with the source gone nothing regenerates the destination, and it counts as local data), and whatever a `setup --if-missing <path>` line creates at its path. They do not count as dirty for tracked-only `status`/`sync`, and `remove` does not count them as local data either (`apply` and `setup` regenerate them); every other untracked or ignored file makes `remove` refuse without `--force`. |
 
 ## In a project group
 

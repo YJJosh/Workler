@@ -146,9 +146,10 @@ export function readSetupCommands(root: string): SetupCommand[] {
 
 // The paths a project's .workler produces inside each of its workspaces, in
 // the file's portable spelling and relative to the workspace: the copy and
-// link destinations, and the `setup --if-missing` guard paths (what the
-// guarded command creates). `workler apply` and `workler setup` regenerate
-// them, so `remove` and the listing's `clean` do not count them as local
+// link destinations whose source exists in `root` (apply skips the others,
+// so nothing regenerates their destination), and the `setup --if-missing`
+// guard paths (what the guarded command creates). `workler apply` and
+// `workler setup` regenerate them, so `remove` and the listing's `clean` do not count them as local
 // data. A file that cannot be parsed produces nothing here; the operations
 // that need it fail on the parse error themselves.
 export function managedWorkspacePaths(root: string): string[] {
@@ -161,7 +162,14 @@ export function managedWorkspacePaths(root: string): string[] {
     }
     throw error;
   }
-  const paths = new Set<string>(config.rules.map((rule) => rule.targetPath));
+  const paths = new Set<string>();
+  for (const rule of config.rules) {
+    // The same check apply makes: a rule whose source is absent is skipped, so a
+    // file a user made at its destination has nothing behind it and is data.
+    if (fs.existsSync(path.join(root, rule.targetPath))) {
+      paths.add(rule.targetPath);
+    }
+  }
   for (const command of config.setup) {
     if (command.ifMissing !== undefined) {
       paths.add(command.ifMissing);

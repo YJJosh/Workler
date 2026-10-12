@@ -66,7 +66,8 @@ export function listWorkspaceInfos(rootInput: string): WorkspaceInfo[] {
     const managed = managedWorkspacePaths(info.root);
     return targets.map((target) => {
       const isMain = target.path === info.root;
-      return { name: target.name, isMain, ...inspectTarget(target, isMain, managed) };
+      // The main checkout holds the rules' sources, not their outputs: nothing is exempt there.
+      return { name: target.name, isMain, ...inspectTarget(target, isMain, isMain ? [] : managed) };
     });
   }
 
