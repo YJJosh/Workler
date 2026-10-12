@@ -67,7 +67,7 @@ export function listWorkspaceInfos(rootInput: string): WorkspaceInfo[] {
     return targets.map((target) => {
       const isMain = target.path === info.root;
       // The main checkout holds the rules' sources, not their outputs: nothing is exempt there.
-      const managed = isMain ? [] : managedWorkspacePaths(info.root, recordedSetupOutputs(target.path, 'clone'));
+      const managed = isMain ? [] : managedWorkspacePaths(info.root, target.path, recordedSetupOutputs(target.path, 'clone'));
       return { name: target.name, isMain, ...inspectTarget(target, isMain, managed) };
     });
   }
@@ -89,7 +89,7 @@ export function listWorkspaceInfos(rootInput: string): WorkspaceInfo[] {
     const brokenReasons: string[] = [];
     // What the group's own .workler produces in this folder; a guard path of
     // its that lies inside a member counts for that member as well.
-    const groupManaged = isMain ? [] : managedWorkspacePaths(info.root, recordedSetupOutputs(workspacePath, 'folder'));
+    const groupManaged = isMain ? [] : managedWorkspacePaths(info.root, workspacePath, recordedSetupOutputs(workspacePath, 'folder'));
     for (const member of members) {
       if (member.project === undefined) {
         // A directory under .worktrees/ that is not a group workspace at all.

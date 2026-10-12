@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { CONFIG_FILE, SETUP_RECORD_FILE, WORKSPACES_DIR } from './constants';
 import { WorklerError } from './errors';
-import { findSymlinkAncestor } from './fs-utils';
+import { findSymlinkAncestor, isCorrectSymlink, pathsHaveSameContent } from './fs-utils';
 import type { ProjectEntry, SetupCommand, WorklerConfig, WorklerRule } from './types';
 
 const EXPECTED_SYNTAX =
@@ -175,18 +175,18 @@ export function readSetupCommands(root: string): SetupCommand[] {
   return readConfig(root).setup;
 }
 
-// The paths a project's .workler produces inside one of its workspaces, in
-// the file's portable spelling and relative to the workspace: the copy and
-// link destinations apply would regenerate (see sourceRegenerates), and the
-// `setup --if-missing` guard paths among `produced`, what `setup` recorded
-// as created by a guarded command in that workspace (see
-// recordedSetupOutputs in setup.ts). `workler apply` and `workler setup`
-// regenerate them, so `remove` and the listing's `clean` do not count them
-// as local data; a guard path on no record, or a destination apply would
-// skip or refuse, is data like any other file. A file that cannot be parsed
-// produces nothing here; the operations that need it fail on the parse
-// error themselves.
-export function managedWorkspacePaths(root: string, produced: readonly string[]): string[] {
+// The paths a project's .workler produces inside `workspace`, in the file's
+// portable spelling and relative to the workspace: the copy and link
+// destinations that are what apply makes of their sources (see
+// ruleOutputInPlace), and the `setup --if-missing` guard paths among
+// `produced`, what `setup` recorded as created by a guarded command in that
+// workspace (see recordedSetupOutputs in setup.ts). Removing them loses
+// nothing `apply` and `setup` cannot make again, so `remove` and the
+// listing's `clean` do not count them as local data; a guard path on no
+// record, or a destination apply would skip or refuse to replace, is data
+// like any other file. A file that cannot be parsed produces nothing here;
+// the operations that need it fail on the parse error themselves.
+export function managedWorkspacePaths(root: string, workspace: string, produced: readonly string[]): string[] {
   let config: WorklerConfig;
   try {
     config = readConfig(root);
@@ -198,7 +198,7 @@ export function managedWorkspacePaths(root: string, produced: readonly string[])
   }
   const paths = new Set<string>();
   for (const rule of config.rules) {
-    if (sourceRegenerates(root, rule.targetPath)) {
+    if (ruleOutputInPlace(root, workspace, rule)) {
       paths.add(rule.targetPath);
     }
   }
@@ -210,15 +210,34 @@ export function managedWorkspacePaths(root: string, produced: readonly string[])
   return [...paths];
 }
 
-// The checks apply makes before it copies or links a rule's source: it
-// exists, and no directory on the way to it is a symbolic link (apply skips
-// an absent source and refuses one behind a link, so neither regenerates
-// the destination; a file a user made there has nothing behind it and is
-// data). A source that cannot be inspected counts as absent, the safe side.
-function sourceRegenerates(root: string, targetPath: string): boolean {
-  const source = path.join(root, targetPath);
+// Whether a rule's destination is what apply makes of its source, so apply
+// would leave it as it is. The source passes apply's checks: it exists, and
+// no directory on the way to it is a symbolic link (apply skips an absent
+// source and refuses one behind a link). No directory on the way to the
+// destination is one either. And the destination is a link that resolves to
+// the source, or a copy with the source's content (for a link rule after
+// `apply --copy-links`, the content the source resolves to). Anything else
+// there is something apply refuses to replace without --force, and so is
+// data: a user's own .env that predates a `copy .env` rule, or a copied
+// .env edited since. One that matches loses nothing when removed, since the
+// main project still has it. Whatever cannot be inspected counts as data,
+// the safe side.
+function ruleOutputInPlace(root: string, workspace: string, rule: WorklerRule): boolean {
+  const source = path.join(root, rule.targetPath);
+  const destination = path.join(workspace, rule.targetPath);
   try {
-    return findSymlinkAncestor(root, source) === undefined && fs.existsSync(source);
+    if (findSymlinkAncestor(root, source) !== undefined || !fs.existsSync(source)) {
+      return false;
+    }
+    if (findSymlinkAncestor(workspace, destination) !== undefined) {
+      return false;
+    }
+    if (rule.action === 'link' && isCorrectSymlink(destination, source)) {
+      return true;
+    }
+    fs.lstatSync(destination);
+    const content = rule.action === 'link' ? fs.realpathSync(source) : source;
+    return pathsHaveSameContent(content, destination, source);
   } catch (_) {
     return false;
   }

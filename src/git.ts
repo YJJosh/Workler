@@ -55,6 +55,17 @@ export function gitMaybe(repo: string | null, args: string[]): string | undefine
   return result.stdout?.trim() ?? '';
 }
 
+// gitMaybe without the trim, for NUL-delimited output (`-z`), where
+// whitespace at either end belongs to a value: a guard path can be spelled
+// `" leading.txt"`.
+export function gitMaybeUntrimmed(repo: string | null, args: string[]): string | undefined {
+  const result = runGit(repo, args, 'quiet');
+  if (result.status !== 0) {
+    return undefined;
+  }
+  return result.stdout ?? '';
+}
+
 // `git config --unset-all` exits 5 when the key is already absent, which is
 // the desired state. Every other failure (a stale config.lock, a read-only
 // config) must surface: the caller is about to act on the key being gone.

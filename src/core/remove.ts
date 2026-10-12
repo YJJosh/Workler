@@ -57,7 +57,7 @@ export function removeWorkspace(
             { name, path: workspace.path, reasons },
           );
         }
-      } else if (!isGitWorkTreeFreeOfLocalData(workspace.path, managedWorkspacePaths(info.root, recordedSetupOutputs(workspace.path, 'clone')))) {
+      } else if (!isGitWorkTreeFreeOfLocalData(workspace.path, managedWorkspacePaths(info.root, workspace.path, recordedSetupOutputs(workspace.path, 'clone')))) {
         throw new WorklerError(
           'WORKSPACE_DIRTY',
           `workspace has local changes: ${workspace.path}\nUse --force to remove anyway.`,
@@ -86,7 +86,7 @@ function groupLocalData(workspacePath: string, groupRoot: string, projects: stri
   // What the group's own .workler produces in the folder: its rule outputs
   // and the guard paths its setup recorded, some of which may lie inside a
   // member.
-  const groupManaged = managedWorkspacePaths(groupRoot, recordedSetupOutputs(workspacePath, 'folder'));
+  const groupManaged = managedWorkspacePaths(groupRoot, workspacePath, recordedSetupOutputs(workspacePath, 'folder'));
   for (const project of projects) {
     const member = memberPath(workspacePath, project);
     const check = inspectMember(workspacePath, project);
@@ -130,7 +130,7 @@ function groupLocalData(workspacePath: string, groupRoot: string, projects: stri
 export function memberManagedPaths(groupRoot: string, project: string, member: string, groupManaged: readonly string[] = []): string[] {
   const own =
     sourceBrokenReason(groupRoot, project) === undefined
-      ? managedWorkspacePaths(memberPath(groupRoot, project), recordedSetupOutputs(member, 'clone'))
+      ? managedWorkspacePaths(memberPath(groupRoot, project), member, recordedSetupOutputs(member, 'clone'))
       : [];
   const fromGroup = groupManaged.flatMap((managed) => {
     const below = pathBelow(managed, project);

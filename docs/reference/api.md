@@ -224,7 +224,7 @@ group's own commands.
 The main project plus every entry under `.worktrees/`, including broken
 ones: `{ name, path, isMain, isClone, broken?, branch?, head?,
 shortHead?, detached, clean?, projects? }`. `clean` uses the same guard as `remove`
-(untracked and ignored files count as dirty, except, in a workspace, what the project's `.workler` produces: copy and link destinations whose source exists in the main project (reached through real directories), and `setup --if-missing` paths a guarded command created there, per the workspace's record; in the main checkout everything counts, since the rules' sources live there, not their outputs; an empty `.worktrees/`, Workler's own lock directory, does not count either), so for a non-main workspace
+(untracked and ignored files count as dirty, except, in a workspace, what the project's `.workler` produces: copy and link destinations that are what `apply` makes of their source (a link to it, or a copy with its content, the source reached through real directories), and `setup --if-missing` paths a guarded command created there, per the workspace's record; in the main checkout everything counts, since the rules' sources live there, not their outputs; an empty `.worktrees/`, Workler's own lock directory, does not count either), so for a non-main workspace
 `clean === true` means removable without force.
 
 Under a project group every entry has `projects`, one `{ project, path,
@@ -247,8 +247,8 @@ Throws `WORKSPACE_NOT_FOUND` for unknown names. Under a project group,
 
 Same as `workler remove`: refuses to remove `main`, and refuses a
 workspace with local data (uncommitted changes, untracked and ignored files;
-not the copy/link destinations of the project's `.workler` whose source
-exists, nor the `setup --if-missing` paths its commands created, which
+not the copy/link destinations of the project's `.workler` that still
+match their source, nor the `setup --if-missing` paths its commands created, which
 `apply` and `setup` regenerate) unless
 `force` is set — that failure is `WORKSPACE_DIRTY`.
 

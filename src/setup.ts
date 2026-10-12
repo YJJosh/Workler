@@ -5,7 +5,7 @@ import { readSetupCommands } from './config';
 import { PACKAGE_NAME, SETUP_OUTPUT_KEY, SETUP_RECORD_FILE } from './constants';
 import { WorklerError } from './errors';
 import { pathsReferToSameLocation } from './fs-utils';
-import { git, gitMaybe, hasIndependentGitDirectory } from './git';
+import { git, gitMaybeUntrimmed, hasIndependentGitDirectory } from './git';
 import type { SetupCommand } from './types';
 
 // How much of a command's output `setupStdio: 'pipe'` keeps per stream.
@@ -193,7 +193,7 @@ export function recordedSetupOutputs(dir: string, kind: SetupRecordKind): string
     if (!hasIndependentGitDirectory(dir)) {
       return [];
     }
-    const listed = gitMaybe(dir, ['config', '--local', '-z', '--get-all', SETUP_OUTPUT_KEY]);
+    const listed = gitMaybeUntrimmed(dir, ['config', '--local', '-z', '--get-all', SETUP_OUTPUT_KEY]);
     return listed === undefined ? [] : listed.split('\0').filter((value) => value !== '');
   }
   try {
