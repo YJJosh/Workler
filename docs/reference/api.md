@@ -99,7 +99,7 @@ checkouts are skipped.
 ### `createWorkspace(root, options): CreateWorkspaceResult`
 
 Same semantics as [`workler add`](/reference/cli/add). `options`:
-`{ name, base?, branch?, checkout?, force?, copyLinks?, setup? }` with the exact `add` rules.
+`{ name, base?, branch?, checkout?, force?, copyLinks?, setup?, setupStdout?, setupStdio?, onSetupOutput? }` with the exact `add` rules.
 `checkout` is exclusive, while `base` and `branch` may be combined to create
 an explicitly named branch from an explicit start point; `name` alone creates
 a new branch from `HEAD`. Optional `onProgress(message)` and
@@ -137,15 +137,29 @@ shell, with the workspace as `cwd` and `WORKLER_WORKSPACE`,
 `setup --if-missing <path>` line whose path exists in the workspace is
 skipped: its result has `status: 'skipped'` and `ifMissing` set. The
 caller's package-manager variables (`npm_*`, `pnpm_*`, `yarn_*`,
-`INIT_CWD`) are not passed on; everything else in `process.env` is. Their
-stdin/stderr are inherited; `setupStdout: 'stderr'` routes their stdout to
-stderr (the CLI does this when its stdout is not a terminal), the default
-`'inherit'` shares the caller's stdout. `onSetupCommand(command, index,
+`INIT_CWD`) are not passed on; everything else in `process.env` is.
+
+By default (`setupStdio: 'inherit'`) the commands share the caller's stdin,
+stdout and stderr, as the CLI does; `setupStdout: 'stderr'` routes their
+stdout to stderr (the CLI does this when its stdout is not a terminal). With
+`setupStdio: 'pipe'` nothing reaches the caller's streams: stdin is closed,
+and each command's stdout and stderr are captured, handed to
+`onSetupOutput(chunk, stream, command, index)` (`stream` is `'stdout'` or
+`'stderr'`; once per stream that produced output, after the command exits,
+since the API is synchronous) and kept on its result as `stdout` and
+`stderr`. Up to 64 MiB per stream is kept; a command that writes more is
+stopped and reported as a failure. `onSetupOutput` requires
+`setupStdio: 'pipe'`, and `setupStdout: 'stderr'` cannot be combined with
+it (`INVALID_OPTIONS`). `onSetupCommand(command, index,
 total)` fires before each command starts, and `onSetupSkip(command, index,
 total)` instead of it for a skipped one. The first failing command throws
 `SETUP_COMMAND_FAILED` with `details` `{ name, path, command, exitCode?,
-signal?, index, commandCount, results, project? }`; the workspace is complete
-and stays in place, so the caller can retry with `setupWorkspace()`. The
+signal?, index, commandCount, results, project?, workspace }`; the workspace
+is complete and stays in place, so the caller can retry with
+`setupWorkspace()`. `details.workspace` is a `CreatedWorkspace`: the
+`CreateWorkspaceResult` as far as it got (`name`, `path`, `branch`,
+`head`, `detached`, `copyLinks`, `rules`, and `projects` for a group,
+each without `setup`), so a consumer knows what exists and where. The
 result's `setup` is `{ commandCount, results }`.
 
 In a project group every member's commands run first, inside its clone and
@@ -164,9 +178,11 @@ nothing after it runs.
 Same as [`workler setup <name>`](/reference/cli/setup): re-runs the `setup`
 commands of `root`'s `.workler` in the existing workspace `name`, with the
 same options and the same `SETUP_COMMAND_FAILED` contract as
+`createWorkspace`, except that `details.workspace` is only set by
 `createWorkspace`. Returns `{ name, path, root, setup, projects?, project? }`
 where `setup` is `{ commandCount, results }` and each result is
-`{ command, status: 'ok' | 'skipped', ifMissing? }`; a `commandCount` of `0`
+`{ command, status: 'ok' | 'skipped', ifMissing?, stdout?, stderr? }` (the
+streams only with `setupStdio: 'pipe'`); a `commandCount` of `0`
 means `.workler` declares no commands. Refuses `main` (`MAIN_WORKSPACE`)
 and unknown names (`WORKSPACE_NOT_FOUND`). Does not take the project lock
 (see [Locking](#locking)).
@@ -182,7 +198,7 @@ missing, not a repository, or behind a symbolic link, was left alone.
 Addressing such a member directly throws `WORKSPACE_NOT_FOUND` or
 `NOT_A_GIT_REPO` instead.
 
-Types: `SetupOptions`, `WorkspaceSetupOptions`, `SetupOutcome`,
+Types: `CreatedWorkspace`, `SetupOptions`, `WorkspaceSetupOptions`, `SetupOutcome`,
 `SetupCommandResult`, `SetupTarget`, `SetupWorkspaceResult`,
 `WorkspaceSetupOutcome`, `MemberSetupResult`, and `SetupCommand`
 (`{ command, ifMissing?, raw }`, also the `setup` array of a `WorkspacePlan`

@@ -133,6 +133,22 @@ export interface CreateWorkspaceResult {
   setup?: SetupOutcome;
 }
 
+// What `createWorkspace` had finished when a setup command failed: the
+// result without the setup outcomes, on the error's `details.workspace`, so a
+// consumer knows the workspace exists and where (and can retry with
+// `setupWorkspace`).
+export type CreatedWorkspace = Omit<CreateWorkspaceResult, 'setup' | 'projects'> & {
+  projects?: Omit<MemberCreateResult, 'setup'>[];
+};
+
+function createdWorkspace(result: CreateWorkspaceResult): CreatedWorkspace {
+  const { setup: _setup, projects, ...rest } = result;
+  if (projects === undefined) {
+    return rest;
+  }
+  return { ...rest, projects: projects.map(({ setup: _memberSetup, ...member }) => member) };
+}
+
 function validateOptions(options: CreateWorkspaceOptions): void {
   if (!options || typeof options !== 'object') {
     throw new WorklerError('INVALID_OPTIONS', 'createWorkspace options must be an object');
@@ -326,7 +342,15 @@ export function createWorkspace(rootInput: string, options: CreateWorkspaceOptio
   // meanwhile. The workspace is complete at this point; a failing command
   // throws but leaves it in place for `workler setup` to retry.
   if (options.setup !== false) {
-    const outcome = runWorkspaceSetup(info, { name: result.name, path: result.path }, options);
+    let outcome;
+    try {
+      outcome = runWorkspaceSetup(info, { name: result.name, path: result.path }, options);
+    } catch (error) {
+      if (error instanceof WorklerError && error.code === 'SETUP_COMMAND_FAILED') {
+        throw new WorklerError(error.code, error.message, { ...error.details, workspace: createdWorkspace(result) });
+      }
+      throw error;
+    }
     result.setup = outcome.setup;
     for (const member of outcome.projects ?? []) {
       const created = result.projects?.find((candidate) => candidate.project === member.project);

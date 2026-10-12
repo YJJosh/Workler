@@ -3,10 +3,11 @@
 // `add`, re-running them with `workler setup`, and the failure contract.
 
 const assert = require('node:assert');
+const { spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 const { test } = require('node:test');
-const { api, git, makeRepo, makeProject, makeTempDir, runCli } = require('./helpers');
+const { api, CLI, git, makeRepo, makeProject, makeTempDir, runCli } = require('./helpers');
 
 // Shell commands that work under sh and cmd.exe alike by running node itself.
 // node is quoted because its path may contain spaces (Program Files).
@@ -737,6 +738,87 @@ test('WORKLER_NO_SETUP in the environment skips the commands for add, never for 
   assert.strictEqual(groupAdd.status, 0, groupAdd.stderr);
   assert.match(groupAdd.stdout, /^skip {3}setup \(3 commands, WORKLER_NO_SETUP\)$/m);
 });
+
+test('setupStdio "pipe" hands the API each command\'s output and keeps the caller\'s streams clean', (t) => {
+  const noisy = `${NODE} -e "console.log('out'); console.error('err')"`;
+  const root = makeProject(t, { workler: `setup ${noisy}\nsetup ${logCommand('one')}\n` });
+
+  const chunks = [];
+  const ws = api.createWorkspace(root, {
+    name: 'feat',
+    setupStdio: 'pipe',
+    onSetupOutput: (chunk, stream, command, index) => chunks.push([chunk.trim(), stream, command.command, index]),
+  });
+  assert.deepStrictEqual(chunks, [
+    ['out', 'stdout', noisy, 0],
+    ['err', 'stderr', noisy, 0],
+  ]);
+  // The output stays on the results too, '' for a stream that was silent.
+  assert.deepStrictEqual(ws.setup.results.map((result) => [result.status, result.stdout.trim(), result.stderr.trim()]), [
+    ['ok', 'out', 'err'],
+    ['ok', '', ''],
+  ]);
+  // With inherited streams nothing is captured.
+  fs.writeFileSync(path.join(root, '.workler'), `setup ${logCommand('one')}\n`);
+  assert.strictEqual('stdout' in api.setupWorkspace(root, 'feat').setup.results[0], false);
+  fs.writeFileSync(path.join(root, '.workler'), `setup ${noisy}\nsetup ${logCommand('one')}\n`);
+
+  for (const options of [{ setupStdio: 'tty' }, { onSetupOutput: () => {} }, { onSetupOutput: 'log', setupStdio: 'pipe' }, { setupStdio: 'pipe', setupStdout: 'stderr' }]) {
+    assert.throws(() => api.createWorkspace(root, { name: 'x', ...options }), (e) => e.code === 'INVALID_OPTIONS', JSON.stringify(options));
+  }
+  assert.throws(() => api.setupWorkspace(root, 'feat', { onSetupOutput: () => {} }), (e) => e.code === 'INVALID_OPTIONS');
+
+  // Nothing reached the consumer's own stdout or stderr: run a consumer in a
+  // child process and look at what came out of it.
+  const index = path.join(path.dirname(CLI), 'index.js');
+  const script = `require(${JSON.stringify(index)}).createWorkspace(${JSON.stringify(root)}, { name: 'child', setupStdio: 'pipe' }); console.log('consumer done');`;
+  const child = spawnSync(process.execPath, ['-e', script], { encoding: 'utf8' });
+  assert.strictEqual(child.status, 0, child.stderr);
+  assert.strictEqual(child.stdout.trim(), 'consumer done');
+  assert.strictEqual(child.stderr, '');
+  assert.deepStrictEqual(readLog(path.join(root, '.worktrees', 'child')).map((fields) => fields[0]), ['one']);
+});
+
+test('a failing setup command tells API consumers which workspace was created', (t) => {
+  const root = makeProject(t, { workler: `copy .env\nsetup ${NODE} -e "console.error('boom'); process.exit(3)"\n` });
+
+  const error = caught(() => api.createWorkspace(root, { name: 'feat', setupStdio: 'pipe' }));
+  assert.strictEqual(error.code, 'SETUP_COMMAND_FAILED');
+  assert.strictEqual(error.details.exitCode, 3);
+  const created = error.details.workspace;
+  assert.strictEqual(created.name, 'feat');
+  assert.strictEqual(created.path, path.join(root, '.worktrees', 'feat'));
+  assert.strictEqual(created.root, root);
+  assert.strictEqual(created.branch, 'feat');
+  assert.strictEqual(created.detached, false);
+  assert.strictEqual(created.rules.ruleCount, 1);
+  assert.ok(!('setup' in created), 'the setup outcome is in details.results, not on the workspace');
+  assert.ok(fs.existsSync(path.join(created.path, '.env')));
+  // The failed result carries what the command wrote.
+  assert.strictEqual(error.details.results[0].status, 'failed');
+  assert.strictEqual(error.details.results[0].stderr.trim(), 'boom');
+
+  // A group reports every member it cloned, again without setup outcomes.
+  const group = makeGroup(t, { rules: { tools: `setup ${exitCommand(2)}\n` } });
+  const groupError = caught(() => api.createWorkspace(group, { name: 'feat' }));
+  assert.strictEqual(groupError.code, 'SETUP_COMMAND_FAILED');
+  assert.strictEqual(groupError.details.project, 'tools');
+  assert.strictEqual(groupError.details.workspace.path, path.join(group, '.worktrees', 'feat'));
+  assert.deepStrictEqual(groupError.details.workspace.projects.map((member) => member.project), GROUP_PROJECTS);
+  assert.ok(groupError.details.workspace.projects.every((member) => !('setup' in member)));
+
+  // The explicit re-run created nothing, so it reports no workspace.
+  assert.strictEqual(caught(() => api.setupWorkspace(group, 'feat')).details.workspace, undefined);
+});
+
+function caught(fn) {
+  try {
+    fn();
+  } catch (error) {
+    return error;
+  }
+  assert.fail('expected an error');
+}
 
 test('setup at a group root addresses the whole workspace or one member, like apply', (t) => {
   const root = makeGroup(t, {

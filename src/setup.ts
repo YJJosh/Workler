@@ -7,6 +7,9 @@ import { WorklerError } from './errors';
 import { pathsReferToSameLocation } from './fs-utils';
 import type { SetupCommand } from './types';
 
+// How much of a command's output `setupStdio: 'pipe'` keeps per stream.
+const OUTPUT_BUFFER_LIMIT = 64 * 1024 * 1024;
+
 // Runs the `setup <command>` lines of a project's .workler inside one of its
 // workspaces: sequentially, in file order, through the platform shell, with
 // the workspace as the working directory. The first failure stops the run and
@@ -26,6 +29,10 @@ export interface SetupCommandResult {
   exitCode?: number;
   // Signal that ended the command, when there was one.
   signal?: string;
+  // With `setupStdio: 'pipe'`: everything the command wrote to each stream
+  // (possibly ''). Absent when the streams were inherited.
+  stdout?: string;
+  stderr?: string;
 }
 
 export interface SetupOptions {
@@ -36,8 +43,20 @@ export interface SetupOptions {
   onSetupSkip?: (command: SetupCommand, index: number, total: number) => void;
   // Where a command's stdout goes. 'inherit' (default) shares the caller's
   // stdout; 'stderr' keeps the caller's stdout free of command output, which
-  // the CLI uses whenever its own stdout is not a terminal.
+  // the CLI uses whenever its own stdout is not a terminal. Only with
+  // setupStdio 'inherit'.
   setupStdout?: 'inherit' | 'stderr';
+  // How a command's streams are wired. 'inherit' (default) shares the
+  // caller's stdin, stdout and stderr, as the CLI does. 'pipe' captures
+  // stdout and stderr instead (stdin is closed): each command's output is
+  // handed to onSetupOutput and kept on its result, and nothing reaches the
+  // caller's own streams. The API is synchronous, so a command's output
+  // arrives once the command has exited, not while it runs.
+  setupStdio?: 'inherit' | 'pipe';
+  // With setupStdio 'pipe': called after a command exits with what it wrote
+  // to each stream (once per stream that produced output), before the
+  // failure, if any, is thrown.
+  onSetupOutput?: (chunk: string, stream: 'stdout' | 'stderr', command: SetupCommand, index: number) => void;
 }
 
 export interface SetupOutcome {
@@ -72,6 +91,19 @@ export function validateSetupOptions(options: SetupOptions): void {
   }
   if (options.setupStdout !== undefined && options.setupStdout !== 'inherit' && options.setupStdout !== 'stderr') {
     throw new WorklerError('INVALID_OPTIONS', 'setupStdout must be "inherit" or "stderr" when provided');
+  }
+  if (options.setupStdio !== undefined && options.setupStdio !== 'inherit' && options.setupStdio !== 'pipe') {
+    throw new WorklerError('INVALID_OPTIONS', 'setupStdio must be "inherit" or "pipe" when provided');
+  }
+  if (options.onSetupOutput !== undefined && typeof options.onSetupOutput !== 'function') {
+    throw new WorklerError('INVALID_OPTIONS', 'onSetupOutput must be a function when provided');
+  }
+  // Misuse that would silently lose output or silently ignore an option.
+  if (options.onSetupOutput !== undefined && options.setupStdio !== 'pipe') {
+    throw new WorklerError('INVALID_OPTIONS', 'onSetupOutput needs setupStdio "pipe"');
+  }
+  if (options.setupStdio === 'pipe' && options.setupStdout === 'stderr') {
+    throw new WorklerError('INVALID_OPTIONS', 'setupStdout "stderr" cannot be combined with setupStdio "pipe"');
   }
 }
 
@@ -176,30 +208,49 @@ export function runSetupCommands(target: SetupTarget, options: SetupOptions = {}
     // The command is handed to the platform shell exactly as written in
     // .workler (sh -c on POSIX, cmd.exe on Windows), so committed setup lines
     // behave the same for every developer regardless of their login shell.
+    const piped = options.setupStdio === 'pipe';
     const result = spawnSync(setup.command, {
       cwd: target.path,
       env,
       shell: true,
-      stdio: ['inherit', options.setupStdout === 'stderr' ? process.stderr.fd : 'inherit', 'inherit'],
+      encoding: 'utf8',
+      // Only read when piped. An install's output can be large; past this
+      // the command is killed and reported below (ENOBUFS), never as success.
+      maxBuffer: OUTPUT_BUFFER_LIMIT,
+      stdio: piped ? ['ignore', 'pipe', 'pipe'] : ['inherit', options.setupStdout === 'stderr' ? process.stderr.fd : 'inherit', 'inherit'],
     });
+    // Whatever was captured is handed over before a failure is thrown, so a
+    // consumer can show why the command failed.
+    const output = piped ? { stdout: result.stdout ?? '', stderr: result.stderr ?? '' } : {};
+    if (piped) {
+      for (const stream of ['stdout', 'stderr'] as const) {
+        if (result[stream]) {
+          options.onSetupOutput?.(result[stream], stream, setup, index);
+        }
+      }
+    }
     if (result.error) {
+      const overflow = (result.error as NodeJS.ErrnoException).code === 'ENOBUFS';
+      const cause = overflow ? `it wrote more than the ${OUTPUT_BUFFER_LIMIT / (1024 * 1024)} MiB Workler captures with setupStdio "pipe"` : result.error.message;
+      // No result for this command: it never ran to an exit (the results
+      // list what did run, for the retry hint).
       throw new WorklerError(
         'SETUP_COMMAND_FAILED',
-        `setup command could not be started in ${target.path}: ${setup.command}\n` +
-          `  ${result.error.message}\n` +
+        `setup command ${overflow ? 'was stopped' : 'could not be started'} in ${target.path}: ${setup.command}\n` +
+          `  ${cause}\n` +
           `the workspace was kept; ${retryHint(target.address ?? target.name)}`,
-        { ...where, command: setup.command, index, commandCount: commands.length, results: outcome.results, cause: result.error.message },
+        { ...where, command: setup.command, index, commandCount: commands.length, results: outcome.results, cause },
       );
     }
 
     if (result.status === 0) {
-      outcome.results.push({ command: setup.command, status: 'ok' });
+      outcome.results.push({ command: setup.command, status: 'ok', ...output });
       continue;
     }
 
     const exitCode = result.status ?? undefined;
     const signal = result.signal ?? undefined;
-    outcome.results.push({ command: setup.command, status: 'failed', exitCode, signal });
+    outcome.results.push({ command: setup.command, status: 'failed', exitCode, signal, ...output });
     const reason = signal ? `terminated by signal ${signal}` : `exit code ${exitCode}`;
     // The guard only asks whether the path exists. A command that created its
     // path and then died (an install that stopped half-way) would be skipped
