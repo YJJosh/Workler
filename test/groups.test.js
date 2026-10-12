@@ -2000,6 +2000,28 @@ test('a group-level setup guard at .workler or .workler-setup.json is a configur
   assert.doesNotThrow(() => api.planWorkspaceCreation(repo, { name: 'feat' }));
 });
 
+test("a group-level setup guard must spell a project's path the way the project line does", (t) => {
+  // Overlap is judged case-insensitively (one file system cannot tell `API`
+  // from `api`); on a case-sensitive one the command would create
+  // `PROJECTS/API/generated` outside the member while the member's check
+  // exempted its own `api/generated`. Reject the spelling instead.
+  for (const guard of ['PROJECTS/API/generated', 'projects/Api', 'PROJECTS', 'Projects/api/node_modules']) {
+    const root = makeGroup(t, { projects: ['projects/api'], groupRules: `setup --if-missing ${guard} echo hi\n` });
+    assert.match(
+      api.inspectProject(root).configError ?? '',
+      /\.workler:2:\d+: setup guard ".*" spells the project path "projects\/api" differently/,
+      guard,
+    );
+    assert.throws(() => api.planWorkspaceCreation(root, { name: 'feat' }), (error) => error.code === 'CONFIG_INVALID' && /spells the project path/.test(error.message), guard);
+    assert.strictEqual(fs.existsSync(workspaceDir(root, 'feat')), false, guard);
+  }
+  // The project line's spelling, or a path beside the project, is fine.
+  for (const guard of ['projects/api/generated', 'projects/API-docs/out', 'shared.txt', 'projects/api']) {
+    const root = makeGroup(t, { projects: ['projects/api'], groupRules: `setup --if-missing ${guard} echo hi\n` });
+    assert.ok(!api.inspectProject(root).configError, `${guard}: ${api.inspectProject(root).configError}`);
+  }
+});
+
 test("a group guard path inside a member is that member's output once the group's command made it", (t) => {
   const node = `"${process.execPath}"`;
   const make = `${node} -e "require('fs').mkdirSync('projects/api/generated'); require('fs').writeFileSync('projects/api/generated/out.txt', 'x')"`;

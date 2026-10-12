@@ -380,6 +380,48 @@ test('a guard path is rule output only once its guarded command made it', (t) =>
   assert.ok(!fs.existsSync(workspace.path));
 });
 
+test('a guarded command that runs again starts without its earlier record', (t) => {
+  const make = `${NODE} -e "require('fs').mkdirSync('out', { recursive: true }); require('fs').writeFileSync('out/stamp.txt', 'x')"`;
+  const makeAndDie = `${NODE} -e "require('fs').mkdirSync('out', { recursive: true }); require('fs').writeFileSync('out/stamp.txt', 'half'); process.exit(3)"`;
+  const other = `${NODE} -e "require('fs').writeFileSync('other.txt', 'x')"`;
+  const config = (command) => `setup --if-missing other.txt ${other}\nsetup --if-missing out/stamp.txt ${command}\n`;
+  const root = makeProject(t, { workler: config(make) });
+  const workspace = api.createWorkspace(root, { name: 'feat' });
+  const clean = () => api.listWorkspaces(root).find((entry) => entry.name === 'feat').clean;
+  const recorded = () => {
+    try {
+      return git(workspace.path, 'config', '--get-all', 'workler.setupOutput').split(/\r?\n/);
+    } catch (_) {
+      return [];
+    }
+  };
+  assert.deepStrictEqual(recorded(), ['other.txt', 'out/stamp.txt']);
+  assert.strictEqual(clean(), true);
+
+  // The output is gone, and the command (now broken) dies after re-creating
+  // the path. The failure names the leftover; the record must not still call
+  // it output, or `remove` would delete the half-made thing without --force.
+  fs.rmSync(path.join(workspace.path, 'out'), { recursive: true });
+  fs.writeFileSync(path.join(root, '.workler'), config(makeAndDie));
+  assert.throws(
+    () => api.setupWorkspace(root, 'feat'),
+    (error) => error.code === 'SETUP_COMMAND_FAILED' && /out\/stamp\.txt now exists/.test(error.message),
+  );
+  assert.strictEqual(fs.readFileSync(path.join(workspace.path, 'out', 'stamp.txt'), 'utf8'), 'half');
+  assert.deepStrictEqual(recorded(), ['other.txt'], 'the guard that ran again is off the record, the other stays');
+  assert.strictEqual(clean(), false);
+  assert.throws(() => api.removeWorkspace(root, 'feat'), (error) => error.code === 'WORKSPACE_DIRTY');
+
+  // Clearing the leftover and fixing the command puts the path back on record.
+  fs.rmSync(path.join(workspace.path, 'out'), { recursive: true });
+  fs.writeFileSync(path.join(root, '.workler'), config(make));
+  assert.strictEqual(api.setupWorkspace(root, 'feat').setup.results[1].status, 'ok');
+  assert.deepStrictEqual(recorded(), ['other.txt', 'out/stamp.txt']);
+  assert.strictEqual(clean(), true);
+  api.removeWorkspace(root, 'feat');
+  assert.ok(!fs.existsSync(workspace.path));
+});
+
 test('a rule whose source sits behind a symlinked parent is not output', (t) => {
   // `copy secrets/.env` with nothing at secrets/ in the main project: apply
   // skips the rule, so a .env the user makes there is data. Once main gets

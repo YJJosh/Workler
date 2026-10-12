@@ -235,6 +235,7 @@ export function readConfig(root: string): WorklerConfig {
   let reservedUse: ReservedUse | undefined;
   const projects: ProjectEntry[] = [];
   const setup: SetupCommand[] = [];
+  const guards: { path: string; lineNumber: number; column: number; rawLine: string }[] = [];
   const entries: ConfigEntry[] = [];
   const lines = text.split(/\r?\n/);
 
@@ -252,6 +253,9 @@ export function readConfig(root: string): WorklerConfig {
     if (rawAction === SETUP_ACTION) {
       const parsed = parseSetupLine(rawLine, rawActionStart, lineNumber);
       setup.push(parsed.setup);
+      if (parsed.setup.ifMissing !== undefined && parsed.guardColumn !== undefined) {
+        guards.push({ path: parsed.setup.ifMissing, lineNumber, column: parsed.guardColumn, rawLine });
+      }
       // A guard at `.workler-setup.json` (or below it) would have the command
       // create what `setup` then renames its record over, and one at
       // `.workler` can never be missing in a group workspace. Rejected below
@@ -327,6 +331,26 @@ export function readConfig(root: string): WorklerConfig {
     );
   }
 
+  // A guard may point into a project; `list` and `remove` then credit that
+  // part of the path to the member (pathBelow). pathsOverlap ignores case
+  // because a case-insensitive file system would, but a case-sensitive one
+  // would have the command create `PROJECTS/API/generated` outside the
+  // member while the member's check exempted its own `api/generated`.
+  // Insist on the project line's spelling, so both agree on what is named.
+  for (const guard of guards) {
+    for (const project of projects) {
+      if (pathsOverlap(guard.path, project.path) && !spelledLike(guard.path, project.path)) {
+        parseError(
+          guard.lineNumber,
+          guard.column,
+          guard.rawLine,
+          `setup guard "${guard.path}" spells the project path "${project.path}" differently`,
+          `the project line's spelling, ${project.path}`,
+        );
+      }
+    }
+  }
+
   return { rules, projects, setup };
 }
 
@@ -343,20 +367,31 @@ export function pathsOverlap(first: string, second: string): boolean {
   return samePrefix && (firstParts.length === shared || secondParts.length === shared);
 }
 
-// The part of `child` below `parent` when it lies strictly inside it, in
-// the child's own spelling (`generated` for `projects/api/generated` under
-// `projects/api`); undefined when it does not. Compared like pathsOverlap.
-// A group's `setup --if-missing` guard may point into a member clone (the
-// group's rules may not), and the member's cleanliness check needs that
-// part relative to the clone.
+// The part of `child` below `parent` when it lies strictly inside it
+// (`generated` for `projects/api/generated` under `projects/api`); undefined
+// when it does not. A group's `setup --if-missing` guard may point into a
+// member clone (the group's rules may not), and the member's cleanliness
+// check needs that part relative to the clone. Unlike pathsOverlap this
+// compares case and all: on a case-sensitive file system `PROJECTS/API` is
+// another tree than `projects/api`, and readConfig rejects a guard spelled
+// that way, so a path below a project is in the project's own spelling here.
 export function pathBelow(child: string, parent: string): string | undefined {
   const childParts = child.split('/');
   const parentParts = parent.split('/');
   if (childParts.length <= parentParts.length) {
     return undefined;
   }
-  const inside = parentParts.every((part, index) => part.toLowerCase() === childParts[index].toLowerCase());
+  const inside = parentParts.every((part, index) => part === childParts[index]);
   return inside ? childParts.slice(parentParts.length).join('/') : undefined;
+}
+
+// Whether two paths spell their shared leading segments the same, case
+// included (`PROJECTS/API/generated` is not spelled like `projects/api`).
+function spelledLike(first: string, second: string): boolean {
+  const firstParts = first.split('/');
+  const secondParts = second.split('/');
+  const shared = Math.min(firstParts.length, secondParts.length);
+  return firstParts.slice(0, shared).every((part, index) => part === secondParts[index]);
 }
 
 function overlapMessage(entry: ConfigEntry, existing: ConfigEntry, targetPath: string): string {

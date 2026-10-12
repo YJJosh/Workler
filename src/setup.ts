@@ -223,11 +223,38 @@ function recordSetupOutput(target: SetupTarget, ifMissing: string): void {
     }
     return;
   }
-  // Written whole and moved into place, so an interrupted write never leaves
-  // half a record behind.
-  const file = path.join(target.path, SETUP_RECORD_FILE);
+  writeSetupRecord(target.path, [...recorded, ifMissing]);
+}
+
+// Drops a guard path from the record. The runner calls it when it finds the
+// path missing and is about to run the command again: from then on whatever
+// turns up at the path is the new run's doing, and a run that fails after
+// creating it (the half-way install the failure message warns about) must
+// not leave `remove` trusting the old record. Success records it again.
+function forgetSetupOutput(target: SetupTarget, ifMissing: string): void {
+  const kind = recordKind(target);
+  const recorded = recordedSetupOutputs(target.path, kind);
+  if (!recorded.includes(ifMissing)) {
+    return;
+  }
+  const remaining = recorded.filter((value) => value !== ifMissing);
+  if (kind === 'clone') {
+    // Clear the key and write the rest back (`--fixed-value` needs git 2.30).
+    git(target.path, ['config', '--local', '--unset-all', SETUP_OUTPUT_KEY]);
+    for (const value of remaining) {
+      git(target.path, ['config', '--local', '--add', SETUP_OUTPUT_KEY, value]);
+    }
+    return;
+  }
+  writeSetupRecord(target.path, remaining);
+}
+
+// Written whole and moved into place, so an interrupted write never leaves
+// half a record behind.
+function writeSetupRecord(dir: string, outputs: string[]): void {
+  const file = path.join(dir, SETUP_RECORD_FILE);
   const staging = `${file}.${process.pid}.tmp`;
-  fs.writeFileSync(staging, `${JSON.stringify({ setupOutput: [...recorded, ifMissing] }, null, 2)}\n`);
+  fs.writeFileSync(staging, `${JSON.stringify({ setupOutput: outputs }, null, 2)}\n`);
   fs.renameSync(staging, file);
 }
 
@@ -266,6 +293,12 @@ export function runSetupCommands(target: SetupTarget, options: SetupOptions = {}
           `the workspace was kept; remove the link or restore its target, then re-run \`${PACKAGE_NAME} setup ${target.address ?? target.name}\``,
         { ...where, command: setup.command, index, commandCount: commands.length, results: outcome.results, ifMissing: setup.ifMissing, cause: 'dangling link' },
       );
+    }
+
+    // The path is missing, so the command runs: an earlier run's record for
+    // it says nothing about what this run leaves there.
+    if (setup.ifMissing !== undefined) {
+      forgetSetupOutput(target, setup.ifMissing);
     }
 
     options.onSetupCommand?.(setup, index, commands.length);

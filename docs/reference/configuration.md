@@ -88,7 +88,11 @@ commands made, and a `setup --if-missing` guard may name neither file (nor a
 path below them): `a project group cannot guard a setup command with
 .workler-setup.json`. A guard may point into a project, though
 (`setup --if-missing projects/api/generated ...`); what the command makes there
-counts as that member's output, see [setup](/guide/setup#project-groups).
+counts as that member's output, see [setup](/guide/setup#project-groups). It
+must spell the project's path as the `project` line does: on a case-sensitive
+file system `PROJECTS/API/generated` would be another tree, so that guard is
+rejected (`setup guard "PROJECTS/API/generated" spells the project path
+"projects/api" differently`).
 
 ## Errors
 
