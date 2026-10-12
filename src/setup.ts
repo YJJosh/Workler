@@ -2,9 +2,10 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { readSetupCommands } from './config';
-import { PACKAGE_NAME } from './constants';
+import { PACKAGE_NAME, SETUP_OUTPUT_KEY, SETUP_RECORD_FILE } from './constants';
 import { WorklerError } from './errors';
 import { pathsReferToSameLocation } from './fs-utils';
+import { git, gitMaybe, hasIndependentGitDirectory } from './git';
 import type { SetupCommand } from './types';
 
 // How much of a command's output `setupStdio: 'pipe'` keeps per stream.
@@ -169,6 +170,67 @@ export function setupEnvironment(target: SetupTarget): NodeJS.ProcessEnv {
   return env;
 }
 
+// A guard only asks whether its path exists: it cannot tell the command's
+// work from a folder the user made at the same path (in a workspace created
+// with --no-setup, say), and a later `setup` skips such a path rather than
+// regenerating it. So a run records the guard paths whose command ran to
+// success and left the path behind, and only those are exempt from the
+// local-data guard of `remove` and the listing's `clean` (see
+// managedWorkspacePaths). The record lives where the workspace does: in the
+// git config of a repository workspace or member clone, and in a file next
+// to the .workler copy for a group workspace folder, which has no git config.
+export type SetupRecordKind = 'clone' | 'folder';
+
+function recordKind(target: Pick<SetupTarget, 'group'>): SetupRecordKind {
+  return target.group !== undefined && target.group.project === undefined ? 'folder' : 'clone';
+}
+
+// The guard paths recorded for a workspace, in the .workler's portable
+// spelling. A record that cannot be read, or is not one Workler wrote, names
+// nothing: the paths then count as local data, which errs on the safe side.
+export function recordedSetupOutputs(dir: string, kind: SetupRecordKind): string[] {
+  if (kind === 'clone') {
+    if (!hasIndependentGitDirectory(dir)) {
+      return [];
+    }
+    const listed = gitMaybe(dir, ['config', '--local', '-z', '--get-all', SETUP_OUTPUT_KEY]);
+    return listed === undefined ? [] : listed.split('\0').filter((value) => value !== '');
+  }
+  try {
+    const file = path.join(dir, SETUP_RECORD_FILE);
+    if (!fs.lstatSync(file).isFile()) {
+      return [];
+    }
+    const parsed: unknown = JSON.parse(fs.readFileSync(file, 'utf8'));
+    const outputs = (parsed as { setupOutput?: unknown } | null)?.setupOutput;
+    return Array.isArray(outputs) && outputs.every((value) => typeof value === 'string') ? outputs : [];
+  } catch (_) {
+    return [];
+  }
+}
+
+function recordSetupOutput(target: SetupTarget, ifMissing: string): void {
+  const kind = recordKind(target);
+  const recorded = recordedSetupOutputs(target.path, kind);
+  if (recorded.includes(ifMissing)) {
+    return;
+  }
+  if (kind === 'clone') {
+    // Only a clone of Workler's own making has a config of its own to write
+    // to; a .git file would reach some other repository's.
+    if (hasIndependentGitDirectory(target.path)) {
+      git(target.path, ['config', '--local', '--add', SETUP_OUTPUT_KEY, ifMissing]);
+    }
+    return;
+  }
+  // Written whole and moved into place, so an interrupted write never leaves
+  // half a record behind.
+  const file = path.join(target.path, SETUP_RECORD_FILE);
+  const staging = `${file}.${process.pid}.tmp`;
+  fs.writeFileSync(staging, `${JSON.stringify({ setupOutput: [...recorded, ifMissing] }, null, 2)}\n`);
+  fs.renameSync(staging, file);
+}
+
 export function runSetupCommands(target: SetupTarget, options: SetupOptions = {}): SetupOutcome {
   if (pathsReferToSameLocation(target.root, target.path)) {
     throw new WorklerError('INVALID_OPTIONS', 'refusing to run setup commands in the main workspace');
@@ -248,6 +310,11 @@ export function runSetupCommands(target: SetupTarget, options: SetupOptions = {}
 
     if (result.status === 0) {
       outcome.results.push({ command: setup.command, status: 'ok', ...output });
+      // From now on the guard finds the command's work there: remember it, so
+      // `remove` can tell it from something the user put at that path.
+      if (setup.ifMissing !== undefined && guardPath !== undefined && fs.existsSync(guardPath)) {
+        recordSetupOutput(target, setup.ifMissing);
+      }
       continue;
     }
 

@@ -334,6 +334,90 @@ test("the main checkout's rule sources are local data, not rule outputs", (t) =>
   assert.strictEqual(api.listWorkspaces(root).find((entry) => entry.name === 'feat').clean, true);
 });
 
+test('a guard path is rule output only once its guarded command made it', (t) => {
+  const stamp = `${NODE} -e "require('fs').mkdirSync('out', { recursive: true }); require('fs').writeFileSync('out/stamp.txt', 'x')"`;
+  const root = makeProject(t, { workler: `setup --if-missing out/stamp.txt ${stamp}\n` });
+  // Created without running setup: whatever turns up at the guard path is the user's.
+  const workspace = api.createWorkspace(root, { name: 'feat', setup: false });
+  const clean = () => api.listWorkspaces(root).find((entry) => entry.name === 'feat').clean;
+  const recorded = () => {
+    try {
+      return git(workspace.path, 'config', '--get-all', 'workler.setupOutput');
+    } catch (_) {
+      return '';
+    }
+  };
+  assert.strictEqual(clean(), true);
+  assert.strictEqual(recorded(), '');
+
+  fs.mkdirSync(path.join(workspace.path, 'out'));
+  fs.writeFileSync(path.join(workspace.path, 'out', 'stamp.txt'), 'mine\n');
+  assert.strictEqual(clean(), false, 'a hand-made file at the guard path is data');
+  assert.throws(() => api.removeWorkspace(root, 'feat'), (error) => error.code === 'WORKSPACE_DIRTY');
+  // Running setup now skips the command (the path exists), which proves
+  // nothing about who made the path: still data.
+  assert.strictEqual(api.setupWorkspace(root, 'feat').setup.results[0].status, 'skipped');
+  assert.strictEqual(recorded(), '');
+  assert.strictEqual(clean(), false);
+  assert.strictEqual(fs.readFileSync(path.join(workspace.path, 'out', 'stamp.txt'), 'utf8'), 'mine\n');
+
+  // Once the command itself has made the path, it is on record and exempt.
+  fs.rmSync(path.join(workspace.path, 'out'), { recursive: true });
+  assert.strictEqual(api.setupWorkspace(root, 'feat').setup.results[0].status, 'ok');
+  assert.strictEqual(recorded(), 'out/stamp.txt');
+  assert.strictEqual(clean(), true, 'what the command made is output');
+  // A re-run that skips the command keeps the record as it is.
+  assert.strictEqual(api.setupWorkspace(root, 'feat').setup.results[0].status, 'skipped');
+  assert.strictEqual(recorded(), 'out/stamp.txt');
+  assert.strictEqual(clean(), true);
+
+  // The record only means something for a guard line the project still has.
+  fs.writeFileSync(path.join(root, '.workler'), '');
+  assert.strictEqual(clean(), false, 'no guard line, no output');
+  fs.writeFileSync(path.join(root, '.workler'), `setup --if-missing out/stamp.txt ${stamp}\n`);
+  assert.strictEqual(clean(), true);
+  api.removeWorkspace(root, 'feat');
+  assert.ok(!fs.existsSync(workspace.path));
+});
+
+test('a rule whose source sits behind a symlinked parent is not output', (t) => {
+  // `copy secrets/.env` with nothing at secrets/ in the main project: apply
+  // skips the rule, so a .env the user makes there is data. Once main gets
+  // `secrets` as a link to a folder holding a .env, apply refuses to follow
+  // it, so still nothing regenerates the workspace's file.
+  const root = makeProject(t, { workler: 'copy secrets/.env\n' });
+  const workspace = api.createWorkspace(root, { name: 'feat' });
+  const clean = () => api.listWorkspaces(root).find((entry) => entry.name === 'feat').clean;
+  assert.strictEqual(clean(), true);
+  fs.mkdirSync(path.join(workspace.path, 'secrets'));
+  fs.writeFileSync(path.join(workspace.path, 'secrets', '.env'), 'SECRET=mine\n');
+  assert.strictEqual(clean(), false, 'nothing behind the destination: data');
+
+  const outside = makeTempDir(t, 'workler-secrets-outside-');
+  fs.writeFileSync(path.join(outside, '.env'), 'SECRET=theirs\n');
+  try {
+    fs.symlinkSync(outside, path.join(root, 'secrets'), process.platform === 'win32' ? 'junction' : 'dir');
+  } catch (error) {
+    if (process.platform === 'win32' && error.code === 'EPERM') {
+      t.skip('creating a junction is unavailable on this Windows host');
+      return;
+    }
+    throw error;
+  }
+  assert.ok(fs.existsSync(path.join(root, 'secrets', '.env')), 'the source exists, but only through the link');
+  assert.strictEqual(clean(), false, 'a source apply refuses to read does not make the destination output');
+  assert.throws(() => api.removeWorkspace(root, 'feat'), (error) => error.code === 'WORKSPACE_DIRTY');
+  assert.strictEqual(fs.readFileSync(path.join(workspace.path, 'secrets', '.env'), 'utf8'), 'SECRET=mine\n');
+
+  // A real folder in its place makes the destination rule output again.
+  fs.unlinkSync(path.join(root, 'secrets'));
+  fs.mkdirSync(path.join(root, 'secrets'));
+  fs.writeFileSync(path.join(root, 'secrets', '.env'), 'SECRET=1\n');
+  assert.strictEqual(clean(), true);
+  api.removeWorkspace(root, 'feat');
+  assert.ok(!fs.existsSync(workspace.path));
+});
+
 test('workspace listings are deterministic regardless of creation order', (t) => {
   const root = makeProject(t);
   api.createWorkspace(root, { name: 'z-last' });

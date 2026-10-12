@@ -75,7 +75,7 @@ or use the [`wcd` shell helper](/guide/shell-helper).
 workler remove feature-a
 ```
 
-`remove` deletes the workspace directory — but refuses if the workspace has any local data, untracked **and gitignored** files included: deletion is forever, so even an ignored database or a nested `.worktrees/` counts here. What the project's `.workler` produces (copy and link destinations, `setup --if-missing` paths) does not: `apply` and `setup` regenerate it. Use `--force` to remove anyway. The `main` workspace can never be removed.
+`remove` deletes the workspace directory — but refuses if the workspace has any local data, untracked **and gitignored** files included: deletion is forever, so even an ignored database or a nested `.worktrees/` counts here. What the project's `.workler` produces (copy and link destinations whose source exists, `setup --if-missing` paths its commands created) does not: `apply` and `setup` regenerate it. Use `--force` to remove anyway. The `main` workspace can never be removed.
 
 ## Next steps
 

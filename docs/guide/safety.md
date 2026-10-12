@@ -69,7 +69,7 @@ copied .env (replaced existing regular file)
 
 The safety-first stance runs through the whole CLI:
 
-- [`workler remove`](/reference/cli/remove) refuses to delete a workspace with any local data — untracked and ignored files included, since deletion is permanent. Only what `.workler` itself produces (rule destinations, `setup --if-missing` paths) is exempt, because `apply` and `setup` can make it again.
+- [`workler remove`](/reference/cli/remove) refuses to delete a workspace with any local data — untracked and ignored files included, since deletion is permanent. Only what `.workler` itself produced (rule destinations whose source exists, `setup --if-missing` paths a guarded command created, as the workspace records) is exempt, because `apply` and `setup` can make it again.
 - [`workler sync`](/reference/cli/sync) only ever fast-forwards; dirty workspaces and diverged branches are skipped, never merged or rebased.
 - [`workler branch-sync`](/reference/cli/branch-sync) never moves a checked-out branch or one with local-only commits.
 - Untracked files created by copy rules never count as "dirty" for `status` and `sync`, and since they are regenerable they do not block `remove` either. Any other untracked or ignored file does block `remove` — it is the one command that would delete it.

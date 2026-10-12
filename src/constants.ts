@@ -6,6 +6,15 @@ export const WORKSPACES_DIR = '.worktrees';
 export const MAIN_WORKSPACE_NAME = 'main';
 export const PACKAGE_NAME = 'workler';
 
+// Where a workspace records the `setup --if-missing` paths its guarded
+// commands created, so `remove` can tell an installed node_modules from a
+// folder a user made at the same path: a multi-valued key in the git config
+// of a repository workspace or member clone (next to workler.root), and a
+// file next to the .workler copy in a group workspace folder, which has no
+// git config.
+export const SETUP_OUTPUT_KEY = 'workler.setupOutput';
+export const SETUP_RECORD_FILE = '.workler-setup.json';
+
 // The remote every workspace carries back to the checkout it was cloned from.
 // `add` creates it and `branch-sync` fetches through it; `origin` is reserved
 // for the main project's real upstream (or absent when it has none).

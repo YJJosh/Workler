@@ -20,6 +20,16 @@ function logCommand(label) {
   return `${NODE} -e "require('fs').appendFileSync('setup.log', ${fields}.join('|') + String.fromCharCode(10))"`;
 }
 
+// Like logCommand, but first creates <relPath> (a file, or a directory with
+// kind 'dir') so a guarded command produces the output its guard names.
+function makingCommand(label, relPath, kind = 'file') {
+  const fields = `['${label}', process.cwd(), process.env.WORKLER_WORKSPACE, process.env.WORKLER_WORKSPACE_PATH, process.env.WORKLER_ROOT]`;
+  const make = kind === 'dir'
+    ? `fs.mkdirSync('${relPath}', {recursive: true});`
+    : `fs.mkdirSync(require('path').dirname('${relPath}'), {recursive: true}); fs.writeFileSync('${relPath}', '');`;
+  return `${NODE} -e "const fs = require('fs'); ${make} fs.appendFileSync('setup.log', ${fields}.join('|') + String.fromCharCode(10))"`;
+}
+
 function exitCommand(code) {
   return `${NODE} -e "process.exit(${code})"`;
 }
@@ -332,8 +342,8 @@ test('the init starter template parses and declares no setup commands', (t) => {
 test('setup --if-missing <path> runs the command only while the path is absent', (t) => {
   const workler = [
     'link node_modules',
-    `setup --if-missing node_modules ${logCommand('install')}`,
-    `setup --if-missing "with space/marker.txt" ${logCommand('quoted')}`,
+    `setup --if-missing node_modules ${makingCommand('install', 'node_modules', 'dir')}`,
+    `setup --if-missing "with space/marker.txt" ${makingCommand('quoted', 'with space/marker.txt')}`,
     `setup ${logCommand('always')}`,
     '',
   ].join('\n');
@@ -345,8 +355,8 @@ test('setup --if-missing <path> runs the command only while the path is absent',
   assert.deepStrictEqual(
     plan.setup.map((command) => [command.ifMissing, command.command]),
     [
-      ['node_modules', logCommand('install')],
-      ['with space/marker.txt', logCommand('quoted')],
+      ['node_modules', makingCommand('install', 'node_modules', 'dir')],
+      ['with space/marker.txt', makingCommand('quoted', 'with space/marker.txt')],
       [undefined, logCommand('always')],
     ],
   );
@@ -364,11 +374,13 @@ test('setup --if-missing <path> runs the command only while the path is absent',
     [['skipped', 'node_modules'], ['ok', undefined], ['ok', undefined]],
   );
   assert.deepStrictEqual(readLog(ws.path).map((fields) => fields[0]), ['quoted', 'always']);
+  // What the guarded command made is on record for remove's guard; what the
+  // link rule put at node_modules is the rule's output, not the command's.
+  assert.ok(fs.existsSync(path.join(ws.path, 'with space', 'marker.txt')));
+  assert.strictEqual(git(ws.path, 'config', '--get-all', 'workler.setupOutput'), 'with space/marker.txt');
 
   // Once the guarded path exists the command is skipped on re-runs too; when
   // it goes away again the command runs.
-  fs.mkdirSync(path.join(ws.path, 'with space'), { recursive: true });
-  fs.writeFileSync(path.join(ws.path, 'with space', 'marker.txt'), '');
   const rerun = runCli(root, 'setup', 'feat');
   assert.strictEqual(rerun.status, 0, rerun.stderr);
   assert.match(rerun.stdout, /^skip {3}setup .*install.* \(node_modules exists\)$/m);
@@ -380,6 +392,9 @@ test('setup --if-missing <path> runs the command only while the path is absent',
   const afterRemoval = api.setupWorkspace(root, 'feat');
   assert.strictEqual(afterRemoval.setup.results[0].status, 'ok');
   assert.deepStrictEqual(readLog(ws.path).map((fields) => fields[0]), ['quoted', 'always', 'always', 'install', 'always']);
+  // Now the install made node_modules itself, so it joins the record.
+  assert.ok(fs.statSync(path.join(ws.path, 'node_modules')).isDirectory());
+  assert.strictEqual(git(ws.path, 'config', '--get-all', 'workler.setupOutput'), 'with space/marker.txt\nnode_modules');
 
   // A workspace whose link rule found no source (root without node_modules)
   // runs the install: the guard looks at the workspace, not the root.

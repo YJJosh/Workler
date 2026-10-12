@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { readConfig } from './config';
-import { CONFIG_FILE, GROUP_WORKSPACE_REFS, ROOT_REMOTE, WORKSPACES_DIR } from './constants';
+import { CONFIG_FILE, GROUP_WORKSPACE_REFS, ROOT_REMOTE, SETUP_RECORD_FILE, WORKSPACES_DIR } from './constants';
 import { WorklerError } from './errors';
 import { canonicalPath, pathsReferToSameLocation } from './fs-utils';
 import { gitMaybe, hasIndependentGitDirectory, isGitTopLevel } from './git';
@@ -274,9 +274,10 @@ export function sourceBrokenReason(groupRoot: string, project: string): string |
 
 // Entries in a group workspace directory that belong to no declared project:
 // not an unchanged .workler copy, not a project or a directory on the way
-// to one, and not one of `managedPaths`, what the group's own rules produce
+// to one, not one of `managedPaths`, what the group's own rules produce
 // next to the clones (copy and link destinations, `setup --if-missing` guard
-// paths; see managedWorkspacePaths), which `apply` and `setup` regenerate.
+// paths; see managedWorkspacePaths), which `apply` and `setup` regenerate,
+// and not the file in which `setup` records those guard paths.
 // An empty nested .worktrees/ (left behind by a lock) holds nothing and is
 // ignored.
 export function groupWorkspaceExtras(dir: string, groupRoot: string, projects: string[], managedPaths: readonly string[] = []): string[] {
@@ -300,6 +301,12 @@ export function groupWorkspaceExtras(dir: string, groupRoot: string, projects: s
           continue;
         }
         extras.push(entryPath);
+        continue;
+      }
+      if (!relative && entry.name === SETUP_RECORD_FILE && entry.isFile()) {
+        // Workler's own record of what the group's guarded setup commands
+        // made (see recordedSetupOutputs in setup.ts). A regular file is ours
+        // to delete; anything else at that name is the user's.
         continue;
       }
       if (projects.includes(entryPath)) {

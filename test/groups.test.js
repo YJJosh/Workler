@@ -1920,3 +1920,64 @@ test('help describes project groups', () => {
   assert.match(help.stdout, /project group/);
   assert.match(help.stdout, /path <name>\[\/<project>\]/);
 });
+
+test('group and member guard paths are output only once their commands made them', (t) => {
+  const node = `"${process.execPath}"`;
+  const stamp = (file) => `${node} -e "require('fs').writeFileSync('${file}', 'x')"`;
+  const root = makeGroup(t, {
+    projects: ['projects/api'],
+    rules: { 'projects/api': `setup --if-missing stamp.txt ${stamp('stamp.txt')}\n` },
+    groupRules: `setup --if-missing shared.txt ${stamp('shared.txt')}\n`,
+  });
+  const clean = (name) => api.listWorkspaces(root).find((entry) => entry.name === name).clean;
+
+  // Set up by `add`: the member records its path in its git config, the
+  // folder (no git config there) in a file next to the .workler copy.
+  const feat = api.createWorkspace(root, { name: 'feat' });
+  const apiClone = member(feat.path, 'projects/api');
+  assert.ok(fs.existsSync(path.join(apiClone, 'stamp.txt')));
+  assert.ok(fs.existsSync(path.join(feat.path, 'shared.txt')));
+  assert.strictEqual(git(apiClone, 'config', '--get-all', 'workler.setupOutput'), 'stamp.txt');
+  assert.deepStrictEqual(JSON.parse(fs.readFileSync(path.join(feat.path, '.workler-setup.json'), 'utf8')), { setupOutput: ['shared.txt'] });
+  assert.strictEqual(clean('feat'), true);
+  api.removeWorkspace(root, 'feat');
+  assert.ok(!fs.existsSync(feat.path));
+
+  // Made without setup: files at the same paths are the user's, at either level.
+  const bare = api.createWorkspace(root, { name: 'bare', setup: false });
+  assert.strictEqual(clean('bare'), true);
+  fs.writeFileSync(path.join(bare.path, 'shared.txt'), 'mine\n');
+  assert.strictEqual(clean('bare'), false);
+  assert.throws(
+    () => api.removeWorkspace(root, 'bare'),
+    (error) => error.code === 'WORKSPACE_DIRTY' && /shared\.txt: not part of a declared project/.test(error.message),
+  );
+  fs.rmSync(path.join(bare.path, 'shared.txt'));
+  fs.writeFileSync(path.join(member(bare.path, 'projects/api'), 'stamp.txt'), 'mine\n');
+  assert.strictEqual(clean('bare'), false);
+  assert.throws(
+    () => api.removeWorkspace(root, 'bare'),
+    (error) => error.code === 'WORKSPACE_DIRTY' && /projects\/api: uncommitted changes or untracked files/.test(error.message),
+  );
+  fs.rmSync(path.join(member(bare.path, 'projects/api'), 'stamp.txt'));
+
+  // A later setup makes and records both; the record itself is Workler's
+  // only while it is a regular file.
+  api.setupWorkspace(root, 'bare');
+  assert.strictEqual(clean('bare'), true);
+  fs.rmSync(path.join(bare.path, '.workler-setup.json'));
+  fs.mkdirSync(path.join(bare.path, '.workler-setup.json'));
+  assert.strictEqual(clean('bare'), false, 'no record: shared.txt is data again, and the folder at the record name too');
+  assert.throws(
+    () => api.removeWorkspace(root, 'bare'),
+    (error) => error.code === 'WORKSPACE_DIRTY' && /\.workler-setup\.json: not part of a declared project/.test(error.message) && /shared\.txt: not part/.test(error.message),
+  );
+  fs.rmdirSync(path.join(bare.path, '.workler-setup.json'));
+  fs.rmSync(path.join(bare.path, 'shared.txt'));
+  assert.strictEqual(clean('bare'), true);
+  api.removeWorkspace(root, 'bare');
+
+  // The group's own rules may not manage the record, as with .workler.
+  fs.writeFileSync(path.join(root, '.workler'), 'project projects/api\ncopy .workler-setup.json\n');
+  assert.match(api.inspectProject(root).configError ?? '', /\.workler:2:\d+: a project group cannot manage \.workler-setup\.json/);
+});

@@ -1,7 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { CONFIG_FILE, WORKSPACES_DIR } from './constants';
+import { CONFIG_FILE, SETUP_RECORD_FILE, WORKSPACES_DIR } from './constants';
 import { WorklerError } from './errors';
+import { findSymlinkAncestor } from './fs-utils';
 import type { ProjectEntry, SetupCommand, WorklerConfig, WorklerRule } from './types';
 
 const EXPECTED_SYNTAX =
@@ -126,6 +127,10 @@ function parseSetupLine(rawLine: string, actionStart: number, lineNumber: number
   return ifMissing === undefined ? { command, raw: rawLine.trim() } : { command, ifMissing, raw: rawLine.trim() };
 }
 
+// The files Workler itself writes into a group workspace folder; a group's
+// own rules may not manage them.
+const GROUP_WORKSPACE_FILES = [CONFIG_FILE, SETUP_RECORD_FILE];
+
 // Every path-bearing line in the file, in order, for the overlap check.
 interface ConfigEntry {
   kind: 'rule' | 'project';
@@ -144,15 +149,18 @@ export function readSetupCommands(root: string): SetupCommand[] {
   return readConfig(root).setup;
 }
 
-// The paths a project's .workler produces inside each of its workspaces, in
+// The paths a project's .workler produces inside one of its workspaces, in
 // the file's portable spelling and relative to the workspace: the copy and
-// link destinations whose source exists in `root` (apply skips the others,
-// so nothing regenerates their destination), and the `setup --if-missing`
-// guard paths (what the guarded command creates). `workler apply` and
-// `workler setup` regenerate them, so `remove` and the listing's `clean` do not count them as local
-// data. A file that cannot be parsed produces nothing here; the operations
-// that need it fail on the parse error themselves.
-export function managedWorkspacePaths(root: string): string[] {
+// link destinations apply would regenerate (see sourceRegenerates), and the
+// `setup --if-missing` guard paths among `produced`, what `setup` recorded
+// as created by a guarded command in that workspace (see
+// recordedSetupOutputs in setup.ts). `workler apply` and `workler setup`
+// regenerate them, so `remove` and the listing's `clean` do not count them
+// as local data; a guard path on no record, or a destination apply would
+// skip or refuse, is data like any other file. A file that cannot be parsed
+// produces nothing here; the operations that need it fail on the parse
+// error themselves.
+export function managedWorkspacePaths(root: string, produced: readonly string[]): string[] {
   let config: WorklerConfig;
   try {
     config = readConfig(root);
@@ -164,18 +172,30 @@ export function managedWorkspacePaths(root: string): string[] {
   }
   const paths = new Set<string>();
   for (const rule of config.rules) {
-    // The same check apply makes: a rule whose source is absent is skipped, so a
-    // file a user made at its destination has nothing behind it and is data.
-    if (fs.existsSync(path.join(root, rule.targetPath))) {
+    if (sourceRegenerates(root, rule.targetPath)) {
       paths.add(rule.targetPath);
     }
   }
   for (const command of config.setup) {
-    if (command.ifMissing !== undefined) {
+    if (command.ifMissing !== undefined && produced.includes(command.ifMissing)) {
       paths.add(command.ifMissing);
     }
   }
   return [...paths];
+}
+
+// The checks apply makes before it copies or links a rule's source: it
+// exists, and no directory on the way to it is a symbolic link (apply skips
+// an absent source and refuses one behind a link, so neither regenerates
+// the destination; a file a user made there has nothing behind it and is
+// data). A source that cannot be inspected counts as absent, the safe side.
+function sourceRegenerates(root: string, targetPath: string): boolean {
+  const source = path.join(root, targetPath);
+  try {
+    return findSymlinkAncestor(root, source) === undefined && fs.existsSync(source);
+  } catch (_) {
+    return false;
+  }
 }
 
 export function readConfig(root: string): WorklerConfig {
@@ -186,7 +206,7 @@ export function readConfig(root: string): WorklerConfig {
 
   const text = fs.readFileSync(configPath, 'utf8');
   const rules: WorklerRule[] = [];
-  let configRule: { lineNumber: number; column: number; rawLine: string } | undefined;
+  let configRule: { lineNumber: number; column: number; rawLine: string; file: string } | undefined;
   const projects: ProjectEntry[] = [];
   const setup: SetupCommand[] = [];
   const entries: ConfigEntry[] = [];
@@ -230,13 +250,15 @@ export function readConfig(root: string): WorklerConfig {
     const targetPath = validateRulePath(parsedPath, lineNumber, pathStart + 1, rawLine);
     const entry: ConfigEntry = { kind: action === 'project' ? 'project' : 'rule', path: targetPath };
 
-    // Workler writes its own copy of this file into every group workspace, so
-    // a group-level rule for it could only ever conflict with that copy (or,
-    // with --force, replace the copy by a link that `remove` then protects as
-    // local data). Remember the first such rule; it is rejected below once the
-    // file turns out to declare projects.
-    if (entry.kind === 'rule' && !configRule && targetPath.split('/')[0].toLowerCase() === CONFIG_FILE.toLowerCase()) {
-      configRule = { lineNumber, column: pathStart + 1, rawLine };
+    // Workler writes its own copy of this file into every group workspace,
+    // and its record of the group's setup outputs next to it, so a
+    // group-level rule for either could only ever conflict with Workler's
+    // file (or, with --force, replace it by a link that `remove` then
+    // protects as local data). Remember the first such rule; it is rejected
+    // below once the file turns out to declare projects.
+    const reserved = GROUP_WORKSPACE_FILES.find((file) => targetPath.split('/')[0].toLowerCase() === file.toLowerCase());
+    if (entry.kind === 'rule' && !configRule && reserved !== undefined) {
+      configRule = { lineNumber, column: pathStart + 1, rawLine, file: reserved };
     }
 
     // Parent/child entries are not independent: a link at `cache` would make
@@ -264,8 +286,8 @@ export function readConfig(root: string): WorklerConfig {
       configRule.lineNumber,
       configRule.column,
       configRule.rawLine,
-      `a project group cannot manage ${CONFIG_FILE}: Workler writes that file into every group workspace itself`,
-      `a path other than ${CONFIG_FILE}`,
+      `a project group cannot manage ${configRule.file}: Workler writes that file into group workspaces itself`,
+      `a path other than ${configRule.file}`,
     );
   }
 

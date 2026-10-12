@@ -5,6 +5,7 @@ import { managedWorkspacePaths } from '../config';
 import { gitMaybe, isGitWorkTreeFreeOfLocalData } from '../git';
 import { groupWorkspaceExtras, memberPath, requireDeclaredProject, splitWorkspaceAddress } from '../groups';
 import { listSyncTargets } from '../multi-git';
+import { recordedSetupOutputs } from '../setup';
 import type { SyncTarget } from '../multi-git';
 import { findWorkspace } from '../workspaces';
 import { requireProject } from './project';
@@ -63,11 +64,11 @@ export function listWorkspaceInfos(rootInput: string): WorkspaceInfo[] {
   const targets = listSyncTargets(info.root);
 
   if (!info.isGroup) {
-    const managed = managedWorkspacePaths(info.root);
     return targets.map((target) => {
       const isMain = target.path === info.root;
       // The main checkout holds the rules' sources, not their outputs: nothing is exempt there.
-      return { name: target.name, isMain, ...inspectTarget(target, isMain, isMain ? [] : managed) };
+      const managed = isMain ? [] : managedWorkspacePaths(info.root, recordedSetupOutputs(target.path, 'clone'));
+      return { name: target.name, isMain, ...inspectTarget(target, isMain, managed) };
     });
   }
 
@@ -92,7 +93,7 @@ export function listWorkspaceInfos(rootInput: string): WorkspaceInfo[] {
         brokenReasons.push(member.broken ?? 'not a group workspace');
         continue;
       }
-      const details = inspectTarget(member, false, isMain ? [] : memberManagedPaths(info.root, member.project));
+      const details = inspectTarget(member, false, isMain ? [] : memberManagedPaths(info.root, member.project, member.path));
       // A member is a clone only when it is the member's usable clone: a
       // repository that is not the recorded one, or a .git reached through a
       // link, is local data (see broken), not the member.
@@ -106,7 +107,7 @@ export function listWorkspaceInfos(rootInput: string): WorkspaceInfo[] {
     const usable = projects.length > 0 && projects.every((project) => !project.broken);
     const branches = new Set(projects.map((project) => (project.detached ? undefined : project.branch)));
     const sameBranch = usable && branches.size === 1 && !projects[0].detached;
-    const extras = isMain || !usable ? [] : groupWorkspaceExtras(workspacePath, info.root, info.projects, managedWorkspacePaths(info.root));
+    const extras = isMain || !usable ? [] : groupWorkspaceExtras(workspacePath, info.root, info.projects, managedWorkspacePaths(info.root, recordedSetupOutputs(workspacePath, 'folder')));
     const strayClone = projects.length === 0 && fs.existsSync(path.join(workspacePath, '.git'));
 
     return {
