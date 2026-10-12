@@ -43,7 +43,7 @@ The guard is also the "already done" test that makes [`workler setup`](/referenc
 The guard cannot tell a finished install from one that died half-way. When a guarded command fails after creating its path, the failure message adds `<path> now exists, so workler setup would skip this command; remove it before re-running`, and the error details carry the path as `leftBehind`.
 
 ::: warning Monorepos
-The `link node_modules` plus guard pairing assumes one `node_modules` at the root. pnpm and yarn workspaces keep a `node_modules` in every package and point workspace packages back at their source, so a workspace that only links the root folder cannot resolve its dependencies, and an install through the link would write into the main project. For those projects leave out the `link` line and use a plain `setup pnpm install` (or hand it to a sibling tool, `setup portler setup`); the package manager's content-addressed store makes a fresh install cheap.
+The `link node_modules` plus guard pairing assumes one `node_modules` at the root. A pnpm workspace keeps a `node_modules` in every package, and a yarn workspace links its packages back to their source (or, with Plug'n'Play, has no `node_modules` at all), so a workspace that only links the root folder either cannot resolve its dependencies or resolves them from the main checkout, and an install through the link would write into the main project. For those projects leave out the `link` line and use the project's own installer as a plain line, `setup pnpm install` or `setup yarn install` (or hand it to a sibling tool, `setup portler setup`); the package manager's cache makes a fresh install cheap.
 :::
 
 ## How commands run

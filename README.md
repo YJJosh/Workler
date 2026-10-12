@@ -32,7 +32,7 @@ copy .env
 setup --if-missing node_modules pnpm install
 ```
 
-Setup commands run in the new workspace after the rules. A `--if-missing` line is skipped while its path exists, so the install only runs when the link found nothing to point at. That pairing fits a project with one `node_modules`; in a pnpm or yarn workspace, where every package has its own, leave out the `link` line and use a plain `setup pnpm install`, which the package manager's store keeps cheap. `workler init` can create a commented starter file, but it is not required. Apply new rules to an existing workspace with `workler apply feature-a`, and re-run its setup commands with `workler setup feature-a`.
+Setup commands run in the new workspace after the rules. A `--if-missing` line is skipped while its path exists, so the install only runs when the link found nothing to point at. That pairing fits a project with one `node_modules`. In a pnpm workspace every package keeps its own, and in a yarn workspace the packages are linked back to their source, so a root link points into the main checkout either way; there, leave out the `link` line and use the project's own installer as a plain line, `setup pnpm install` or `setup yarn install`, which the package manager's cache keeps cheap. `workler init` can create a commented starter file, but it is not required. Apply new rules to an existing workspace with `workler apply feature-a`, and re-run its setup commands with `workler setup feature-a`.
 
 For a workspace that shares nothing, `workler add feature-b --copy-links` copies what the `link` rules would symlink, and `workler apply feature-a --copy-links` converts an existing workspace's links into copies.
 
