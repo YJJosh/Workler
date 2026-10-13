@@ -355,9 +355,9 @@ function writeSetupRecord(dir: string, values: string[]): void {
 }
 
 /**
- * A guarded command that exited 0 without creating its path. Whether it will
- * run again is only known once every setup line has run: a later line (or the
- * group's own lines, which run after its members') may create the path.
+ * A guarded command that exited 0. Whether it will run again is only known once
+ * every setup line has run: a later line (or the group's own lines, which run
+ * after its members') may create its path, or remove it.
  */
 export interface PendingGuard {
   result: SetupCommandResult;
@@ -381,9 +381,9 @@ export function settleGuards(pending: PendingGuard[], options: SetupOptions = {}
 }
 
 /**
- * Runs the workspace's setup lines. Pass `pending` to collect guarded commands
- * whose path is still missing instead of settling them here, when more setup
- * lines run afterwards (see settleGuards).
+ * Runs the workspace's setup lines. Pass `pending` to collect the guarded
+ * commands that succeeded instead of settling them here, when more setup lines
+ * run afterwards (see settleGuards).
  */
 export function runSetupCommands(target: SetupTarget, options: SetupOptions = {}, pending?: PendingGuard[]): SetupOutcome {
   if (pathsReferToSameLocation(target.root, target.path)) {
@@ -470,21 +470,18 @@ export function runSetupCommands(target: SetupTarget, options: SetupOptions = {}
     }
 
     if (result.status === 0) {
-      if (setup.ifMissing !== undefined && guardPath !== undefined && !entryExists(guardPath)) {
-        // The command did its job but not the guard's, and there is nothing
-        // to record. Unless a later setup line creates the path, it will run
-        // again on every setup: most often the guard names another folder
-        // than the one the command writes to. Settled once setup has finished.
-        const result: SetupCommandResult = { command: setup.command, status: 'ok', ...output };
-        outcome.results.push(result);
-        guards.push({ result, setup, index, total: commands.length, guardPath, ...(project === undefined ? {} : { project }) });
-        continue;
-      }
-      outcome.results.push({ command: setup.command, status: 'ok', ...output });
-      // From now on the guard finds the command's work there: remember it, so
-      // `remove` can tell it from something the user put at that path.
-      if (setup.ifMissing !== undefined && guardPath !== undefined && fs.existsSync(guardPath)) {
-        recordSetupOutput(target, setup.ifMissing, guardPath);
+      const done: SetupCommandResult = { command: setup.command, status: 'ok', ...output };
+      outcome.results.push(done);
+      if (setup.ifMissing !== undefined && guardPath !== undefined) {
+        // From now on the guard finds the command's work there: remember it, so
+        // `remove` can tell it from something the user put at that path.
+        if (fs.existsSync(guardPath)) {
+          recordSetupOutput(target, setup.ifMissing, guardPath);
+        }
+        // Whether the command runs again is only known once every setup line
+        // has run: a later line may create the path, or remove it. Settled
+        // once setup has finished.
+        guards.push({ result: done, setup, index, total: commands.length, guardPath, ...(project === undefined ? {} : { project }) });
       }
       continue;
     }

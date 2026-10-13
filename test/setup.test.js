@@ -477,6 +477,18 @@ test('a guard is judged once every setup line has run, so a later line that crea
   assert.strictEqual(again.status, 0, again.stderr);
   assert.strictEqual((again.stdout.match(/^skip   setup /gm) ?? []).length, 2, again.stdout);
 
+  // The other way round: the guarded line creates its path and a later line
+  // removes it, so the guarded line runs again on every setup.
+  const removeMarker = `${NODE} -e "require('fs').rmSync('marker', { recursive: true })"`;
+  const undone = makeProject(t, { workler: `setup --if-missing marker ${makeMarker}\nsetup ${removeMarker}\n` });
+  const undoneAdd = runCli(undone, 'add', 'feat');
+  assert.strictEqual(undoneAdd.status, 0, undoneAdd.stderr);
+  assert.match(undoneAdd.stdout, /^warning: marker is still missing after `.*` succeeded/m);
+  const undoneSeen = [];
+  const undoneAgain = api.setupWorkspace(undone, 'feat', { onSetupGuardMissing: (command, index, total) => undoneSeen.push(`${index + 1}/${total} ${command.ifMissing}`) });
+  assert.deepStrictEqual(undoneSeen, ['1/2 marker']);
+  assert.deepStrictEqual(undoneAgain.setup.results.map((result) => [result.status, result.guardMissing]), [['ok', true], ['ok', undefined]]);
+
   // In a group the group's own lines run after its members': a member guard
   // the group's line creates is fine, one nobody creates is reported with
   // the member it belongs to.
