@@ -1703,6 +1703,8 @@ test('remove needs every member clean and nothing but members and rule outputs i
   const cli = runCli(root, 'remove', 'feat');
   assert.strictEqual(cli.status, 1);
   assert.match(cli.stderr, /notes\.txt: not part of a declared project/);
+  // A member's own local data is listed under its reason.
+  assert.match(cli.stderr, /^ {2}projects\/api: uncommitted changes or untracked files\n {4}untracked: wip\.txt$/m);
 
   assert.deepStrictEqual(api.removeWorkspace(root, 'feat', { force: true }), { name: 'feat', path: feat });
   assert.strictEqual(fs.existsSync(feat), false);

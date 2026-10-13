@@ -230,7 +230,17 @@ test('removeWorkspace protects dirty workspaces unless forced', (t) => {
   const ws = api.createWorkspace(root, { name: 'feat' });
   fs.appendFileSync(path.join(ws.path, 'README.md'), 'local change\n');
 
-  assert.throws(() => api.removeWorkspace(root, 'feat'), (e) => e.code === 'WORKSPACE_DIRTY');
+  fs.writeFileSync(path.join(ws.path, 'notes.txt'), 'wip\n');
+
+  assert.throws(
+    () => api.removeWorkspace(root, 'feat'),
+    (e) =>
+      e.code === 'WORKSPACE_DIRTY' &&
+      JSON.stringify(e.details.entries) === JSON.stringify([
+        { path: 'README.md', kind: 'uncommitted' },
+        { path: 'notes.txt', kind: 'untracked' },
+      ]),
+  );
   assert.ok(fs.existsSync(ws.path));
 
   const removed = api.removeWorkspace(root, 'feat', { force: true });

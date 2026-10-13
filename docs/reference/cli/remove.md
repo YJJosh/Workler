@@ -15,6 +15,8 @@ Recursively deletes `.worktrees/<name>` — after checking that nothing would be
   - **An empty `.worktrees/`.** That is where Workler keeps its lock, so a nested workspace you already removed, or a group command that locked this repository as one of its sources, leaves the empty directory behind and it holds nothing. A non-empty one holds [nested workspaces](/guide/nested-workspaces) and counts.
 - `main` can never be removed.
 
+A workspace you ran [Portler](https://github.com/YJJosh/Portler) in holds its state in an ignored `.portler/`, which counts as local data like any other ignored folder. Stop its services and clear that state first (`portler down`, then `portler clean`); `--force` would delete the folder while the services keep running.
+
 Removal is plain directory deletion: any nested workspaces under the workspace's own `.worktrees/` go with it, and local branches that exist only in that clone are lost — run [`workler branch-sync`](/reference/cli/branch-sync) first if you want them mirrored into the root as `refs/workler/<name>/...`.
 
 In a [project group](/guide/project-groups), the guard covers every member clone (each judged against its own source repository's `.workler`), and the workspace folder must hold nothing but the members, an unchanged `.workler` copy, and what the group's own rules and `--if-missing` lines produce (plus `.workler-setup.json`, Workler's record of the latter, while it is a regular file that reads exactly as Workler writes it): a nested `.worktrees/`, a member directory that is not a clone, a repository at a member's path that is not the recorded clone of that member (an unrelated repository dropped there, or a clone made for another workspace or location), or a symbolic link or file sitting at a member's path or at any folder on the way to it (whatever the link points at; it is never followed) all count as local data. A member that was never cloned holds nothing and does not block removal. The `.workler` copy is harmless only while it is a regular file that still matches the group's file; once you edit it (for example to configure nested group workspaces), replace it with a symbolic link (even one pointing at the group's file), or the group's `.workler` changes after the workspace was created, it counts as local data. The error lists every reason.
@@ -34,7 +36,7 @@ removed feature-a
 ## Errors
 
 - No workspace named `<name>`.
-- Workspace has local data (without `--force`): `workspace has local changes: <path>`.
+- Workspace has local data (without `--force`): `workspace has local changes: <path>`, followed by what was found, one entry per line as Git spells it (`uncommitted: README.md`, `untracked: notes.txt`, `ignored: .portler/`), the first ten of them. In a project group each reason is listed, with a member clone's entries under it.
 - `<name>` is `main`.
 
 ## Examples

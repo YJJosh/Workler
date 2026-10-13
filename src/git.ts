@@ -165,9 +165,17 @@ export function isGitWorkTreeClean(repo: string): boolean {
   return status !== undefined && status.split('\n').every((line) => line === '' || line.startsWith(`?? ${WORKSPACES_DIR}/`));
 }
 
-// Remove's data-loss guard (the listing's `clean` uses it too). True when the
-// working tree holds nothing that deletion would destroy: no change to a
-// tracked file, nothing staged, and no untracked or ignored entry, with two
+// One entry that deletion would destroy, in Git's spelling (a folder ends in
+// `/`): a tracked file with uncommitted or staged changes, or an untracked or
+// ignored entry that is not what .workler produces.
+export interface LocalDataEntry {
+  path: string;
+  kind: 'uncommitted' | 'untracked' | 'ignored';
+}
+
+// Remove's data-loss guard (the listing's `clean` uses it too). Lists what
+// the working tree holds that deletion would destroy: changes to tracked
+// files, staged changes, and untracked or ignored entries, with two
 // exceptions.
 //  - `managedPaths`: what the project's .workler produces in the workspace
 //    (copy and link destinations, `setup --if-missing` guard paths), in the
@@ -181,37 +189,65 @@ export function isGitWorkTreeClean(repo: string): boolean {
 //    command that locked this repository as one of its sources). A non-empty
 //    one holds nested workspaces and counts. Git lists the excluded directory
 //    itself without looking inside, so check.
-// A failed git must never read as clean.
-export function isGitWorkTreeFreeOfLocalData(repo: string, managedPaths: readonly string[] = []): boolean {
+// Stops after `limit` entries. undefined means Git failed, which must never
+// read as clean.
+export function gitWorkTreeLocalData(repo: string, managedPaths: readonly string[] = [], limit = Infinity): LocalDataEntry[] | undefined {
   // -z: one NUL-terminated record per path, never quoted, whatever the name.
   const result = runGit(repo, ['status', '--porcelain', '-z', '--ignored=matching'], 'quiet');
   if (result.status !== 0 || gitProcessFailure(result) !== undefined) {
-    return false;
+    return undefined;
   }
-  for (const record of (result.stdout ?? '').split('\0')) {
+  const records = (result.stdout ?? '').split('\0');
+  const entries: LocalDataEntry[] = [];
+  for (let i = 0; i < records.length && entries.length < limit; i += 1) {
+    const record = records[i];
     if (record === '') {
       continue;
     }
-    // Git lists tracked changes before untracked and ignored entries, so a
-    // rename's second record (the old name, after `R  new`) is never reached:
-    // the rename itself already decided.
     const code = record.slice(0, 2);
     if (code !== '??' && code !== '!!') {
-      return false;
+      entries.push({ path: record.slice(3), kind: 'uncommitted' });
+      // A rename or copy is followed by a record holding the old name.
+      if (code.includes('R') || code.includes('C')) {
+        i += 1;
+      }
+      continue;
     }
+    const kind = code === '??' ? 'untracked' : 'ignored';
     const isDirectory = record.endsWith('/');
     const entryPath = isDirectory ? record.slice(3, -1) : record.slice(3);
     if (entryPath === WORKSPACES_DIR) {
       if (!isEmptyDirectory(path.join(repo, WORKSPACES_DIR))) {
-        return false;
+        entries.push({ path: record.slice(3), kind });
       }
       continue;
     }
     if (!isManagedEntry(repo, entryPath, isDirectory, managedPaths)) {
-      return false;
+      entries.push({ path: record.slice(3), kind });
     }
   }
-  return true;
+  return entries;
+}
+
+export function isGitWorkTreeFreeOfLocalData(repo: string, managedPaths: readonly string[] = []): boolean {
+  const entries = gitWorkTreeLocalData(repo, managedPaths, 1);
+  return entries !== undefined && entries.length === 0;
+}
+
+// What a refusal shows of gitWorkTreeLocalData's answer, one line each,
+// fetched with LOCAL_DATA_SHOWN + 1 so that "more" is known without walking
+// everything.
+export const LOCAL_DATA_SHOWN = 10;
+
+export function describeLocalData(entries: readonly LocalDataEntry[] | undefined): string[] {
+  if (entries === undefined) {
+    return ['(git status failed, so Workler cannot tell what is there)'];
+  }
+  const lines = entries.slice(0, LOCAL_DATA_SHOWN).map((entry) => `${entry.kind}: ${entry.path}`);
+  if (entries.length > LOCAL_DATA_SHOWN) {
+    lines.push('... and more (git status --ignored lists everything)');
+  }
+  return lines;
 }
 
 function isUnderManagedPath(entryPath: string, managedPaths: readonly string[]): boolean {

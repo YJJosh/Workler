@@ -252,7 +252,10 @@ workspace with local data (uncommitted changes, untracked and ignored files;
 not the copy/link destinations of the project's `.workler` that still
 match their source, nor the `setup --if-missing` paths its commands created, which
 `apply` and `setup` regenerate) unless
-`force` is set — that failure is `WORKSPACE_DIRTY`.
+`force` is set — that failure is `WORKSPACE_DIRTY`. Its `details.entries`
+lists what was found in a plain workspace (`{ path, kind }`, `kind` one of
+`uncommitted`, `untracked`, `ignored`, at most eleven; absent when `git status`
+failed); for a project group, `details.reasons` holds one line per reason.
 
 ### `groupRefNamespace(groupRoot): string`
 
