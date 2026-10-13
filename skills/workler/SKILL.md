@@ -38,7 +38,7 @@ Multi-workspace commands: `status` shows branch, ahead/behind, and clean/dirty e
 ## Removing a workspace
 
 - `remove` deletes the folder for good. It refuses while the workspace holds local data (uncommitted, staged, untracked or ignored files, apart from what `.workler` produces) and lists what it found. Deal with each entry instead of passing `--force`, unless the user asks for it.
-- Local branches that exist only in the workspace are lost. Keep them before removing: merge or push them as the user wants, or copy one into the root as a real branch by running `git fetch "$(workler path <name>)" <branch>:<new-branch>` there (for a group member, run it in that member's source repository with `workler path <name>/<project path>`). `branch-sync` mirrors are not enough: they are pruned once the workspace is gone.
+- Local branches that exist only in the workspace are lost. Keep them before removing: merge or push them as the user wants, or copy one into the root as a real branch by running `git fetch "$(workler path <name>)" <branch>:<new-branch>` there (for a group member, run from the group root: `git -C "$(workler path main/<project path>)" fetch "$(workler path <name>/<project path>)" <branch>:<new-branch>`; inside a member repository, group addresses do not resolve). `branch-sync` mirrors are not enough: they are pruned once the workspace is gone.
 - Remove only workspaces you created.
 
 ## Project groups
