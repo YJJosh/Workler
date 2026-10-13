@@ -4,11 +4,19 @@ Coding agents can learn Workler from a skill: one `SKILL.md` file that tells the
 
 ## Install
 
+The latest skill, from `main`:
+
 ```bash
 npx skills add YJJosh/Workler
 ```
 
-The [`skills`](https://github.com/vercel-labs/skills) installer works with Claude Code, Codex, Cursor, OpenCode and most other coding agents. It asks which of your agents should get the skill and whether to install it into the current project or for your user; `npx skills update` refreshes it later. To pin the skill to a release, use its tag: `npx skills add https://github.com/YJJosh/Workler/tree/v<version>/skills/workler`.
+The skill for the Workler version you have installed:
+
+```bash
+npx skills add "https://github.com/YJJosh/Workler/tree/v$(workler --version)/skills/workler"
+```
+
+The [`skills`](https://github.com/vercel-labs/skills) installer works with Claude Code, Codex, Cursor, OpenCode and most other coding agents. It asks which of your agents should get the skill and whether to install it into the current project or for your user. `npx skills update` keeps the latest one current; run the second command again after upgrading Workler. Releases from before the skill was added don't include it.
 
 To install it by hand, copy [`skills/workler/SKILL.md`](https://github.com/YJJosh/Workler/blob/main/skills/workler/SKILL.md) into a `workler` folder in your agent's skills directory. For an agent without skills, add the file's contents to its instructions.
 
