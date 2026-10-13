@@ -464,6 +464,39 @@ test('a guarded command that exits 0 without creating its path is reported, and 
   assert.doesNotMatch(fine.stdout + fine.stderr, /still missing/);
 });
 
+test('a guard is judged once every setup line has run, so a later line that creates the path silences it', (t) => {
+  // The first line exits 0 without making `marker`; the second creates it.
+  // From then on both are skipped, so warning after the first would be false.
+  const noop = `${NODE} -e "0"`;
+  const makeMarker = `${NODE} -e "require('fs').mkdirSync('marker')"`;
+  const root = makeProject(t, { workler: `setup --if-missing marker ${noop}\nsetup --if-missing marker ${makeMarker}\n` });
+  const add = runCli(root, 'add', 'feat');
+  assert.strictEqual(add.status, 0, add.stderr);
+  assert.doesNotMatch(add.stdout + add.stderr, /still missing/);
+  const again = runCli(root, 'setup', 'feat');
+  assert.strictEqual(again.status, 0, again.stderr);
+  assert.strictEqual((again.stdout.match(/^skip   setup /gm) ?? []).length, 2, again.stdout);
+
+  // In a group the group's own lines run after its members': a member guard
+  // the group's line creates is fine, one nobody creates is reported with
+  // the member it belongs to.
+  const group = makeGroup(t, {
+    rules: { 'projects/api': `setup --if-missing .venv ${noop}\n`, tools: `setup --if-missing .cache ${noop}\n` },
+    groupLines: `setup ${NODE} -e "require('fs').mkdirSync('projects/api/.venv')"\n`,
+  });
+  const groupAdd = runCli(group, 'add', 'feat');
+  assert.strictEqual(groupAdd.status, 0, groupAdd.stderr);
+  const warnings = groupAdd.stdout.split('\n').filter((line) => line.startsWith('warning:'));
+  assert.deepStrictEqual(warnings.length, 1, groupAdd.stdout);
+  assert.match(warnings[0], /^warning: in tools, \.cache is still missing after `.*` succeeded/);
+
+  // Via the API the callback names the member, and only the member left without its path.
+  fs.rmSync(path.join(group, '.worktrees', 'feat', 'projects', 'api', '.venv'), { recursive: true });
+  const seen = [];
+  api.setupWorkspace(group, 'feat', { onSetupGuardMissing: (command, index, total, project) => seen.push(`${project} ${command.ifMissing}`) });
+  assert.deepStrictEqual(seen, ['tools .cache']);
+});
+
 test('a guard that is a link to a missing target stops the run instead of counting as absent', (t) => {
   // `link node_modules` made a link while the main project had one; later the
   // target was deleted. existsSync follows the link and says "absent", but an

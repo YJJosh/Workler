@@ -10,8 +10,8 @@ import {
   sourceBrokenReason,
   splitWorkspaceAddress,
 } from '../groups';
-import { runSetupCommands, validateSetupOptions } from '../setup';
-import type { SetupOptions, SetupOutcome } from '../setup';
+import { runSetupCommands, settleGuards, validateSetupOptions } from '../setup';
+import type { PendingGuard, SetupOptions, SetupOutcome } from '../setup';
 import type { Workspace } from '../types';
 import { findWorkspace, validateWorkspaceName } from '../workspaces';
 import { requireProject } from './project';
@@ -115,6 +115,9 @@ export function runWorkspaceSetup(info: ProjectInfo, workspace: Workspace, optio
 
   const group = { root: info.root, workspacePath: workspace.path };
   const projects: MemberSetupResult[] = [];
+  // A guard is judged once every line has run: the group's own lines run
+  // after its members' and may create a member's guard path.
+  const pending: PendingGuard[] = [];
   for (const project of info.projects) {
     const source = memberPath(info.root, project);
     const member = memberPath(workspace.path, project);
@@ -126,13 +129,14 @@ export function runWorkspaceSetup(info: ProjectInfo, workspace: Workspace, optio
     }
     const setup = forProject(project, () => {
       options.onProjectSetup?.(project, readSetupCommands(source).length);
-      return runSetupCommands({ root: source, path: member, name: workspace.name, group: { ...group, project } }, options);
+      return runSetupCommands({ root: source, path: member, name: workspace.name, group: { ...group, project } }, options, pending);
     });
     projects.push({ project, root: source, path: member, setup });
   }
 
   options.onGroupSetup?.(readSetupCommands(info.root).length);
-  const setup = runSetupCommands({ root: info.root, path: workspace.path, name: workspace.name, group }, options);
+  const setup = runSetupCommands({ root: info.root, path: workspace.path, name: workspace.name, group }, options, pending);
+  settleGuards(pending, options);
   return { setup, projects };
 }
 

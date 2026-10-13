@@ -161,9 +161,10 @@ stopped and reported as a failure. `onSetupOutput` requires
 it (`INVALID_OPTIONS`). `onSetupCommand(command, index,
 total)` fires before each command starts, and `onSetupSkip(command, index,
 total)` instead of it for a skipped one. `onSetupGuardMissing(command, index,
-total)` fires after a guarded command that exited 0 without creating its
-`--if-missing` path; its result is `{ status: 'ok', ifMissing, guardMissing:
-true }` and nothing is recorded. The first failing command throws
+total, project?)` fires for a guarded command that exited 0 without creating
+its `--if-missing` path, once every setup line has run and only if the path is
+still missing then (`project` is set for a group member's line); its result is
+`{ status: 'ok', ifMissing, guardMissing: true }` and nothing is recorded. The first failing command throws
 `SETUP_COMMAND_FAILED` with `details` `{ name, path, command, exitCode?,
 signal?, index, commandCount, results, project?, workspace }`; the workspace
 is complete and stays in place, so the caller can retry with

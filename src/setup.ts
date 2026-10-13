@@ -49,7 +49,7 @@ export interface SetupOptions {
   // Called after a guarded command that exited 0 without creating its
   // `--if-missing` path (usually a guard that names another folder than the
   // command writes to).
-  onSetupGuardMissing?: (command: SetupCommand, index: number, total: number) => void;
+  onSetupGuardMissing?: (command: SetupCommand, index: number, total: number, project?: string) => void;
   // Where a command's stdout goes. 'inherit' (default) shares the caller's
   // stdout; 'stderr' keeps the caller's stdout free of command output, which
   // the CLI uses whenever its own stdout is not a terminal. Only with
@@ -354,7 +354,38 @@ function writeSetupRecord(dir: string, values: string[]): void {
   fs.renameSync(staging, file);
 }
 
-export function runSetupCommands(target: SetupTarget, options: SetupOptions = {}): SetupOutcome {
+/**
+ * A guarded command that exited 0 without creating its path. Whether it will
+ * run again is only known once every setup line has run: a later line (or the
+ * group's own lines, which run after its members') may create the path.
+ */
+export interface PendingGuard {
+  result: SetupCommandResult;
+  setup: SetupCommand;
+  index: number;
+  total: number;
+  guardPath: string;
+  /** The member's project path, for a group member's setup line. */
+  project?: string;
+}
+
+/** Warns for each pending guard whose path is still missing now that setup has finished. */
+export function settleGuards(pending: PendingGuard[], options: SetupOptions = {}): void {
+  for (const guard of pending) {
+    if (entryExists(guard.guardPath)) {
+      continue;
+    }
+    Object.assign(guard.result, { ifMissing: guard.setup.ifMissing, guardMissing: true });
+    options.onSetupGuardMissing?.(guard.setup, guard.index, guard.total, guard.project);
+  }
+}
+
+/**
+ * Runs the workspace's setup lines. Pass `pending` to collect guarded commands
+ * whose path is still missing instead of settling them here, when more setup
+ * lines run afterwards (see settleGuards).
+ */
+export function runSetupCommands(target: SetupTarget, options: SetupOptions = {}, pending?: PendingGuard[]): SetupOutcome {
   if (pathsReferToSameLocation(target.root, target.path)) {
     throw new WorklerError('INVALID_OPTIONS', 'refusing to run setup commands in the main workspace');
   }
@@ -366,6 +397,7 @@ export function runSetupCommands(target: SetupTarget, options: SetupOptions = {}
   // caller (core/setup.ts); the details carry it either way.
   const project = target.group?.project;
   const where = { name: target.name, path: target.path, ...(project === undefined ? {} : { project }) };
+  const guards = pending ?? [];
 
   for (const [index, setup] of commands.entries()) {
     // `--if-missing <path>`: the path is checked here, not by the shell, so
@@ -439,11 +471,13 @@ export function runSetupCommands(target: SetupTarget, options: SetupOptions = {}
 
     if (result.status === 0) {
       if (setup.ifMissing !== undefined && guardPath !== undefined && !entryExists(guardPath)) {
-        // The command did its job but not the guard's: it will run again on
-        // every setup, and there is nothing to record. Most often the guard
-        // names another folder than the one the command writes to.
-        outcome.results.push({ command: setup.command, status: 'ok', ifMissing: setup.ifMissing, guardMissing: true, ...output });
-        options.onSetupGuardMissing?.(setup, index, commands.length);
+        // The command did its job but not the guard's, and there is nothing
+        // to record. Unless a later setup line creates the path, it will run
+        // again on every setup: most often the guard names another folder
+        // than the one the command writes to. Settled once setup has finished.
+        const result: SetupCommandResult = { command: setup.command, status: 'ok', ...output };
+        outcome.results.push(result);
+        guards.push({ result, setup, index, total: commands.length, guardPath, ...(project === undefined ? {} : { project }) });
         continue;
       }
       outcome.results.push({ command: setup.command, status: 'ok', ...output });
@@ -474,6 +508,9 @@ export function runSetupCommands(target: SetupTarget, options: SetupOptions = {}
     );
   }
 
+  if (pending === undefined) {
+    settleGuards(guards, options);
+  }
   return outcome;
 }
 
@@ -512,8 +549,8 @@ export function formatSetupHeading(command: SetupCommand): string {
 // `--if-missing` path. The guard is resolved from the folder the command runs
 // in: the clone for a member's or a project's line, the workspace folder for a
 // group's line.
-export function formatSetupGuardMissing(command: SetupCommand): string {
-  return `warning: ${command.ifMissing} is still missing after \`${command.command}\` succeeded, so it will run again on every setup; the guard and the command both start from the folder the command runs in`;
+export function formatSetupGuardMissing(command: SetupCommand, project?: string): string {
+  return `warning: ${project === undefined ? '' : `in ${project}, `}${command.ifMissing} is still missing after \`${command.command}\` succeeded, so it will run again on every setup; the guard and the command both start from the folder the command runs in`;
 }
 
 // The line for a command whose `--if-missing` path exists.

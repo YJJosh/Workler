@@ -32,8 +32,8 @@ export function printSetupHeading(command: SetupCommand): void {
   console.log(formatSetupHeading(command));
 }
 
-export function printSetupGuardMissing(command: SetupCommand): void {
-  console.log(formatSetupGuardMissing(command));
+export function printSetupGuardMissing(command: SetupCommand, _index: number, _total: number, project?: string): void {
+  console.log(formatSetupGuardMissing(command, project));
 }
 
 export function printSetupSkip(command: SetupCommand): void {
