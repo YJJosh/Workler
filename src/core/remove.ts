@@ -38,6 +38,15 @@ export function removeWorkspace(
   if (name === MAIN_WORKSPACE_NAME) {
     throw new WorklerError('MAIN_WORKSPACE', 'refusing to remove main workspace');
   }
+  // Also before validateWorkspaceName: its separator error suggests --branch,
+  // which is advice for add. Here the caller usually meant a nested workspace
+  // (feat/agent-1) or a group member (feat/web).
+  if (name.includes('/') || name.includes('\\')) {
+    throw new WorklerError(
+      'INVALID_NAME',
+      'remove takes a workspace name as `workler list` shows it, without / or \\: remove a nested workspace from inside its parent, and a project-group workspace only as a whole',
+    );
+  }
   validateWorkspaceName(name);
 
   const info = requireProject(rootInput);

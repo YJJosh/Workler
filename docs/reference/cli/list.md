@@ -6,6 +6,8 @@ Show every workspace with its branch and path.
 workler list
 ```
 
+`workler ls` is an alias.
+
 ## Behavior
 
 Lists the main project (as `main`) and every clone under `.worktrees/`, with each one's current branch and absolute path. There is no header row — the output is three space-padded columns, so it stays easy to pipe into `awk`/`cut`. A detached `HEAD` shows the short commit sha in the branch column instead of a branch name.
