@@ -102,3 +102,4 @@ See the [CLI reference](/reference/cli/) for every command and flag.
 - [Keeping workspaces in sync](/guide/sync) — `status`, `fetch`, `sync`, and `branch-sync`.
 - [Project groups](/guide/project-groups) — several repositories in one folder, cloned into one workspace with a single `workler add`.
 - [Programmatic API](/reference/api) — create, inspect, list, and remove workspaces from TypeScript or JavaScript.
+- [Agent skill](/guide/agent-skill) — teach your coding agent to use Workler.
