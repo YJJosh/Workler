@@ -9,13 +9,19 @@ user documentation lives in [`docs/`](docs/).
 - Node 18 or newer and npm (`package-lock.json` is committed). There are no
   runtime dependencies. The source is TypeScript compiled to CommonJS in
   `dist/`.
-- Before opening a PR, run what CI runs:
+- Before opening a PR, run the checks CI runs:
 
   ```sh
   npm run check        # typecheck
   npm test             # builds, then runs every test file
+  npm run smoke        # the built CLI starts
+  npm pack --dry-run   # the files the npm package would contain
   npm run docs:build   # the docs site; dead links fail the build
   ```
+
+  CI also checks the `dev:link` launcher and installs the packed tarball
+  globally; repeat those (see `.github/workflows/ci.yml`) when you change
+  `package.json`, its `bin` entry or `scripts/link-dev.cjs`.
 
 - One test file: `npm run build && node --test test/names.test.js`.
 - `npm run dev -- <args>` builds and runs the CLI. `npm run dev:link`
@@ -75,8 +81,9 @@ A change to a command, flag, rule or API also updates:
 
 ## Releases
 
-- The docs site deploys only when a release is published; the skill installs
-  from `main`.
+- The docs site deploys automatically when a release is published, and a
+  maintainer can also run **deploy docs** by hand. The skill installs from
+  `main`.
 - A maintainer runs the GitHub Actions in order: **1. Prepare version PR**
   opens the version bump, then after it is merged **prepare release** tags
   `main` and drafts the notes, and publishing that draft runs **npm publish**
