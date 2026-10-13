@@ -47,7 +47,7 @@ A plain folder whose `.workler` lists repositories with `project <path>` lines i
 
 ## With Portler
 
-Each workspace is its own Portler project: `portler up -d` inside it gets its own ports, and its Portler-managed `@` volumes are separate from the main checkout's, so they start empty. Before removing a workspace, run `portler down` and then `portler clean` in it: `.portler/` counts as local data, and `remove --force` would delete the folder while its services keep running. A `setup portler setup` line in `.workler` prepares Portler's setup steps in every new workspace.
+Each workspace is its own Portler project: `portler up -d` inside it gets its own ports, and in development its Portler-managed `@` volumes are separate from the main checkout's, so they start empty. Under `--prod`, a project with a top-level `name:` shares its volumes across every clone, so use a separate `--volume-set` there before changing data. Before removing a workspace, run `portler down` and then `portler clean` in it: `.portler/` counts as local data, and `remove --force` would delete the folder while its services keep running. A `setup portler setup` line in `.workler` prepares Portler's setup steps in every new workspace.
 
 ## Documentation
 
