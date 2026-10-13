@@ -58,6 +58,9 @@ user documentation lives in [`docs/`](docs/).
   `WorklerError` with a `code`.
 - Anything that changes a project runs under `withProjectLock`
   (`src/lock.ts`), so concurrent calls get a `LockError` instead of racing.
+  The one exception is setup commands: `add` releases its locks before they
+  start and `workler setup` never takes them, because they can run for minutes
+  (`docs/guide/setup.md`, "Locking").
 - Git runs through `spawnSync` with an argument array and no shell. Only
   `.workler` setup commands run through a shell, by design.
 - Rules never write outside the workspace, even through a symlinked or
@@ -75,6 +78,9 @@ user documentation lives in [`docs/`](docs/).
 A change to a command, flag, rule or API also updates:
 
 - `src/commands/help.ts` and `docs/reference/cli/<command>.md`;
+- for a new or renamed command, also the table in `docs/reference/cli/index.md`
+  and the sidebar list in `docs/.vitepress/config.mts` (the docs build does not
+  catch these);
 - `docs/reference/configuration.md` for `.workler` syntax;
 - `docs/reference/api.md` for the library API;
 - `skills/workler/SKILL.md` if it changes how an agent should use Workler.
