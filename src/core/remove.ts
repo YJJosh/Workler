@@ -4,7 +4,7 @@ import { CONFIG_FILE, MAIN_WORKSPACE_NAME, WORKSPACES_DIR } from '../constants';
 import { WorklerError } from '../errors';
 import { assertInside } from '../fs-utils';
 import { managedWorkspacePaths, pathBelow } from '../config';
-import { isGitWorkTreeFreeOfLocalData } from '../git';
+import { describeLocalData, displayPath, gitWorkTreeLocalData, LOCAL_DATA_SHOWN, type LocalDataEntry } from '../git';
 import { ancestorReason, foreignMemberReason, groupWorkspaceExtras, inspectMember, memberPath, sourceBrokenReason } from '../groups';
 import { withProjectLocks } from '../lock';
 import { recordedSetupOutputs } from '../setup';
@@ -47,22 +47,27 @@ export function removeWorkspace(
 
     if (options.force !== true) {
       if (info.isGroup) {
-        const reasons = groupLocalData(workspace.path, info.root, info.projects);
-        if (reasons.length > 0) {
+        const found = groupLocalData(workspace.path, info.root, info.projects);
+        if (found.length > 0) {
+          const lines = found.flatMap((item) => [`  ${item.reason}`, ...('entries' in item ? describeLocalData(item.entries).map((line) => `    ${line}`) : [])]);
+          throw new WorklerError(
+            'WORKSPACE_DIRTY',
+            `workspace has local changes: ${workspace.path}\n` + lines.join('\n') + '\nUse --force to remove anyway.',
+            { name, path: workspace.path, reasons: found.map((item) => item.reason) },
+          );
+        }
+      } else {
+        const managed = managedWorkspacePaths(info.root, workspace.path, recordedSetupOutputs(workspace.path, 'clone'));
+        const entries = gitWorkTreeLocalData(workspace.path, managed, LOCAL_DATA_SHOWN + 1);
+        if (entries === undefined || entries.length > 0) {
           throw new WorklerError(
             'WORKSPACE_DIRTY',
             `workspace has local changes: ${workspace.path}\n` +
-              reasons.map((reason) => `  ${reason}`).join('\n') +
+              describeLocalData(entries).map((line) => `  ${line}`).join('\n') +
               '\nUse --force to remove anyway.',
-            { name, path: workspace.path, reasons },
+            { name, path: workspace.path, ...(entries === undefined ? {} : { entries }) },
           );
         }
-      } else if (!isGitWorkTreeFreeOfLocalData(workspace.path, managedWorkspacePaths(info.root, workspace.path, recordedSetupOutputs(workspace.path, 'clone')))) {
-        throw new WorklerError(
-          'WORKSPACE_DIRTY',
-          `workspace has local changes: ${workspace.path}\nUse --force to remove anyway.`,
-          { name, path: workspace.path },
-        );
       }
     }
 
@@ -78,8 +83,15 @@ export function removeWorkspace(
 // entry neither a declared project nor the group's own rules account for,
 // including the .workler copy once it no longer matches the group's file. A
 // member that was never cloned holds nothing.
-function groupLocalData(workspacePath: string, groupRoot: string, projects: string[]): string[] {
-  const reasons: string[] = [];
+interface GroupLocalData {
+  reason: string;
+  // For a member clone with local data: what its working tree holds
+  // (undefined inside when Git failed). Absent for the other reasons.
+  entries?: LocalDataEntry[] | undefined;
+}
+
+function groupLocalData(workspacePath: string, groupRoot: string, projects: string[]): GroupLocalData[] {
+  const reasons: GroupLocalData[] = [];
   // Entries the member loop explains: a link or file at a member path, or at
   // a folder on the way to one. The extras walk reports them too; skip those.
   const covered = new Set<string>();
@@ -95,26 +107,27 @@ function groupLocalData(workspacePath: string, groupRoot: string, projects: stri
     }
     covered.add(check.ancestor ?? project);
     if (check.state === 'link') {
-      reasons.push(`${project}: ${ancestorReason(check) ?? 'a symbolic link, not a clone'}`);
+      reasons.push({ reason: `${project}: ${ancestorReason(check) ?? 'a symbolic link, not a clone'}` });
       continue;
     }
     if (check.state === 'foreign') {
-      reasons.push(`${project}: ${foreignMemberReason(project)}`);
+      reasons.push({ reason: `${project}: ${foreignMemberReason(project)}` });
       continue;
     }
     if (check.state !== 'clone') {
-      reasons.push(`${project}: ${ancestorReason(check) ?? 'not a Git clone (unknown contents)'}`);
+      reasons.push({ reason: `${project}: ${ancestorReason(check) ?? 'not a Git clone (unknown contents)'}` });
       continue;
     }
-    if (!isGitWorkTreeFreeOfLocalData(member, memberManagedPaths(groupRoot, project, member, groupManaged))) {
-      reasons.push(`${project}: uncommitted changes or untracked files`);
+    const entries = gitWorkTreeLocalData(member, memberManagedPaths(groupRoot, project, member, groupManaged), LOCAL_DATA_SHOWN + 1);
+    if (entries === undefined || entries.length > 0) {
+      reasons.push({ reason: `${project}: uncommitted changes or untracked files`, entries });
     }
   }
   for (const extra of groupWorkspaceExtras(workspacePath, groupRoot, projects, groupManaged)) {
     if (covered.has(extra)) {
       continue;
     }
-    reasons.push(extra === CONFIG_FILE ? configCopyReason(workspacePath) : `${extra}: not part of a declared project`);
+    reasons.push({ reason: extra === CONFIG_FILE ? configCopyReason(workspacePath) : `${displayPath(extra)}: not part of a declared project` });
   }
   return reasons;
 }

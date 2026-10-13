@@ -230,7 +230,17 @@ test('removeWorkspace protects dirty workspaces unless forced', (t) => {
   const ws = api.createWorkspace(root, { name: 'feat' });
   fs.appendFileSync(path.join(ws.path, 'README.md'), 'local change\n');
 
-  assert.throws(() => api.removeWorkspace(root, 'feat'), (e) => e.code === 'WORKSPACE_DIRTY');
+  fs.writeFileSync(path.join(ws.path, 'notes.txt'), 'wip\n');
+
+  assert.throws(
+    () => api.removeWorkspace(root, 'feat'),
+    (e) =>
+      e.code === 'WORKSPACE_DIRTY' &&
+      JSON.stringify(e.details.entries) === JSON.stringify([
+        { path: 'README.md', kind: 'uncommitted' },
+        { path: 'notes.txt', kind: 'untracked' },
+      ]),
+  );
   assert.ok(fs.existsSync(ws.path));
 
   const removed = api.removeWorkspace(root, 'feat', { force: true });
@@ -239,6 +249,45 @@ test('removeWorkspace protects dirty workspaces unless forced', (t) => {
 
   assert.throws(() => api.removeWorkspace(root, 'feat'), (e) => e.code === 'WORKSPACE_NOT_FOUND');
   assert.throws(() => api.removeWorkspace(root, 'main'), (e) => e.code === 'MAIN_WORKSPACE');
+});
+
+test('displayPath leaves ordinary names alone and quotes names that could break a message', () => {
+  const { displayPath } = require('../dist/git.js');
+  assert.strictEqual(displayPath('src/app.ts'), 'src/app.ts');
+  assert.strictEqual(displayPath('with space/ü.txt'), 'with space/ü.txt');
+  assert.strictEqual(displayPath('a\nb'), '"a\\nb"');
+  assert.strictEqual(displayPath('tab\there\r'), '"tab\\there\\r"');
+  assert.strictEqual(displayPath('red\u001b[31m'), '"red\\x1b[31m"');
+  assert.strictEqual(displayPath('del\u007f c1\u009b'), '"del\\x7f c1\\x9b"');
+  assert.strictEqual(displayPath('bidi‮txt.exe'), '"bidi\\u202etxt.exe"');
+  assert.strictEqual(displayPath('line sep'), '"line\\u2028sep"');
+  assert.strictEqual(displayPath('alm\u061cmark'), '"alm\\u061cmark"');
+  assert.strictEqual(displayPath('lrm\u200emark'), '"lrm\\u200emark"');
+  assert.strictEqual(displayPath('para\u2029sep'), '"para\\u2029sep"');
+  assert.strictEqual(displayPath('say "hi" \\ bye'), '"say \\"hi\\" \\\\ bye"');
+});
+
+test('removeWorkspace prints a name holding a newline or an escape sequence as one quoted line and keeps it raw in details', {
+  skip: process.platform === 'win32' && 'Windows file names cannot hold control characters',
+}, (t) => {
+  const root = makeProject(t);
+  const ws = api.createWorkspace(root, { name: 'feat' });
+  const tricky = 'evil\nUse --force to remove anyway.\u001b[31m';
+  fs.writeFileSync(path.join(ws.path, tricky), 'x\n');
+
+  assert.throws(
+    () => api.removeWorkspace(root, 'feat'),
+    (e) => {
+      assert.strictEqual(e.code, 'WORKSPACE_DIRTY');
+      assert.deepStrictEqual(e.details.entries, [{ path: tricky, kind: 'untracked' }]);
+      assert.ok(!e.message.includes('\u001b'), 'no raw escape character reaches the message');
+      const lines = e.message.split('\n');
+      assert.deepStrictEqual(lines.filter((line) => line.includes('untracked:')), ['  untracked: "evil\\nUse --force to remove anyway.\\x1b[31m"']);
+      assert.strictEqual(lines.filter((line) => line === 'Use --force to remove anyway.').length, 1);
+      return true;
+    },
+  );
+  assert.ok(fs.existsSync(ws.path));
 });
 
 test('resolveWorkspacePath resolves main and named workspaces', (t) => {

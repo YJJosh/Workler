@@ -50,6 +50,50 @@ test('init/add/list/path/remove round-trip via the CLI', (t) => {
   assert.ok(!fs.existsSync(path.join(root, '.worktrees', 'feat')));
 });
 
+test('remove names what blocks it: changed, untracked and ignored entries, a rename once', (t) => {
+  const root = makeRepo(t, { workler: 'copy .env\n' });
+  assert.strictEqual(runCli(root, 'init').status, 0);
+  assert.strictEqual(runCli(root, 'add', 'feat').status, 0);
+  const ws = path.join(root, '.worktrees', 'feat');
+  const id = ['-c', 'user.email=test@example.invalid', '-c', 'user.name=workler tests'];
+  fs.writeFileSync(path.join(ws, 'old.txt'), 'x\n');
+  git(ws, 'add', 'old.txt');
+  git(ws, ...id, 'commit', '-qm', 'old');
+  // A staged rename: Git writes the new name, then a record holding the old
+  // one, which must not be read as an entry of its own.
+  git(ws, 'mv', 'old.txt', 'new.txt');
+  fs.appendFileSync(path.join(ws, 'README.md'), 'local change\n');
+  fs.writeFileSync(path.join(ws, 'notes.txt'), 'wip\n');
+  // A tool's state folder the clone ignores, as Portler's .portler/ is.
+  fs.appendFileSync(path.join(ws, '.git', 'info', 'exclude'), '.portler/\n');
+  fs.mkdirSync(path.join(ws, '.portler'));
+  fs.writeFileSync(path.join(ws, '.portler', 'pids.json'), '{}\n');
+
+  const refused = runCli(root, 'remove', 'feat');
+  assert.strictEqual(refused.status, 1);
+  const lines = refused.stderr.trimEnd().split('\n');
+  assert.match(lines[0], /^workler: workspace has local changes: /);
+  assert.deepStrictEqual(lines.slice(1), [
+    '  uncommitted: README.md',
+    '  uncommitted: new.txt',
+    '  untracked: notes.txt',
+    '  ignored: .portler/',
+    'Use --force to remove anyway.',
+  ]);
+  // The copied .env is the rule's output and is not listed.
+  assert.doesNotMatch(refused.stderr, /\.env/);
+
+  // A long list is cut, and says so.
+  for (let i = 0; i < 12; i += 1) {
+    fs.writeFileSync(path.join(ws, `scratch-${String(i).padStart(2, '0')}.txt`), 'x\n');
+  }
+  const long = runCli(root, 'remove', 'feat');
+  assert.strictEqual(long.status, 1);
+  assert.strictEqual(long.stderr.split('\n').filter((line) => /^ {2}(uncommitted|untracked|ignored): /.test(line)).length, 10);
+  assert.match(long.stderr, /^ {2}\.\.\. and more \(git status --ignored lists everything\)$/m);
+  assert.ok(fs.existsSync(ws));
+});
+
 test('status.showUntrackedFiles=all does not turn the lock file into "uncommitted changes"', (t) => {
   const root = makeRepo(t, { includeWorkler: false });
   // With `all`, Git lists `?? .worktrees/.workler.lock` instead of the

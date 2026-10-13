@@ -1703,6 +1703,8 @@ test('remove needs every member clean and nothing but members and rule outputs i
   const cli = runCli(root, 'remove', 'feat');
   assert.strictEqual(cli.status, 1);
   assert.match(cli.stderr, /notes\.txt: not part of a declared project/);
+  // A member's own local data is listed under its reason.
+  assert.match(cli.stderr, /^ {2}projects\/api: uncommitted changes or untracked files\n {4}untracked: wip\.txt$/m);
 
   assert.deepStrictEqual(api.removeWorkspace(root, 'feat', { force: true }), { name: 'feat', path: feat });
   assert.strictEqual(fs.existsSync(feat), false);
@@ -2127,4 +2129,24 @@ test("a group guard path inside a member is that member's output once the group'
   fs.rmSync(path.join(bareApi, 'generated'), { recursive: true });
   assert.strictEqual(listed('bare').clean, true);
   api.removeWorkspace(root, 'bare');
+});
+
+test('a group refusal prints an extra entry whose name holds a newline as one quoted reason', {
+  skip: process.platform === 'win32' && 'Windows file names cannot hold control characters',
+}, (t) => {
+  const root = makeGroup(t);
+  const feat = api.createWorkspace(root, { name: 'feat' }).path;
+  const tricky = 'notes\nUse --force to remove anyway.';
+  fs.writeFileSync(path.join(feat, tricky), 'x\n');
+
+  assert.throws(
+    () => api.removeWorkspace(root, 'feat'),
+    (error) => {
+      assert.strictEqual(error.code, 'WORKSPACE_DIRTY');
+      assert.ok(error.details.reasons.includes('"notes\\nUse --force to remove anyway.": not part of a declared project'));
+      assert.strictEqual(error.message.split('\n').filter((line) => line === 'Use --force to remove anyway.').length, 1);
+      return true;
+    },
+  );
+  assert.ok(fs.existsSync(feat));
 });
