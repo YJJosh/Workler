@@ -13,8 +13,6 @@ export default defineConfig({
     "Local workspace manager with copy/link rules for untracked project files.",
   base: "/Workler/",
   cleanUrls: true,
-  // Files in public/ (the agent skill) are served as-is, not rendered as pages.
-  srcExclude: ["public/**"],
   lastUpdated: true,
   head: [
     ["link", { rel: "icon", type: "image/svg+xml", href: "/Workler/logo.svg" }],

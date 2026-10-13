@@ -25,7 +25,7 @@ workler shell-init                              # eval output to get `wcd <name>
 - `add <name> --branch <b>`: workspace on branch `<b>`; created from HEAD if it doesn't exist
 - `add <name> --checkout <ref>`: no new branch: existing branch, or tag/commit on detached HEAD
 
-Multi-workspace commands: `status` shows branch, ahead/behind, and clean/dirty everywhere; `fetch` runs `git fetch --prune origin` everywhere; `sync` fetches then fast-forward-only pulls (dirty or diverged workspaces are never touched); `branch-sync` fast-forwards the root's branches into every workspace and mirrors workspace branches back as `refs/workler/<workspace>/<branch>`.
+Multi-workspace commands: `status` shows branch, ahead/behind, and clean/dirty everywhere; `fetch` runs `git fetch --prune origin` everywhere; `sync` fetches then fast-forward-only pulls (dirty or diverged workspaces are never touched); `branch-sync` fast-forwards the root's branches into every workspace and mirrors workspace branches back into the root as read-only `refs/workler/<workspace>/<branch>`. In a project group it works per member against that member's source repository, and the mirrors land there under `refs/workler-group/<group>/<workspace>/<branch>`. Mirrors of removed workspaces are pruned.
 
 ## Working in a workspace
 
@@ -33,12 +33,12 @@ Multi-workspace commands: `status` shows branch, ahead/behind, and clean/dirty e
 - Use one workspace per task or agent. `add` only clones committed work; uncommitted changes in the main project stay there.
 - Workspaces nest: `workler add` inside a workspace creates one under that workspace's own `.worktrees/` (one per subagent, say).
 - `add` runs the `setup` lines of `.workler` through the shell. In a repository you do not know, read `.workler` first, or add with `--no-setup` and run `workler setup <name>` once you have checked them. If a setup command fails, the workspace is kept: fix the cause and run `workler setup <name>`.
-- Nothing is overwritten without `--force`; `--dry-run` prints the full plan first.
+- Copy/link rules never replace an existing, different destination without `--force`, and `--dry-run` prints the plan first. Setup commands are not covered by this: they run as written, without `--force`, and can change any file they reach (through a `link`, even files in the main checkout); `--dry-run` only lists them.
 
 ## Removing a workspace
 
 - `remove` deletes the folder for good. It refuses while the workspace holds local data (uncommitted, staged, untracked or ignored files, apart from what `.workler` produces) and lists what it found. Deal with each entry instead of passing `--force`, unless the user asks for it.
-- Local branches that exist only in the workspace are lost. Run `workler branch-sync` first to keep them in the root as `refs/workler/<name>/<branch>`, or merge or push them as the user wants.
+- Local branches that exist only in the workspace are lost. Keep them before removing: merge or push them as the user wants, or copy one into the root as a real branch by running `git fetch "$(workler path <name>)" <branch>:<new-branch>` there (for a group member, run it in that member's source repository with `workler path <name>/<project path>`). `branch-sync` mirrors are not enough: they are pruned once the workspace is gone.
 - Remove only workspaces you created.
 
 ## Project groups

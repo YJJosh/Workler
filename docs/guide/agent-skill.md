@@ -4,16 +4,13 @@ Coding agents can learn Workler from a skill: one `SKILL.md` file that tells the
 
 ## Install
 
-Download <a href="/Workler/skills/workler/SKILL.md" download>SKILL.md</a> into a `workler` folder in your agent's skills directory. For Claude Code:
-
 ```bash
-mkdir -p ~/.claude/skills/workler
-curl -fsSL https://yjjosh.github.io/Workler/skills/workler/SKILL.md -o ~/.claude/skills/workler/SKILL.md
+npx skills add YJJosh/Workler
 ```
 
-Put it in `.claude/skills/workler/` inside a repository instead to share it with everyone who works on that project. Other agents that support `SKILL.md` skills load it from their own skills directory; for an agent without skills, add the file's contents to its instructions.
+The [`skills`](https://github.com/vercel-labs/skills) installer works with Claude Code, Codex, Cursor, OpenCode and most other coding agents. It asks which of your agents should get the skill and whether to install it into the current project or for your user; `npx skills update` refreshes it later. To pin the skill to a release, use its tag: `npx skills add https://github.com/YJJosh/Workler/tree/v<version>/skills/workler`.
 
-The file on this site belongs to the latest release. Download it again after upgrading Workler.
+To install it by hand, copy [`skills/workler/SKILL.md`](https://github.com/YJJosh/Workler/blob/main/skills/workler/SKILL.md) into a `workler` folder in your agent's skills directory. For an agent without skills, add the file's contents to its instructions.
 
 ## Docs that match the installed version
 
@@ -35,6 +32,6 @@ The tag is the commit the release was built from, so an agent working with an ol
 
 ::: details Show SKILL.md
 
-<<< @/public/skills/workler/SKILL.md{md}
+<<< @/../skills/workler/SKILL.md{md}
 
 :::
