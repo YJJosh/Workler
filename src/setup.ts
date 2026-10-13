@@ -24,8 +24,12 @@ export interface SetupCommandResult {
   command: string;
   // 'skipped': the command's `--if-missing` path already existed.
   status: 'ok' | 'skipped' | 'failed';
-  // For 'skipped': the `--if-missing` path that exists.
+  // For 'skipped': the `--if-missing` path that exists. For 'ok' with
+  // guardMissing: the path the command was expected to create.
   ifMissing?: string;
+  // 'ok' only: the command succeeded but its `--if-missing` path still does
+  // not exist, so it runs again on every setup and nothing is recorded.
+  guardMissing?: true;
   // Exit code of the command; undefined when a signal ended it.
   exitCode?: number;
   // Signal that ended the command, when there was one.
@@ -42,6 +46,10 @@ export interface SetupOptions {
   // Called instead for a command that is skipped because its `--if-missing`
   // path exists.
   onSetupSkip?: (command: SetupCommand, index: number, total: number) => void;
+  // Called after a guarded command that exited 0 without creating its
+  // `--if-missing` path (usually a guard that names another folder than the
+  // command writes to).
+  onSetupGuardMissing?: (command: SetupCommand, index: number, total: number) => void;
   // Where a command's stdout goes. 'inherit' (default) shares the caller's
   // stdout; 'stderr' keeps the caller's stdout free of command output, which
   // the CLI uses whenever its own stdout is not a terminal. Only with
@@ -85,7 +93,7 @@ export interface SetupTarget {
 }
 
 export function validateSetupOptions(options: SetupOptions): void {
-  for (const key of ['onSetupCommand', 'onSetupSkip'] as const) {
+  for (const key of ['onSetupCommand', 'onSetupSkip', 'onSetupGuardMissing'] as const) {
     if (options[key] !== undefined && typeof options[key] !== 'function') {
       throw new WorklerError('INVALID_OPTIONS', `${key} must be a function when provided`);
     }
@@ -430,6 +438,14 @@ export function runSetupCommands(target: SetupTarget, options: SetupOptions = {}
     }
 
     if (result.status === 0) {
+      if (setup.ifMissing !== undefined && guardPath !== undefined && !entryExists(guardPath)) {
+        // The command did its job but not the guard's: it will run again on
+        // every setup, and there is nothing to record. Most often the guard
+        // names another folder than the one the command writes to.
+        outcome.results.push({ command: setup.command, status: 'ok', ifMissing: setup.ifMissing, guardMissing: true, ...output });
+        options.onSetupGuardMissing?.(setup, index, commands.length);
+        continue;
+      }
       outcome.results.push({ command: setup.command, status: 'ok', ...output });
       // From now on the guard finds the command's work there: remember it, so
       // `remove` can tell it from something the user put at that path.
@@ -490,6 +506,14 @@ function isDanglingLink(p: string): boolean {
 // other status words (`linked `, `copied `, `done   `).
 export function formatSetupHeading(command: SetupCommand): string {
   return `setup  ${command.command}`;
+}
+
+// The warning for a guarded command that succeeded without creating its
+// `--if-missing` path. The guard is resolved from the folder the command runs
+// in: the clone for a member's or a project's line, the workspace folder for a
+// group's line.
+export function formatSetupGuardMissing(command: SetupCommand): string {
+  return `warning: ${command.ifMissing} is still missing after \`${command.command}\` succeeded, so it will run again on every setup; the guard and the command both start from the folder the command runs in`;
 }
 
 // The line for a command whose `--if-missing` path exists.

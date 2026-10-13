@@ -655,6 +655,21 @@ test('the plan lists one checkout per member and add --dry-run creates nothing',
   assert.strictEqual(fs.existsSync(plan.target), false);
 });
 
+test('add --dry-run heads the group rules like add does', (t) => {
+  const root = makeGroup(t, { groupRules: 'copy .env.shared\n' });
+
+  const dry = runCli(root, 'add', 'feat', '--dry-run');
+  assert.strictEqual(dry.status, 0, dry.stderr);
+  const lines = dry.stdout.split('\n');
+  const heading = lines.indexOf('group rules');
+  assert.ok(heading > 0, dry.stdout);
+  assert.match(lines[heading + 1], /^would {2}copy \.env\.shared/);
+
+  const add = runCli(root, 'add', 'feat');
+  assert.strictEqual(add.status, 0, add.stderr);
+  assert.ok(add.stdout.split('\n').includes('group rules'), add.stdout);
+});
+
 // --- list, status, path --------------------------------------------------
 
 test('the lock directory a group command leaves in every member is not reported as uncommitted changes', (t) => {

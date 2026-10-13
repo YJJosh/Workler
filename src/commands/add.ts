@@ -1,4 +1,5 @@
 import { parseCommandArgs } from '../cli-utils';
+import { readRules } from '../config';
 import { PACKAGE_NAME } from '../constants';
 import { createWorkspace, planWorkspaceCreation } from '../core/create';
 import type { CheckoutPlan, CreateWorkspaceOptions, WorkspacePlan } from '../core/create';
@@ -102,6 +103,10 @@ function printPlan(plan: WorkspacePlan, force: boolean, copyLinks: boolean): voi
     console.log(`project ${member.project}`);
     printClonePlan(member.root, member.target, member.checkout);
     outcomes.push(applyRules(member.root, member.target, { force, copyLinks, dryRun: true, onResult: printRuleResult }));
+  }
+  // Same heading as the real add prints before the group's own rules.
+  if (readRules(plan.root).length > 0) {
+    console.log('group rules');
   }
   const groupOutcome = applyRules(plan.root, plan.target, { force, copyLinks, dryRun: true, onResult: printRuleResult });
   printRuleSummary(combinedOutcome([groupOutcome, ...outcomes]));

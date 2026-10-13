@@ -433,6 +433,37 @@ test('a guarded command that created its path before failing says the re-run wou
   );
 });
 
+test('a guarded command that exits 0 without creating its path is reported, and nothing is recorded', (t) => {
+  // The guard names another folder than the one the command writes to, the
+  // usual slip in a group's line. The command runs again on every setup and
+  // nothing is on record, so the run has to say so.
+  const wrongFolder = `${NODE} -e "require('fs').mkdirSync('venv')"`;
+  const root = makeProject(t, { workler: `setup --if-missing .venv ${wrongFolder}\n` });
+
+  const add = runCli(root, 'add', 'feat');
+  assert.strictEqual(add.status, 0, add.stderr);
+  assert.match(
+    add.stdout,
+    /^warning: \.venv is still missing after `.*` succeeded, so it will run again on every setup; the guard and the command both start from the folder the command runs in$/m,
+  );
+  const ws = path.join(root, '.worktrees', 'feat');
+  assert.ok(fs.existsSync(path.join(ws, 'venv')));
+  assert.throws(() => git(ws, 'config', '--get-all', 'workler.setupOutput'), 'nothing on record');
+
+  // Via the API: the callback fires and the result says which guard.
+  fs.rmSync(path.join(ws, 'venv'), { recursive: true });
+  const seen = [];
+  const again = api.setupWorkspace(root, 'feat', { onSetupGuardMissing: (command, index, total) => seen.push(`${index + 1}/${total} ${command.ifMissing}`) });
+  assert.deepStrictEqual(seen, ['1/1 .venv']);
+  assert.deepStrictEqual(again.setup.results.map((result) => [result.status, result.ifMissing, result.guardMissing]), [['ok', '.venv', true]]);
+
+  // A guard the command does create gets no warning.
+  const good = makeProject(t, { workler: `setup --if-missing .venv ${NODE} -e "require('fs').mkdirSync('.venv')"\n` });
+  const fine = runCli(good, 'add', 'feat');
+  assert.strictEqual(fine.status, 0, fine.stderr);
+  assert.doesNotMatch(fine.stdout + fine.stderr, /still missing/);
+});
+
 test('a guard that is a link to a missing target stops the run instead of counting as absent', (t) => {
   // `link node_modules` made a link while the main project had one; later the
   // target was deleted. existsSync follows the link and says "absent", but an

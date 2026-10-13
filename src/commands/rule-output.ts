@@ -2,7 +2,7 @@ import type { WorkspaceSetupOptions, WorkspaceSetupOutcome } from '../core/setup
 import { setupCommandCount } from '../core/setup';
 import { formatRuleResult } from '../rules';
 import type { ApplyRulesOutcome, RuleApplyResult } from '../rules';
-import { formatSetupHeading, formatSetupSkip } from '../setup';
+import { formatSetupGuardMissing, formatSetupHeading, formatSetupSkip } from '../setup';
 import type { SetupCommand } from '../types';
 
 // Shared console rendering of rule application for `add` and `apply`:
@@ -32,6 +32,10 @@ export function printSetupHeading(command: SetupCommand): void {
   console.log(formatSetupHeading(command));
 }
 
+export function printSetupGuardMissing(command: SetupCommand): void {
+  console.log(formatSetupGuardMissing(command));
+}
+
 export function printSetupSkip(command: SetupCommand): void {
   console.log(formatSetupSkip(command));
 }
@@ -46,6 +50,7 @@ export function setupCallbacks(): WorkspaceSetupOptions {
   return {
     onSetupCommand: printSetupHeading,
     onSetupSkip: printSetupSkip,
+    onSetupGuardMissing: printSetupGuardMissing,
     onProjectSetup: (project, commandCount, skipped) => {
       if (skipped !== undefined) {
         console.log(`project ${project}: skipped (${skipped})`);

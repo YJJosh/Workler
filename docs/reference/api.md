@@ -160,7 +160,10 @@ stopped and reported as a failure. `onSetupOutput` requires
 `setupStdio: 'pipe'`, and `setupStdout: 'stderr'` cannot be combined with
 it (`INVALID_OPTIONS`). `onSetupCommand(command, index,
 total)` fires before each command starts, and `onSetupSkip(command, index,
-total)` instead of it for a skipped one. The first failing command throws
+total)` instead of it for a skipped one. `onSetupGuardMissing(command, index,
+total)` fires after a guarded command that exited 0 without creating its
+`--if-missing` path; its result is `{ status: 'ok', ifMissing, guardMissing:
+true }` and nothing is recorded. The first failing command throws
 `SETUP_COMMAND_FAILED` with `details` `{ name, path, command, exitCode?,
 signal?, index, commandCount, results, project?, workspace }`; the workspace
 is complete and stays in place, so the caller can retry with
@@ -189,7 +192,7 @@ same options and the same `SETUP_COMMAND_FAILED` contract as
 `createWorkspace`, except that `details.workspace` is only set by
 `createWorkspace`. Returns `{ name, path, root, setup, projects?, project? }`
 where `setup` is `{ commandCount, results }` and each result is
-`{ command, status: 'ok' | 'skipped', ifMissing?, stdout?, stderr? }` (the
+`{ command, status: 'ok' | 'skipped', ifMissing?, guardMissing?, stdout?, stderr? }` (the
 streams only with `setupStdio: 'pipe'`); a `commandCount` of `0`
 means `.workler` declares no commands. Refuses `main` (`MAIN_WORKSPACE`)
 and unknown names (`WORKSPACE_NOT_FOUND`). Does not take the project lock
