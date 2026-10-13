@@ -252,10 +252,12 @@ export function describeLocalData(entries: readonly LocalDataEntry[] | undefined
 
 // A file name as it can be printed on one line of a message. git status -z and
 // readdir hand back names verbatim, so a newline or an escape sequence in a
-// name could add lines to the message or reach the terminal. A name with none
-// of the characters below prints as it is; any other is quoted with C-style
-// escapes, the way git quotes paths.
-const UNSAFE_IN_DISPLAY = /[\u0000-\u001f\u007f-\u009f\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069"\\]/u;
+// name could add lines to the message or reach the terminal, and a bidi
+// control could reorder the text around it. A name with none of the characters
+// below (control characters, every Unicode Bidi_Control, the line and
+// paragraph separators, a quote or a backslash) prints as it is; any other is
+// quoted with C-style escapes, the way git quotes paths.
+const UNSAFE_IN_DISPLAY = /[\p{Cc}\p{Bidi_Control}\p{Zl}\p{Zp}"\\]/u;
 
 export function displayPath(path: string): string {
   if (!UNSAFE_IN_DISPLAY.test(path)) {

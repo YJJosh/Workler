@@ -261,6 +261,9 @@ test('displayPath leaves ordinary names alone and quotes names that could break 
   assert.strictEqual(displayPath('del\u007f c1\u009b'), '"del\\x7f c1\\x9b"');
   assert.strictEqual(displayPath('bidi‮txt.exe'), '"bidi\\u202etxt.exe"');
   assert.strictEqual(displayPath('line sep'), '"line\\u2028sep"');
+  assert.strictEqual(displayPath('alm\u061cmark'), '"alm\\u061cmark"');
+  assert.strictEqual(displayPath('lrm\u200emark'), '"lrm\\u200emark"');
+  assert.strictEqual(displayPath('para\u2029sep'), '"para\\u2029sep"');
   assert.strictEqual(displayPath('say "hi" \\ bye'), '"say \\"hi\\" \\\\ bye"');
 });
 
