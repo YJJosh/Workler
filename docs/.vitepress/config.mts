@@ -45,6 +45,7 @@ export default defineConfig({
           items: [
             { text: "What is Workler?", link: "/guide/what-is-workler" },
             { text: "Getting started", link: "/guide/getting-started" },
+            { text: "Agent skill", link: "/guide/agent-skill" },
           ],
         },
         {
