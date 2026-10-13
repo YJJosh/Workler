@@ -5,7 +5,7 @@ A workspace is a normal local clone of your project, living under `.worktrees/<n
 ## Creating workspaces
 
 ```bash
-workler add <name> [base] [--branch <branch>] [--checkout <ref>] [--force] [--dry-run]
+workler add <name> [base] [--branch <branch>] [--checkout <ref>] [--copy-links] [--no-setup] [--force] [--dry-run]
 ```
 
 `add` clones the main project into `.worktrees/<name>` (a fast local clone), sets up the branch you asked for, and applies the [copy/link rules](/guide/rules).

@@ -45,7 +45,7 @@ The API and the CLI share the same core: `workler add` and
   `details`); the `message` is the same human-readable text the CLI prints.
   Unexpected host failures from Node/Git (for example an I/O permission error)
   may remain ordinary `Error` instances and should still be caught. Codes include
-  `NOT_INITIALIZED`, `NOT_A_GIT_REPO`,
+  `ROOT_NOT_FOUND`, `NOT_INITIALIZED`, `NOT_A_GIT_REPO`, `MAIN_WORKSPACE`,
   `WORKSPACE_EXISTS`, `WORKSPACE_NOT_FOUND`, `WORKSPACE_DIRTY`,
   `BRANCH_EXISTS`, `BAD_REF`, `INVALID_NAME`, `INVALID_OPTIONS`,
   `CONFIG_INVALID`, `RULE_CONFLICT`, `SETUP_FAILED`, `SETUP_COMMAND_FAILED`,
@@ -86,7 +86,7 @@ symbolic links; a replacement at the source path leaves `parent` undefined,
 and a bare `apply` inside the clone refuses. `projects` lists the declared `project` paths of a group
 in file order (always empty for a Git repository) and `isGroup` is true when
 there are any. `configError` carries the parse error when `.workler` cannot
-be read. `memberOf` is `{ group, workspace, project }` for a member clone of
+be read. `memberOf` (a `GroupMembership`) is `{ group, workspace, project }` for a member clone of
 a group workspace, whether or not its source is still usable.
 
 ### `discoverProjects(root): string[]`
@@ -271,6 +271,12 @@ root mirrors a member clone's branches inside its source repository:
 folder's name plus a short hash of its canonical path. Use it to inspect the
 mirrors of one group; a repository that belongs to two groups has one such
 namespace per group.
+
+### Constants
+
+`CONFIG_FILE` (`".workler"`), `WORKSPACES_DIR` (`".worktrees"`) and
+`MAIN_WORKSPACE_NAME` (`"main"`, the reserved name of the main project in
+listings) are exported so callers do not hard-code them.
 
 ## Locking
 

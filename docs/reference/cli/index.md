@@ -14,9 +14,9 @@ Every command also accepts `-h`/`--help`. `workler help` prints a concise comman
 | [`workler add`](/reference/cli/add) | Clone a new workspace, set up its branch, apply rules, run setup commands |
 | [`workler apply`](/reference/cli/apply) | (Re-)apply the copy/link rules to workspaces |
 | [`workler setup`](/reference/cli/setup) | Re-run the `setup` commands in a workspace |
-| [`workler list`](/reference/cli/list) | Show every workspace with branch and path |
+| [`workler list`](/reference/cli/list) | Show every workspace with branch and path (alias `ls`) |
 | [`workler path`](/reference/cli/path) | Print one workspace's path (for `cd "$(...)"`), or one member of a group workspace |
-| [`workler remove`](/reference/cli/remove) | Delete a workspace |
+| [`workler remove`](/reference/cli/remove) | Delete a workspace (alias `rm`) |
 
 ## Multi-workspace commands
 
@@ -37,7 +37,7 @@ These operate on the main project **and every workspace** at once:
 | `workler help` | Print the command overview and documentation link |
 | `workler --version` | Print the version and exit (also `-v`, `workler version`) |
 
-`--version` prints the bare version on one line (`0.2.0`), the way `npm --version` does, so it can be read by a script without stripping a prefix.
+`--version` prints the bare version on one line (for example `0.2.2`), the way `npm --version` does, so it can be read by a script without stripping a prefix.
 
 ## Shared flags
 

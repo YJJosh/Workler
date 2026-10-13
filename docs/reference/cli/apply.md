@@ -48,10 +48,9 @@ A symlink that still points at its source holds no data, so it is converted with
 
 ## Output
 
-Sources and destinations are printed as absolute paths.
+Sources and destinations are printed as absolute paths. With `--all`, each workspace's lines follow an `applying <name>` heading.
 
 ```text
-applying feature-a
 ok     link node_modules (already linked)
 copied .env (replaced existing regular file)
 skip   copy fixtures/db.sqlite (source does not exist: /path/to/project/fixtures/db.sqlite)

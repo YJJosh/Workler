@@ -153,3 +153,27 @@ test('remove still accepts the name of a workspace that predates these rules', {
   assert.strictEqual(removed.name, 'con');
   assert.deepStrictEqual(worktreeEntries(root), []);
 });
+
+// remove names a workspace as `workler list` shows it. A path separator gets
+// remove's own message, not the --branch advice meant for add: the caller
+// usually typed a nested workspace (feat/agent-1) or a group member's address
+// (feat/web).
+for (const name of ['feat/web', 'feat\\web']) {
+  test(`remove rejects ${JSON.stringify(name)} with advice for remove, not add`, (t) => {
+    const root = makeProject(t);
+    api.createWorkspace(root, { name: 'feat' });
+
+    assert.throws(
+      () => api.removeWorkspace(root, name),
+      (error) => {
+        assert.strictEqual(error.code, 'INVALID_NAME', `expected INVALID_NAME, got ${error.code}: ${error.message}`);
+        assert.match(error.message, /workler list/);
+        assert.match(error.message, /nested workspace from inside its parent/);
+        assert.match(error.message, /project-group workspace only as a whole/);
+        assert.doesNotMatch(error.message, /--branch/);
+        return true;
+      },
+    );
+    assert.deepStrictEqual(worktreeEntries(root), ['feat'], 'nothing may be removed');
+  });
+}

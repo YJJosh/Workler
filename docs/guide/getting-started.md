@@ -88,7 +88,7 @@ wcd main
 | `workler setup <name>` | Re-run the setup commands in a workspace |
 | `workler list` | Show every workspace with its branch and path |
 | `workler path <name>` | Print a workspace's path |
-| `workler remove <name>` | Delete a workspace (refuses if it has uncommitted changes) |
+| `workler remove <name>` | Delete a workspace (refuses if it has local data: changes, untracked or ignored files) |
 | `workler status` | Show branch, ahead/behind, and clean/dirty state |
 | `workler sync` | Fetch everywhere and fast-forward what is safe |
 

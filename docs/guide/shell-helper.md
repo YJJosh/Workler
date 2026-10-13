@@ -23,7 +23,7 @@ Unknown names fail with `workler path`'s error and leave your shell where it is:
 
 ```text
 $ wcd nope
-workler: no workspace named "nope"
+workler: workspace not found: nope
 ```
 
 ## What `shell-init` prints
