@@ -243,11 +243,42 @@ export function describeLocalData(entries: readonly LocalDataEntry[] | undefined
   if (entries === undefined) {
     return ['(git status failed, so Workler cannot tell what is there)'];
   }
-  const lines = entries.slice(0, LOCAL_DATA_SHOWN).map((entry) => `${entry.kind}: ${entry.path}`);
+  const lines = entries.slice(0, LOCAL_DATA_SHOWN).map((entry) => `${entry.kind}: ${displayPath(entry.path)}`);
   if (entries.length > LOCAL_DATA_SHOWN) {
     lines.push('... and more (git status --ignored lists everything)');
   }
   return lines;
+}
+
+// A file name as it can be printed on one line of a message. git status -z and
+// readdir hand back names verbatim, so a newline or an escape sequence in a
+// name could add lines to the message or reach the terminal. A name with none
+// of the characters below prints as it is; any other is quoted with C-style
+// escapes, the way git quotes paths.
+const UNSAFE_IN_DISPLAY = /[\u0000-\u001f\u007f-\u009f\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069"\\]/u;
+
+export function displayPath(path: string): string {
+  if (!UNSAFE_IN_DISPLAY.test(path)) {
+    return path;
+  }
+  let quoted = '"';
+  for (const char of path) {
+    if (char === '"' || char === '\\') {
+      quoted += `\\${char}`;
+    } else if (char === '\n') {
+      quoted += '\\n';
+    } else if (char === '\t') {
+      quoted += '\\t';
+    } else if (char === '\r') {
+      quoted += '\\r';
+    } else if (UNSAFE_IN_DISPLAY.test(char)) {
+      const code = char.codePointAt(0) ?? 0;
+      quoted += code <= 0xff ? `\\x${code.toString(16).padStart(2, '0')}` : `\\u${code.toString(16).padStart(4, '0')}`;
+    } else {
+      quoted += char;
+    }
+  }
+  return `${quoted}"`;
 }
 
 function isUnderManagedPath(entryPath: string, managedPaths: readonly string[]): boolean {

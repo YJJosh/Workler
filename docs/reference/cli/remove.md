@@ -36,7 +36,7 @@ removed feature-a
 ## Errors
 
 - No workspace named `<name>`.
-- Workspace has local data (without `--force`): `workspace has local changes: <path>`, followed by what was found, one entry per line as Git spells it (`uncommitted: README.md`, `untracked: notes.txt`, `ignored: .portler/`), the first ten of them. In a project group each reason is listed, with a member clone's entries under it.
+- Workspace has local data (without `--force`): `workspace has local changes: <path>`, followed by what was found, one entry per line as Git spells it (`uncommitted: README.md`, `untracked: notes.txt`, `ignored: .portler/`), the first ten of them. A name holding a control character, a quote or a backslash is printed quoted with C-style escapes (`untracked: "a\nb"`), so it stays on its own line. In a project group each reason is listed, with a member clone's entries under it.
 - `<name>` is `main`.
 
 ## Examples

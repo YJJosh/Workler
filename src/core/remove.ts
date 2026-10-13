@@ -4,7 +4,7 @@ import { CONFIG_FILE, MAIN_WORKSPACE_NAME, WORKSPACES_DIR } from '../constants';
 import { WorklerError } from '../errors';
 import { assertInside } from '../fs-utils';
 import { managedWorkspacePaths, pathBelow } from '../config';
-import { describeLocalData, gitWorkTreeLocalData, LOCAL_DATA_SHOWN, type LocalDataEntry } from '../git';
+import { describeLocalData, displayPath, gitWorkTreeLocalData, LOCAL_DATA_SHOWN, type LocalDataEntry } from '../git';
 import { ancestorReason, foreignMemberReason, groupWorkspaceExtras, inspectMember, memberPath, sourceBrokenReason } from '../groups';
 import { withProjectLocks } from '../lock';
 import { recordedSetupOutputs } from '../setup';
@@ -127,7 +127,7 @@ function groupLocalData(workspacePath: string, groupRoot: string, projects: stri
     if (covered.has(extra)) {
       continue;
     }
-    reasons.push({ reason: extra === CONFIG_FILE ? configCopyReason(workspacePath) : `${extra}: not part of a declared project` });
+    reasons.push({ reason: extra === CONFIG_FILE ? configCopyReason(workspacePath) : `${displayPath(extra)}: not part of a declared project` });
   }
   return reasons;
 }

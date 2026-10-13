@@ -254,8 +254,10 @@ match their source, nor the `setup --if-missing` paths its commands created, whi
 `apply` and `setup` regenerate) unless
 `force` is set — that failure is `WORKSPACE_DIRTY`. Its `details.entries`
 lists what was found in a plain workspace (`{ path, kind }`, `kind` one of
-`uncommitted`, `untracked`, `ignored`, at most eleven; absent when `git status`
-failed); for a project group, `details.reasons` holds one line per reason.
+`uncommitted`, `untracked`, `ignored`, at most eleven, `path` exactly as Git
+reported it; absent when `git status` failed); for a project group,
+`details.reasons` holds one line per reason, with unusual names quoted as in
+the message.
 
 ### `groupRefNamespace(groupRoot): string`
 
