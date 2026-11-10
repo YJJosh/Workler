@@ -94,8 +94,22 @@ function inspectRepository(repo: string): string[] {
     throw new Error('shallow history cannot be assessed');
   }
   unlinkedMetadata(dotGit);
-  const config = inspect(repo, ['config', '--list', '--includes']);
-  if (config.split('\n').some((line) => /^(extensions\.partialclone|remote\..*\.promisor)=/i.test(line))) {
+  // REVIEW: Parse config record boundaries and let Git interpret its boolean
+  // syntax: a valueless promisor means true, while an explicit false is not a
+  // partial clone. Newline-delimited --list missed the former and blocked the latter.
+  const config = inspect(repo, ['config', '--null', '--list', '--includes']).split('\0');
+  const hasPromisor = config.some((entry) => /^remote\.[\s\S]*\.promisor(?:\n|$)/i.test(entry));
+  const promisors = new Map<string, string>();
+  if (hasPromisor) {
+    const records = inspect(repo,
+      ['config', '--includes', '--null', '--bool', '--get-regexp', '^remote\\..*\\.promisor$'], undefined, [0, 1]);
+    for (const record of records.split('\0').filter(Boolean)) {
+      const separator = record.lastIndexOf('\n');
+      promisors.set(record.slice(0, separator), record.slice(separator + 1));
+    }
+  }
+  const enabledPromisor = [...promisors.values()].includes('true');
+  if (enabledPromisor || config.some((entry) => /^extensions\.partialclone(?:\n|$)/i.test(entry))) {
     throw new Error('partial clones cannot be assessed offline');
   }
   const refs = inspect(repo, ['for-each-ref', '--format=%(refname) %(symref)']).split('\n').filter(Boolean);

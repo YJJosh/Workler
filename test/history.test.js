@@ -170,6 +170,29 @@ for (const unsupported of ['shallow', 'graft', 'replace', 'alternates', 'partial
   });
 }
 
+// REVIEW: Git boolean syntax includes explicit false and valueless true; neither
+// should be mistaken for the other when detecting unsupported partial clones.
+for (const repository of ['source', 'workspace']) {
+  test(`explicitly disabled promisor in ${repository} does not block a full repository`, { timeout: 30000 }, (t) => {
+    const { root, ws } = fixture(t);
+    const repo = repository === 'source' ? root : ws;
+    git(repo, 'config', '--add', 'remote.offline.promisor', 'true');
+    git(repo, 'config', '--add', 'remote.offline.promisor', 'false');
+    assert.equal(git(repo, 'config', '--bool', '--get', 'remote.offline.promisor'), 'false');
+    assert.equal(history(root).state, 'safe');
+    api.removeWorkspace(root, 'feat');
+  });
+
+  test(`valueless true promisor in ${repository} is unsupported, not safe`, { timeout: 30000 }, (t) => {
+    const { root, ws } = fixture(t);
+    const repo = repository === 'source' ? root : ws;
+    fs.appendFileSync(path.join(repo, '.git', 'config'), '\n[remote "offline"]\n\tpromisor\n');
+    assert.equal(git(repo, 'config', '--bool', '--get', 'remote.offline.promisor'), 'true');
+    blocked(root, 'feat', 'unknown');
+    api.removeWorkspace(root, 'feat', { force: true });
+  });
+}
+
 test('specific-commit advice is escaped, copyable and does not execute unusual names', { timeout: 30000 }, (t) => {
   const root = makeProject(t);
   const name = "odd'$(echo-injection)";
