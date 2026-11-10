@@ -148,7 +148,9 @@ export function assessHistory(source: string, workspace: string): HistoryAssessm
 }
 
 export function targetHistory(root: string, target: SyncTarget): HistoryAssessment | undefined {
-  if (target.name === 'main') return undefined;
+  // An absent member holds no repository/history to delete; remove skips it
+  // too. This is not an inspection success and must not be labeled safe.
+  if (target.name === 'main' || (target.project !== undefined && target.broken === 'missing (not cloned)')) return undefined;
   if (target.broken) return { state: 'unknown', reason: 'workspace repository is missing or broken' };
   if (target.project !== undefined && sourceBrokenReason(root, target.project) !== undefined) {
     return { state: 'unknown', reason: 'source repository is missing, broken or linked' };

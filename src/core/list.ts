@@ -25,7 +25,7 @@ export interface MemberInfo {
   shortHead?: string;
   detached: boolean;
   clean?: boolean;
-  // Absent on main; commit preservation is separate from file cleanliness.
+  // Absent on main and un-cloned members; separate from file cleanliness.
   history?: HistoryAssessment;
 }
 
