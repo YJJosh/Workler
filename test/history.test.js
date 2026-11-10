@@ -254,6 +254,28 @@ for (const metadata of ['refs', 'objects/pack', 'logs']) {
   });
 }
 
+test('linked source reftable storage is unknown, not durable preservation', { timeout: 30000 }, (t) => {
+  const root = fs.realpathSync.native(makeTempDir(t));
+  const initialized = spawnSync('git', ['init', '-q', '-b', 'main', '--ref-format=reftable'], {
+    cwd: root, encoding: 'utf8', timeout: 10000,
+  });
+  if (initialized.status !== 0) {
+    t.skip('Git does not support the reftable backend');
+    return;
+  }
+  api.initProject(root);
+  git(root, 'add', '.workler');
+  commit(root, 'initial reftable history');
+  const ws = api.createWorkspace(root, { name: 'feat' }).path;
+  importCommit(root, ws, commit(ws));
+  const stored = path.join(ws, '.git', 'source-reftable');
+  const sourcePath = path.join(root, '.git', 'reftable');
+  fs.renameSync(sourcePath, stored);
+  fs.symlinkSync(stored, sourcePath, process.platform === 'win32' ? 'junction' : 'dir');
+  blocked(root, 'feat', 'unknown');
+  assert.ok(fs.existsSync(stored), 'the source ref store must survive the refusal');
+});
+
 test('commit-graph acceleration cannot hide missing source commit objects', { timeout: 30000 }, (t) => {
   const { root } = fixture(t);
   const oid = git(root, 'rev-parse', 'HEAD');

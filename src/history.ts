@@ -50,7 +50,7 @@ function realDirectory(dir: string): boolean {
 function unlinkedMetadata(dotGit: string): void {
   const started = Date.now();
   let entries = 0;
-  const pending = ['objects', 'refs', 'logs', 'HEAD', 'packed-refs'].map((entry) => path.join(dotGit, entry));
+  const pending = ['objects', 'refs', 'logs', 'HEAD', 'packed-refs', 'reftable'].map((entry) => path.join(dotGit, entry));
   while (pending.length) {
     if (++entries > 1_000_000 || Date.now() - started > 30_000) throw new Error('Git metadata inspection exceeded its 30s / one million entries limit');
     const current = pending.pop()!;
