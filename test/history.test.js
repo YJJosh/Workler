@@ -338,6 +338,28 @@ test('pushed history still blocks until source has a durable imported ref', { ti
   api.removeWorkspace(root, 'feat');
 });
 
+test('a local reflog old-value commit stays protected even when a stale remote cache names it', { timeout: 30000 }, (t) => {
+  const root = makeProject(t);
+  const remote = addOrigin(t, root);
+  const ws = api.createWorkspace(root, { name: 'feat' }).path;
+  const base = git(ws, 'rev-parse', 'HEAD');
+  const oid = commit(ws, 'local recovery work');
+  git(ws, 'push', '-q', 'origin', 'feat');
+  git(remote, 'update-ref', '-d', 'refs/heads/feat');
+  git(ws, 'reset', '--hard', base);
+  for (const name of ['HEAD', 'refs/heads/feat']) {
+    const file = path.join(ws, '.git', 'logs', name);
+    const records = fs.readFileSync(file, 'utf8').trimEnd().split('\n');
+    fs.writeFileSync(file, records[records.length - 1] + '\n');
+  }
+  assert.equal(git(ws, 'rev-parse', 'refs/remotes/origin/feat'), oid, 'the remote cache can be stale');
+  assert.ok(git(ws, 'rev-list', '--all', '--reflog').includes(oid));
+  blocked(root);
+  assert.ok(history(root).commits.includes(oid));
+  importCommit(root, ws, oid);
+  api.removeWorkspace(root, 'feat');
+});
+
 test('creation warns when linked source Git metadata cannot support verified removal', { timeout: 30000 }, (t) => {
   const root = makeProject(t);
   const linked = path.join(makeTempDir(t), 'linked');
