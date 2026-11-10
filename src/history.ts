@@ -44,6 +44,36 @@ function realDirectory(dir: string): boolean {
   return stat.isDirectory() && !stat.isSymbolicLink();
 }
 
+// A source ref/object reached through a symlink into the workspace would
+// disappear on deletion despite looking reachable today. Refuse linked Git
+// history metadata, without following it. Bound filesystem inspection too.
+function unlinkedMetadata(dotGit: string): void {
+  const started = Date.now();
+  let entries = 0;
+  const pending = ['objects', 'refs', 'logs', 'HEAD', 'packed-refs'].map((entry) => path.join(dotGit, entry));
+  while (pending.length) {
+    if (++entries > 1_000_000 || Date.now() - started > 30_000) throw new Error('Git metadata inspection exceeded its 30s / one million entries limit');
+    const current = pending.pop()!;
+    let stat: fs.Stats;
+    try { stat = fs.lstatSync(current); } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue;
+      throw error;
+    }
+    if (stat.isSymbolicLink()) throw new Error('linked Git history metadata cannot be assessed');
+    if (stat.isDirectory()) {
+      const dir = fs.opendirSync(current);
+      try {
+        let entry: fs.Dirent | null;
+        while ((entry = dir.readSync()) !== null) {
+          if (++entries > 1_000_000 || Date.now() - started > 30_000) throw new Error('Git metadata inspection exceeded its 30s / one million entries limit');
+          if (entry.isSymbolicLink()) throw new Error('linked Git history metadata cannot be assessed');
+          if (entry.isDirectory()) pending.push(path.join(current, entry.name));
+        }
+      } finally { dir.closeSync(); }
+    }
+  }
+}
+
 function inspectRepository(repo: string): string[] {
   const dotGit = path.join(repo, '.git');
   if (!realDirectory(repo) || !realDirectory(dotGit) || !realDirectory(path.join(dotGit, 'objects')) ||
@@ -63,6 +93,7 @@ function inspectRepository(repo: string): string[] {
   if (inspect(repo, ['rev-parse', '--is-shallow-repository']) !== 'false') {
     throw new Error('shallow history cannot be assessed');
   }
+  unlinkedMetadata(dotGit);
   const config = inspect(repo, ['config', '--list', '--includes']);
   if (config.split('\n').some((line) => /^(extensions\.partialclone|remote\..*\.promisor)=/i.test(line))) {
     throw new Error('partial clones cannot be assessed offline');

@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { test } = require('node:test');
-const { api, git, makeProject, makeTempDir, runCli } = require('./helpers');
+const { addOrigin, api, git, makeProject, makeTempDir, runCli } = require('./helpers');
 
 function commit(repo, message = 'unique') {
   git(repo, 'config', 'user.email', 'test@example.invalid');
@@ -241,3 +241,50 @@ for (const broken of ['missing', 'broken', 'linked', 'linked checkout']) {
     assert.ok(fs.existsSync(path.join(ws, 'api', '.git')));
   });
 }
+
+for (const metadata of ['refs', 'objects/pack', 'logs']) {
+  test(`linked source Git ${metadata} is unknown, not durable preservation`, { timeout: 30000 }, (t) => {
+    const { root, ws } = fixture(t);
+    const sourcePath = path.join(root, '.git', ...metadata.split('/'));
+    const target = path.join(ws, '.git', ...metadata.split('/'));
+    fs.rmSync(sourcePath, { recursive: true });
+    fs.symlinkSync(target, sourcePath, process.platform === 'win32' ? 'junction' : 'dir');
+    assert.equal(history(root).state, 'unknown');
+    assert.throws(() => api.removeWorkspace(root, 'feat'), (e) => ['WORKSPACE_HISTORY', 'WORKSPACE_DIRTY'].includes(e.code));
+  });
+}
+
+test('commit-graph acceleration cannot hide missing source commit objects', { timeout: 30000 }, (t) => {
+  const { root } = fixture(t);
+  const oid = git(root, 'rev-parse', 'HEAD');
+  git(root, 'commit-graph', 'write', '--reachable');
+  fs.unlinkSync(path.join(root, '.git', 'objects', oid.slice(0, 2), oid.slice(2)));
+  assert.equal(history(root).state, 'unknown');
+  assert.throws(() => api.removeWorkspace(root, 'feat'), (e) => ['WORKSPACE_HISTORY', 'WORKSPACE_DIRTY'].includes(e.code));
+});
+
+test('pushed history still blocks until source has a durable imported ref', { timeout: 30000 }, (t) => {
+  const root = makeProject(t);
+  addOrigin(t, root);
+  const ws = api.createWorkspace(root, { name: 'feat' }).path;
+  const oid = commit(ws);
+  git(ws, 'push', '-q', 'origin', 'feat');
+  git(root, 'fetch', '-q', 'origin');
+  blocked(root);
+  git(root, 'branch', 'kept-pushed', oid);
+  api.removeWorkspace(root, 'feat');
+});
+
+test('file-clean and history-preserved are independent, and nested workspaces still block', { timeout: 30000 }, (t) => {
+  const { root, ws } = fixture(t);
+  api.createWorkspace(ws, { name: 'child' });
+  assert.equal(history(root).state, 'safe');
+  assert.throws(() => api.removeWorkspace(root, 'feat'), (e) => e.code === 'WORKSPACE_DIRTY');
+  const status = runCli(root, 'status');
+  assert.equal(status.status, 0);
+  assert.match(status.stdout, /feat\s+feat\s+no upstream\s+clean\s+preserved in source/);
+  api.removeWorkspace(ws, 'child');
+  fs.writeFileSync(path.join(ws, 'untracked.txt'), 'not backed up');
+  assert.equal(history(root).state, 'safe');
+  assert.throws(() => api.removeWorkspace(root, 'feat'), (e) => e.code === 'WORKSPACE_DIRTY');
+});
