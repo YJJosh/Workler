@@ -95,6 +95,8 @@ done   feat
 path   /path/to/root/.worktrees/feat
 ```
 
+If the source uses a linked Git directory (for example, a `git worktree` checkout), planning and creation warn that the offline removal-history proof does not support that layout. Creation is still allowed, but normal removal will report unknown history; use an independent source checkout when you need verified removal.
+
 A failure after cloning began leaves the partial workspace in place; `workler status` shows which member is missing and `workler remove <name> --force` removes it. A failing setup command leaves the complete workspace in place, names the member (`projects/api: setup command failed ...`), and stops the remaining commands; `workler setup <name>` re-runs them.
 
 ## Examples

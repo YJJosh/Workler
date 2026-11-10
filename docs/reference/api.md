@@ -226,7 +226,7 @@ project group `checkout` is absent, `projects` holds one
 `{ project, root, target, checkout, setup }` per member, and `setup` is the
 group's own commands.
 
-### `listWorkspaces(root): WorkspaceInfo[]`
+### `listWorkspaces(root, options?): WorkspaceInfo[]`
 
 The main project plus every entry under `.worktrees/`, including broken
 ones: `{ name, path, isMain, isClone, broken?, branch?, head?,
@@ -253,8 +253,14 @@ interface HistoryAssessment {
 }
 ```
 
-Non-main repository entries have `history`; in groups it is on each
-`projects[]` member, not the group folder. Main/source entries and absent (not cloned) members omit it; absent members hold no history to delete.
+Pass `{ history: true }` to opt in to the history proof (`ListWorkspacesOptions`).
+By default, listing omits history and does not walk Git history; the CLI `list`
+also stays lightweight because it only displays names, branches and paths.
+Invalid non-boolean `history` options throw `INVALID_OPTIONS`.
+
+With history enabled, non-main repository entries have `history`; in groups it
+is on each `projects[]` member, not the group folder. Main/source entries and
+absent (not cloned) members omit it; absent members hold no history to delete.
 `safe` means **commit-preserved in the immediate source**, not file-clean or
 backed up. All refs, HEAD and reflogs are assessed offline using the same
 [policy as remove](/reference/cli/remove#history-preservation-policy): source

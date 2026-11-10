@@ -54,8 +54,9 @@ Unsafe rows include a specific commit import example (Bash / Git Bash).`);
 
   const all = [{ name: 'NAME', branch: 'BRANCH', upstream: 'UPSTREAM', state: 'STATE', history: 'HISTORY' }, ...rows];
   const width = (key: 'name' | 'branch' | 'upstream' | 'state') => all.reduce((max, row) => Math.max(max, row[key].length), 0);
+  const widths = { name: width('name'), branch: width('branch'), upstream: width('upstream'), state: width('state') };
   for (const row of all) {
-    console.log(`${row.name.padEnd(width('name'))}  ${row.branch.padEnd(width('branch'))}  ${row.upstream.padEnd(width('upstream'))}  ${row.state.padEnd(width('state'))}  ${row.history}`);
+    console.log(`${row.name.padEnd(widths.name)}  ${row.branch.padEnd(widths.branch)}  ${row.upstream.padEnd(widths.upstream)}  ${row.state.padEnd(widths.state)}  ${row.history}`);
   }
   if (advice.length) console.log('\n' + advice.join('\n'));
   if (failures > 0) throw new Error(`git status failed in ${failures} workspace${failures === 1 ? '' : 's'}`);

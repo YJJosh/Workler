@@ -13,7 +13,7 @@ function commit(repo, message = 'unique') {
   return git(repo, 'rev-parse', 'HEAD');
 }
 function history(root, name = 'feat') {
-  return api.listWorkspaces(root).find((row) => row.name === name).history;
+  return api.listWorkspaces(root, { history: true }).find((row) => row.name === name).history;
 }
 function blocked(root, name = 'feat', state = 'unsafe') {
   assert.equal(history(root, name).state, state);
@@ -142,7 +142,7 @@ for (const ref of ['tag', 'detached HEAD']) {
   });
 }
 
-for (const unsupported of ['shallow', 'graft', 'replace', 'alternates', 'partial', 'missing commit', 'missing blob', 'missing reflog commit', 'git failure']) {
+for (const unsupported of ['shallow', 'graft', 'replace', 'alternates', 'partial', 'missing commit', 'missing blob', 'missing tree', 'missing reflog commit', 'git failure']) {
   test(`${unsupported} inspection yields unknown and refuses removal`, { timeout: 30000 }, (t) => {
     const { root, ws } = fixture(t);
     if (unsupported === 'shallow') fs.writeFileSync(path.join(ws, '.git', 'shallow'), git(ws, 'rev-parse', 'HEAD') + '\n');
@@ -154,6 +154,10 @@ for (const unsupported of ['shallow', 'graft', 'replace', 'alternates', 'partial
     if (unsupported === 'missing blob') {
       const blob = git(ws, 'rev-parse', 'HEAD:README.md');
       fs.unlinkSync(path.join(root, '.git', 'objects', blob.slice(0, 2), blob.slice(2)));
+    }
+    if (unsupported === 'missing tree') {
+      const tree = git(ws, 'rev-parse', 'HEAD^{tree}');
+      fs.unlinkSync(path.join(root, '.git', 'objects', tree.slice(0, 2), tree.slice(2)));
     }
     if (unsupported === 'missing reflog commit') {
       fs.appendFileSync(path.join(ws, '.git', 'logs', 'refs', 'heads', 'feat'),
@@ -170,7 +174,7 @@ for (const unsupported of ['shallow', 'graft', 'replace', 'alternates', 'partial
   });
 }
 
-// REVIEW: Git boolean syntax includes explicit false and valueless true; neither
+// Git boolean syntax includes explicit false and valueless true; neither
 // should be mistaken for the other when detecting unsupported partial clones.
 for (const repository of ['source', 'workspace']) {
   test(`explicitly disabled promisor in ${repository} does not block a full repository`, { timeout: 30000 }, (t) => {
@@ -232,7 +236,7 @@ test('group unsafe member preflight is all-or-nothing against each proper source
   assert.equal(runCli(root, 'branch-sync').status, 0);
   assert.throws(() => api.removeWorkspace(root, 'feat'), (e) => e.code === 'WORKSPACE_HISTORY');
   assert.ok(fs.existsSync(path.join(ws, 'api', '.git')));
-  const members = api.listWorkspaces(root).find((x) => x.name === 'feat').projects;
+  const members = api.listWorkspaces(root, { history: true }).find((x) => x.name === 'feat').projects;
   assert.equal(members.find((x) => x.project === 'web').history.state, 'unsafe');
   importCommit(path.join(root, 'api'), path.join(ws, 'web'), oid);
   assert.throws(() => api.removeWorkspace(root, 'feat'), (e) => e.code === 'WORKSPACE_HISTORY');
@@ -332,6 +336,37 @@ test('pushed history still blocks until source has a durable imported ref', { ti
   blocked(root);
   git(root, 'branch', 'kept-pushed', oid);
   api.removeWorkspace(root, 'feat');
+});
+
+test('creation warns when linked source Git metadata cannot support verified removal', { timeout: 30000 }, (t) => {
+  const root = makeProject(t);
+  const linked = path.join(makeTempDir(t), 'linked');
+  git(root, 'worktree', 'add', '--detach', linked, 'HEAD');
+  const plan = api.planWorkspaceCreation(linked, { name: 'feat' });
+  assert.ok(plan.warnings.some((warning) => /linked Git directory/.test(warning)));
+  const messages = [];
+  api.createWorkspace(linked, { name: 'feat', onProgress: (message) => messages.push(message) });
+  assert.ok(messages.some((message) => /normal removal will refuse/.test(message)));
+  assert.equal(history(linked).state, 'unknown');
+  assert.throws(() => api.removeWorkspace(linked, 'feat'), { code: 'WORKSPACE_HISTORY' });
+});
+
+test('history listing is opt-in and does not slow ordinary CLI/API listings', { timeout: 30000 }, (t) => {
+  const { root, ws } = fixture(t);
+  commit(ws);
+  const historyModule = require('../dist/history');
+  const original = historyModule.targetHistory;
+  historyModule.targetHistory = () => { throw new Error('unexpected expensive history proof'); };
+  try {
+    const row = api.listWorkspaces(root).find((entry) => entry.name === 'feat');
+    assert.equal(Object.hasOwn(row, 'history'), false);
+    assert.equal(api.listWorkspaces(root, { history: false }).length, 2);
+  } finally {
+    historyModule.targetHistory = original;
+  }
+  assert.equal(history(root).state, 'unsafe');
+  assert.equal(runCli(root, 'list').status, 0);
+  assert.throws(() => api.listWorkspaces(root, { history: 'yes' }), { code: 'INVALID_OPTIONS' });
 });
 
 test('file-clean and history-preserved are independent, and nested workspaces still block', { timeout: 30000 }, (t) => {

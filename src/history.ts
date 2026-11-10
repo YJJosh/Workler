@@ -72,7 +72,7 @@ function unlinkedMetadata(dotGit: string): void {
       } finally { dir.closeSync(); }
     }
   }
-  // REVIEW: Git accepts paths in reftable's tables.list. Reject indirections
+  // Git accepts paths in reftable's tables.list. Reject indirections
   // outside this directory even when every metadata entry is a regular file.
   const tables = path.join(dotGit, 'reftable', 'tables.list');
   let stat: fs.Stats;
@@ -104,7 +104,7 @@ function inspectRepository(repo: string): string[] {
     throw new Error('shallow history cannot be assessed');
   }
   unlinkedMetadata(dotGit);
-  // REVIEW: Parse config record boundaries and let Git interpret its boolean
+  // Parse config record boundaries and let Git interpret its boolean
   // syntax: a valueless promisor means true, while an explicit false is not a
   // partial clone. Newline-delimited --list missed the former and blocked the latter.
   const config = inspect(repo, ['config', '--null', '--list', '--includes']).split('\0');
@@ -140,7 +140,8 @@ function walk(repo: string, revisions: string[]): string[] {
   const input = revisions.join('\n') + '\n';
   // Check the reachable objects too: missing trees/blobs must not produce a
   // reassuring answer merely because their commit headers are readable.
-  ids(inspect(repo, ['rev-list', '--objects', '--no-object-names', '--missing=print', '--stdin'], input));
+  // Quiet traversal verifies connectivity without printing every object ID.
+  inspect(repo, ['rev-list', '--objects', '--quiet', '--stdin'], input);
   return ids(inspect(repo, ['rev-list', '--stdin'], input));
 }
 
@@ -161,7 +162,7 @@ export function assessHistory(source: string, workspace: string): HistoryAssessm
     // --all includes HEAD, all namespaces and tags; --reflog adds old stash
     // entries and commits orphaned by reset/amend, including old reflog OIDs.
     const candidates = ids(inspect(workspace, ['rev-list', '--all', '--reflog']));
-    ids(inspect(workspace, ['rev-list', '--objects', '--no-object-names', '--missing=print', '--all', '--reflog']));
+    inspect(workspace, ['rev-list', '--objects', '--quiet', '--all', '--reflog']);
     const missing = candidates.filter((commit) => !preserved.has(commit));
     return missing.length === 0 ? { state: 'safe' } : { state: 'unsafe', unpreservedCount: missing.length, commits: missing.slice(0, 5) };
   } catch (error) {
