@@ -72,6 +72,16 @@ function unlinkedMetadata(dotGit: string): void {
       } finally { dir.closeSync(); }
     }
   }
+  // REVIEW: Git accepts paths in reftable's tables.list. Reject indirections
+  // outside this directory even when every metadata entry is a regular file.
+  const tables = path.join(dotGit, 'reftable', 'tables.list');
+  let stat: fs.Stats;
+  try { stat = fs.lstatSync(tables); } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
+    throw error;
+  }
+  if (!stat.isFile() || stat.size > OUTPUT_LIMIT) throw new Error('reftable table list cannot be inspected safely');
+  if (/[\\/]/.test(fs.readFileSync(tables, 'utf8'))) throw new Error('external reftable table paths cannot be assessed');
 }
 
 function inspectRepository(repo: string): string[] {

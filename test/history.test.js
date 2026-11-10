@@ -277,27 +277,41 @@ for (const metadata of ['refs', 'objects/pack', 'logs']) {
   });
 }
 
-test('linked source reftable storage is unknown, not durable preservation', { timeout: 30000 }, (t) => {
-  const root = fs.realpathSync.native(makeTempDir(t));
-  const initialized = spawnSync('git', ['init', '-q', '-b', 'main', '--ref-format=reftable'], {
-    cwd: root, encoding: 'utf8', timeout: 10000,
+for (const indirection of ['linked directory', 'external table paths']) {
+  test(`source reftable ${indirection} is unknown, not durable preservation`, { timeout: 30000 }, (t) => {
+    const root = fs.realpathSync.native(makeTempDir(t));
+    const initialized = spawnSync('git', ['init', '-q', '-b', 'main', '--ref-format=reftable'], {
+      cwd: root, encoding: 'utf8', timeout: 10000,
+    });
+    if (initialized.status !== 0) {
+      t.skip('Git does not support the reftable backend');
+      return;
+    }
+    api.initProject(root);
+    git(root, 'add', '.workler');
+    commit(root, 'initial reftable history');
+    const ws = api.createWorkspace(root, { name: 'feat' }).path;
+    const oid = commit(ws);
+    importCommit(root, ws, oid);
+    assert.equal(history(root).state, 'safe', 'ordinary independent reftable storage is supported');
+    const sourceTables = path.join(root, '.git', 'reftable');
+    const stored = path.join(ws, '.git', 'source-reftable');
+    if (indirection === 'linked directory') {
+      fs.renameSync(sourceTables, stored);
+      fs.symlinkSync(stored, sourceTables, process.platform === 'win32' ? 'junction' : 'dir');
+    } else {
+      // Git accepts external table paths even without symbolic links.
+      fs.mkdirSync(stored);
+      const names = fs.readFileSync(path.join(sourceTables, 'tables.list'), 'utf8').trim().split('\n');
+      for (const name of names) fs.renameSync(path.join(sourceTables, name), path.join(stored, name));
+      const relative = path.relative(sourceTables, stored).split(path.sep).join('/');
+      fs.writeFileSync(path.join(sourceTables, 'tables.list'), names.map((name) => `${relative}/${name}`).join('\n') + '\n');
+      assert.equal(git(root, 'rev-parse', 'refs/heads/kept'), oid, 'Git accepts the external table paths');
+    }
+    blocked(root, 'feat', 'unknown');
+    assert.ok(fs.existsSync(stored), 'the source ref store must survive the refusal');
   });
-  if (initialized.status !== 0) {
-    t.skip('Git does not support the reftable backend');
-    return;
-  }
-  api.initProject(root);
-  git(root, 'add', '.workler');
-  commit(root, 'initial reftable history');
-  const ws = api.createWorkspace(root, { name: 'feat' }).path;
-  importCommit(root, ws, commit(ws));
-  const stored = path.join(ws, '.git', 'source-reftable');
-  const sourcePath = path.join(root, '.git', 'reftable');
-  fs.renameSync(sourcePath, stored);
-  fs.symlinkSync(stored, sourcePath, process.platform === 'win32' ? 'junction' : 'dir');
-  blocked(root, 'feat', 'unknown');
-  assert.ok(fs.existsSync(stored), 'the source ref store must survive the refusal');
-});
+}
 
 test('commit-graph acceleration cannot hide missing source commit objects', { timeout: 30000 }, (t) => {
   const { root } = fixture(t);
