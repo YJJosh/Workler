@@ -72,7 +72,7 @@ user documentation lives in [`docs/`](docs/).
   is given (`src/git.ts`, `src/core/remove.ts`). It checks local files,
   and also assesses all refs/HEAD/reflogs against durable source local
   branches/tags or detached HEAD (`src/history.ts`). Mirrors and remote refs
-  do not count; unknown blocks normal removal. `clean` is file safety only.
+  do not count; unknown blocks normal removal. `WorkspaceInfo.clean` is file safety only.
   `--force` bypasses both guards and saves nothing.
 
 ## Keep docs in sync

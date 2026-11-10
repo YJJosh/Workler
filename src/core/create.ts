@@ -266,6 +266,12 @@ function workspaceTarget(root: string, name: string): string {
   return target;
 }
 
+function warnIfLinkedSource(root: string, warnings: string[], label: string): void {
+  if (!hasIndependentGitDirectory(root)) {
+    warnings.push(`${label} uses a linked Git directory; the offline removal history proof does not support this layout, so normal removal will refuse. Use an independent source checkout.`);
+  }
+}
+
 function planLocked(root: string, options: CreateWorkspaceOptions): WorkspacePlan {
   const target = workspaceTarget(root, options.name);
 
@@ -279,9 +285,7 @@ function planLocked(root: string, options: CreateWorkspaceOptions): WorkspacePla
   const checkout = planCheckout(root, options);
 
   const warnings: string[] = [];
-  if (!hasIndependentGitDirectory(root)) {
-    warnings.push('source uses a linked Git directory; the offline removal history proof does not support this layout, so normal removal will refuse. Use an independent source checkout.');
-  }
+  warnIfLinkedSource(root, warnings, 'source');
   if (!isGitWorkTreeClean(root)) {
     warnings.push('main project has uncommitted changes; the clone will only contain committed tracked files');
   }
@@ -318,6 +322,7 @@ function planGroupLocked(root: string, projects: string[], options: CreateWorksp
       assertRepositoryDeclaresNoProjects(memberRoot);
       applyRules(memberRoot, memberTarget, { force: options.force === true, copyLinks: options.copyLinks === true, dryRun: true });
       const checkout = planCheckout(memberRoot, options);
+      warnIfLinkedSource(memberRoot, warnings, project);
       if (!isGitWorkTreeClean(memberRoot)) {
         warnings.push(`${project} has uncommitted changes; its clone will only contain committed tracked files`);
       }

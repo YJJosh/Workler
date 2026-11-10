@@ -373,6 +373,40 @@ test('creation warns when linked source Git metadata cannot support verified rem
   assert.throws(() => api.removeWorkspace(linked, 'feat'), { code: 'WORKSPACE_HISTORY' });
 });
 
+test('group creation warns about a linked member source before cloning', { timeout: 30000 }, (t) => {
+  const root = group(t);
+  const source = path.join(root, 'web');
+  const moved = path.join(root, 'moved');
+  fs.renameSync(source, moved);
+  git(moved, 'worktree', 'add', '--detach', source, 'HEAD');
+  const plan = api.planWorkspaceCreation(root, { name: 'feat' });
+  assert.ok(plan.warnings.some((warning) => /web uses a linked Git directory/.test(warning)));
+  const messages = [];
+  api.createWorkspace(root, { name: 'feat', onProgress: (message) => messages.push(message) });
+  assert.ok(messages.some((message) => /web uses a linked Git directory/.test(message)));
+  assert.throws(() => api.removeWorkspace(root, 'feat'), { code: 'WORKSPACE_HISTORY' });
+});
+
+test('opted-in listings omit history where no history assessment applies', { timeout: 30000 }, (t) => {
+  const { root } = fixture(t);
+  assert.equal(Object.hasOwn(api.listWorkspaces(root, { history: true })[0], 'history'), false);
+  const groupRoot = group(t);
+  const ws = api.createWorkspace(groupRoot, { name: 'feat' }).path;
+  fs.rmSync(path.join(ws, 'web'), { recursive: true });
+  const rows = api.listWorkspaces(groupRoot, { history: true });
+  assert.ok(rows[0].projects.every((member) => !Object.hasOwn(member, 'history')));
+  const feature = rows.find((row) => row.name === 'feat');
+  assert.equal(Object.hasOwn(feature, 'history'), false);
+  assert.equal(Object.hasOwn(feature.projects.find((member) => member.project === 'web'), 'history'), false);
+  assert.equal(feature.projects.find((member) => member.project === 'api').history.state, 'safe');
+});
+
+test('history labels truncate Unicode by code point without splitting surrogate pairs', () => {
+  const { historyLabel } = require('../dist/history');
+  const { displayPath } = require('../dist/git');
+  assert.equal(historyLabel('a'.repeat(199) + '🚀' + 'tail'), displayPath('a'.repeat(199) + '🚀...'));
+});
+
 test('history listing is opt-in and does not slow ordinary CLI/API listings', { timeout: 30000 }, (t) => {
   const { root, ws } = fixture(t);
   commit(ws);

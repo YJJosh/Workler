@@ -214,5 +214,6 @@ export function historyAdvice(source: string, workspace: string, history: Histor
 }
 
 export function historyLabel(value: string): string {
-  return displayPath(value.length > 200 ? value.slice(0, 200) + '...' : value);
+  const characters = Array.from(value);
+  return displayPath(characters.length > 200 ? characters.slice(0, 200).join('') + '...' : value);
 }

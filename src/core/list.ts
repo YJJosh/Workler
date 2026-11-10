@@ -82,8 +82,9 @@ export function listWorkspaceInfos(rootInput: string, options: ListWorkspacesOpt
       const isMain = target.path === info.root;
       // The main checkout holds the rules' sources, not their outputs: nothing is exempt there.
       const managed = isMain ? [] : managedWorkspacePaths(info.root, target.path, recordedSetupOutputs(target.path, 'clone'));
+      const history = options.history === true ? targetHistory(info.root, target) : undefined;
       return { name: target.name, isMain, ...inspectTarget(target, isMain, managed),
-        ...(options.history === true ? { history: targetHistory(info.root, target) } : {}) };
+        ...(history === undefined ? {} : { history }) };
     });
   }
 
@@ -115,8 +116,9 @@ export function listWorkspaceInfos(rootInput: string, options: ListWorkspacesOpt
       // A member is a clone only when it is the member's usable clone: a
       // repository that is not the recorded one, or a .git reached through a
       // link, is local data (see broken), not the member.
+      const history = options.history === true ? targetHistory(info.root, member) : undefined;
       const memberInfo: MemberInfo = { project: member.project, ...details, isClone: details.isClone && details.broken === undefined,
-        ...(options.history === true ? { history: targetHistory(info.root, member) } : {}) };
+        ...(history === undefined ? {} : { history }) };
       projects.push(memberInfo);
       if (memberInfo.broken) {
         brokenReasons.push(`${member.project}: ${memberInfo.broken}`);
