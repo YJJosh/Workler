@@ -24,6 +24,7 @@ export type {
 
 export { listWorkspaceInfos as listWorkspaces, resolveWorkspacePath } from './core/list';
 export type { MemberInfo, WorkspaceInfo } from './core/list';
+export type { HistoryAssessment } from './history';
 
 export { removeWorkspace } from './core/remove';
 export type { RemoveWorkspaceOptions, RemoveWorkspaceResult } from './core/remove';

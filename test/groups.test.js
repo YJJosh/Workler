@@ -736,7 +736,7 @@ test('list shows a group workspace as one line; status shows every member', (t) 
   const status = runCli(root, 'status');
   assert.strictEqual(status.status, 0, status.stderr);
   for (const name of ['main/projects/api', 'main/projects/web', 'main/tools', 'feat/projects/api', 'feat/projects/web', 'feat/tools']) {
-    assert.match(status.stdout, new RegExp(`^${name.replace(/\//g, '\\/')}\\s+(main|feat)\\s+no upstream\\s+clean$`, 'm'));
+    assert.match(status.stdout, new RegExp(`^${name.replace(/\//g, '\\/')}\\s+(main|feat)\\s+no upstream\\s+clean\\s+(preserved in source|-)$`, 'm'));
   }
 
   // Members on different branches: mixed. A member that is dirty: the
@@ -1928,7 +1928,7 @@ test('fetch and sync cover every member of the group and of its workspaces', (t)
   assert.ok(fs.existsSync(path.join(feat, 'projects', 'api', 'new.txt')));
 
   const status = runCli(root, 'status');
-  assert.match(status.stdout, /^main\/projects\/api\s+main\s+up to date\s+clean$/m);
+  assert.match(status.stdout, /^main\/projects\/api\s+main\s+up to date\s+clean\s+-$/m);
 });
 
 test('help describes project groups', () => {

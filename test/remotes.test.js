@@ -113,7 +113,7 @@ test('local-only branches have no fake upstream and origin refs mirror the root 
     git(root, 'for-each-ref', snapshotFormat, 'refs/remotes/origin/'),
     'workspace remote-tracking refs must exactly mirror the root origin snapshot',
   );
-  assert.match(runCli(root, 'status').stdout, /^local-ws\s+local-only\s+no upstream\s+clean$/m);
+  assert.match(runCli(root, 'status').stdout, /^local-ws\s+local-only\s+no upstream\s+clean\s+preserved in source$/m);
 });
 
 test('a root local branch tracks only the real origin snapshot, not its local tip', (t) => {
@@ -126,7 +126,7 @@ test('a root local branch tracks only the real origin snapshot, not its local ti
 
   assert.strictEqual(workspace.head, git(root, 'rev-parse', 'refs/heads/main'));
   assert.strictEqual(git(workspace.path, 'rev-list', '--left-right', '--count', 'HEAD...@{upstream}'), '1\t0');
-  assert.match(runCli(root, 'status').stdout, /^main-ws\s+main\s+ahead 1\s+clean$/m);
+  assert.match(runCli(root, 'status').stdout, /^main-ws\s+main\s+ahead 1\s+clean\s+preserved in source$/m);
 });
 
 test('--checkout HEAD and @ are detached revision shorthands even when origin/HEAD exists', (t) => {
