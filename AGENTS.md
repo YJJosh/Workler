@@ -69,9 +69,11 @@ user documentation lives in [`docs/`](docs/).
   Mode.
 - `remove` refuses while the workspace holds local files (changes,
   untracked or ignored data, except what `.workler` creates) unless `--force`
-  is given (`src/git.ts`, `src/core/remove.ts`). It checks files only,
-  not Git refs, so commits, stashes and tags that exist only in the clone are
-  not detected; the skill tells agents how to keep them.
+  is given (`src/git.ts`, `src/core/remove.ts`). It checks local files,
+  and also assesses all refs/HEAD/reflogs against durable source local
+  branches/tags or detached HEAD (`src/history.ts`). Mirrors and remote refs
+  do not count; unknown blocks normal removal. `clean` is file safety only.
+  `--force` bypasses both guards and saves nothing.
 
 ## Keep docs in sync
 

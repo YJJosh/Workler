@@ -63,13 +63,14 @@ or destination's parent path is never followed and cannot be overridden with
 copied .env (replaced existing regular file)
 ```
 
-`--force` also appears on [`workler remove`](/reference/cli/remove), where it means something different: remove the workspace even though it has local data.
+`--force` also appears on [`workler remove`](/reference/cli/remove), where it means something different: destructively bypass both local-file and commit-preservation checks. It saves no files or history, including nested workspaces.
 
 ## The same caution everywhere else
 
 The safety-first stance runs through the whole CLI:
 
 - [`workler remove`](/reference/cli/remove) refuses to delete a workspace with any local data — untracked and ignored files included, since deletion is permanent. Only what `.workler` itself produced (rule destinations that still match their source, `setup --if-missing` paths a guarded command created, as the workspace records, together with everything later written inside them) is exempt, because `apply` and `setup` can make it again. So guard only folders that can be rebuilt (`node_modules`, `.venv`), never one that will hold data you want to keep.
+- Normal removal also requires every ref/HEAD/reflog commit to be proven reachable from durable source local branches/tags or detached HEAD, using the same history assessment as `status`. Unknown blocks. Remote-tracking and branch-sync mirrors do not count; importing history does not back up dirty/untracked/ignored files. See [preservation policy and limits](/reference/cli/remove#history-preservation-policy).
 - [`workler sync`](/reference/cli/sync) only ever fast-forwards; dirty workspaces and diverged branches are skipped, never merged or rebased.
 - [`workler branch-sync`](/reference/cli/branch-sync) never moves a checked-out branch or one with local-only commits.
 - Untracked files created by copy rules never count as "dirty" for `status` and `sync`, and since they are regenerable they do not block `remove` either. Any other untracked or ignored file does block `remove` — it is the one command that would delete it.

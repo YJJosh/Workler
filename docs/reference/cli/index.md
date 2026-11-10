@@ -46,7 +46,7 @@ These operate on the main project **and every workspace** at once:
 | `--dry-run` | `add`, `apply` | Print what would be copied/linked/replaced without changing anything |
 | `--copy-links` | `add`, `apply` | Apply `link` rules as independent copies; on `apply`, converts existing symlinks (`--no-copy-links` reverts) |
 | `--force` | `add`, `apply` | Replace destinations that already exist and differ |
-| `--force` | `remove` | Remove even with uncommitted changes |
+| `--force` | `remove` | Destructively bypass local-file and commit-preservation checks; no backup |
 | `--no-setup` | `add` | Skip the `setup` commands (`workler setup <name>` runs them later) |
 
 Flags take values as `--flag value` or `--flag=value`. Errors go to stderr and exit with a non-zero status, prefixed `workler:`.

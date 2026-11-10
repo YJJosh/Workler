@@ -75,7 +75,7 @@ or use the [`wcd` shell helper](/guide/shell-helper).
 workler remove feature-a
 ```
 
-`remove` deletes the workspace directory — but refuses if the workspace has any local data, untracked **and gitignored** files included: deletion is forever, so even an ignored database or a nested `.worktrees/` counts here. What the project's `.workler` produces (copy and link destinations that still match their source, `setup --if-missing` paths its commands created) does not: `apply` and `setup` regenerate it. Use `--force` to remove anyway. The `main` workspace can never be removed.
+`remove` deletes the workspace directory — but refuses if the workspace has any local data, untracked **and gitignored** files included: deletion is forever, so even an ignored database or a nested `.worktrees/` counts here. What the project's `.workler` produces (copy and link destinations that still match their source, `setup --if-missing` paths its commands created) does not: `apply` and `setup` regenerate it. It also checks all refs, HEAD and reflogs for commits not preserved in durable source branches/tags or detached HEAD; mirrors and remote-tracking refs do not count. Run `workler status` for the same history assessment and exact-commit import advice, then save local files separately. See [preservation policy and conservative limits](/reference/cli/remove#history-preservation-policy). Unknown blocks removal. `--force` bypasses both checks and destroys files/history without backup. The `main` workspace can never be removed.
 
 ## Next steps
 
