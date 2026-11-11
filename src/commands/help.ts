@@ -23,7 +23,8 @@ Flags:
                    nothing; "apply --copy-links" converts existing links to copies
   --no-copy-links  apply only: go back to symlinks (existing copies need --force)
   --dry-run        print what would be copied/linked/replaced without changing anything
-  --force          replace destinations that already exist and differ
+  --force          add/apply: replace destinations that already exist and differ
+                   remove: destructive override of file/history checks; no backup
   --no-setup       add only: skip the "setup" commands ("setup <name>" runs them later)
 
 Workler does not use git worktree: it creates normal local clones under
@@ -34,6 +35,11 @@ then runs its "setup" commands inside the new clone ("setup pnpm install";
 "sync" skips repositories with uncommitted tracked changes and only fast-forwards
 current branches. "branch-sync" can create branches and fast-forward non-checked-out
 branches, but leaves diverged or locally advanced branches unchanged.
+"remove" refuses local files AND commits not proven reachable from durable source
+branches/tags or detached HEAD (all workspace refs/HEAD/reflogs are checked).
+"status" shows that same history proof separately from tracked-file cleanliness.
+Mirrors and remote-tracking refs do not count; unknown inspection blocks removal.
+Import needed commits into durable source refs and save local files first.
 
 A plain folder that holds several repositories becomes a project group by
 listing them with "project <path>" lines in its ${CONFIG_FILE} ("${PACKAGE_NAME} init" writes

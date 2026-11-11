@@ -13,7 +13,16 @@ export function removeCommand(args: string[]): void {
     maxPositionals: 1,
   });
   if (parsed.help) {
-    console.log(`usage: ${usage}`);
+    console.log(`usage: ${usage}
+
+Deletes a workspace only after file checks and an offline commit-preservation
+proof against its source repository. Checks all refs, HEAD and reflogs, not
+just the current branch. Source local branches/tags and detached HEAD count;
+remote-tracking refs and branch-sync mirrors do not. Unknown blocks removal.
+Run workler status for commit IDs and exact-commit import advice. Importing
+history does not back up dirty, untracked or ignored files. Groups preflight
+all members before deletion. Nonempty nested workspaces remain protected.
+--force is destructive: bypasses file/history checks and saves nothing.`);
     return;
   }
 

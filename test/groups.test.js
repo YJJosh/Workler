@@ -624,10 +624,10 @@ test('a declared project that is not a repository fails before anything is clone
   assert.match(main.broken, /tools: not a Git repository top level/);
   const status = runCli(root, 'status');
   assert.strictEqual(status.status, 0, status.stderr);
-  assert.match(status.stdout, /^main\/tools\s+-\s+-\s+broken: not a Git repository top level$/m);
+  assert.match(status.stdout, /^main\/tools\s+-\s+-\s+broken: not a Git repository top level\s+-$/m);
 
   fs.rmSync(path.join(root, 'projects', 'api'), { recursive: true });
-  assert.match(runCli(root, 'status').stdout, /^main\/projects\/api\s+-\s+-\s+broken: missing$/m);
+  assert.match(runCli(root, 'status').stdout, /^main\/projects\/api\s+-\s+-\s+broken: missing\s+-$/m);
 });
 
 test('the plan lists one checkout per member and add --dry-run creates nothing', (t) => {
@@ -736,7 +736,7 @@ test('list shows a group workspace as one line; status shows every member', (t) 
   const status = runCli(root, 'status');
   assert.strictEqual(status.status, 0, status.stderr);
   for (const name of ['main/projects/api', 'main/projects/web', 'main/tools', 'feat/projects/api', 'feat/projects/web', 'feat/tools']) {
-    assert.match(status.stdout, new RegExp(`^${name.replace(/\//g, '\\/')}\\s+(main|feat)\\s+no upstream\\s+clean$`, 'm'));
+    assert.match(status.stdout, new RegExp(`^${name.replace(/\//g, '\\/')}\\s+(main|feat)\\s+no upstream\\s+clean\\s+(preserved in source|-)$`, 'm'));
   }
 
   // Members on different branches: mixed. A member that is dirty: the
@@ -763,7 +763,7 @@ test('a workspace with a missing member is incomplete, still listed, and can be 
   assert.strictEqual(workspace.branch, undefined);
   assert.strictEqual(workspace.clean, undefined);
   assert.match(runCli(root, 'list').stdout, /^feat\s+incomplete\s+/m);
-  assert.match(runCli(root, 'status').stdout, /^feat\/projects\/web\s+-\s+-\s+broken: missing \(not cloned\)$/m);
+  assert.match(runCli(root, 'status').stdout, /^feat\/projects\/web\s+-\s+-\s+broken: missing \(not cloned\)\s+-$/m);
 
   // A member directory that is not a clone, and a stray directory under
   // .worktrees/, are flagged too.
@@ -772,7 +772,7 @@ test('a workspace with a missing member is incomplete, still listed, and can be 
   fs.mkdirSync(path.join(root, '.worktrees', 'junk'));
   fs.writeFileSync(path.join(root, '.worktrees', 'junk', 'x.txt'), 'x\n');
   const status = runCli(root, 'status');
-  assert.match(status.stdout, /^feat\/projects\/web\s+-\s+-\s+broken: missing .git \(not a clone\)$/m);
+  assert.match(status.stdout, /^feat\/projects\/web\s+-\s+-\s+broken: missing .git \(not a clone\)\s+unknown: workspace repository is missing or broken$/m);
   assert.match(status.stdout, /^junk\s+-\s+-\s+broken: not a group workspace/m);
   assert.doesNotMatch(runCli(root, 'list').stdout, /^junk/m);
   assert.deepStrictEqual(api.listWorkspaces(root).map((info) => [info.name, info.isClone]), [['main', true], ['feat', true], ['junk', false]]);
@@ -805,7 +805,7 @@ test('a symbolic link at a member path is local data: remove refuses, --force de
     assert.strictEqual(workspace.name, 'feat');
     assert.strictEqual(workspace.broken, 'projects/api: a symbolic link, not a clone');
     assert.strictEqual(workspace.clean, undefined);
-    assert.match(runCli(root, 'status').stdout, /^feat\/projects\/api\s+-\s+-\s+broken: a symbolic link, not a clone$/m);
+    assert.match(runCli(root, 'status').stdout, /^feat\/projects\/api\s+-\s+-\s+broken: a symbolic link, not a clone\s+unknown: workspace repository is missing or broken$/m);
     assert.throws(() => api.removeWorkspace(root, 'feat'), (error) => error.code === 'WORKSPACE_DIRTY' && /projects\/api: a symbolic link, not a clone/.test(error.message));
     assert.strictEqual(fs.existsSync(feat), true);
   }
@@ -846,8 +846,8 @@ test('a source repository behind a symbolic link is refused: nothing reaches wha
   assert.strictEqual(sourceOf('projects/web').broken, 'behind a symbolic link at projects, not a repository');
   assert.strictEqual(sourceOf('tools').broken, undefined);
   const status = runCli(root, 'status');
-  assert.strictEqual(status.status, 0, status.stderr);
-  assert.match(status.stdout, /^main\/projects\/api\s+-\s+-\s+broken: behind a symbolic link at projects, not a repository$/m);
+  assert.strictEqual(status.status, 1, status.stderr);
+  assert.match(status.stdout, /^main\/projects\/api\s+-\s+-\s+broken: behind a symbolic link at projects, not a repository\s+-$/m);
 
   // sync and branch-sync skip the source and every member that depends on
   // it: the repository behind the link is neither fast-forwarded nor given
@@ -952,9 +952,9 @@ test('a symbolic link on the way to a nested member is never followed: status, a
   assert.match(workspace.broken, /projects\/web: behind a symbolic link at projects, not a clone/);
   assert.strictEqual(workspace.clean, undefined);
   const status = runCli(root, 'status');
-  assert.strictEqual(status.status, 0, status.stderr);
-  assert.match(status.stdout, /^feat\/projects\/api\s+-\s+-\s+broken: behind a symbolic link at projects, not a clone$/m);
-  assert.match(status.stdout, /^feat\/projects\/web\s+-\s+-\s+broken: behind a symbolic link at projects, not a clone$/m);
+  assert.strictEqual(status.status, 1, status.stderr);
+  assert.match(status.stdout, /^feat\/projects\/api\s+-\s+-\s+broken: behind a symbolic link at projects, not a clone\s+unknown: workspace repository is missing or broken$/m);
+  assert.match(status.stdout, /^feat\/projects\/web\s+-\s+-\s+broken: behind a symbolic link at projects, not a clone\s+unknown: workspace repository is missing or broken$/m);
   assert.match(status.stdout, /^feat\/tools\s+feat\s/m);
 
   // apply skips both members; the one real clone (tools) is still applied.
@@ -1556,7 +1556,7 @@ test('a repository at a member path that is not the recorded clone counts as loc
   assert.match(listed.broken, /projects\/api: not the recorded clone of projects\/api/);
   assert.strictEqual(listed.clean, undefined);
   const status = runCli(root, 'status');
-  assert.strictEqual(status.status, 0);
+  assert.strictEqual(status.status, 1);
   assert.match(status.stdout, /feat\/projects\/api[^\n]*not the recorded clone of projects\/api/);
 
   // apply skips it and writes nothing into it, by name or by address.
@@ -1928,7 +1928,7 @@ test('fetch and sync cover every member of the group and of its workspaces', (t)
   assert.ok(fs.existsSync(path.join(feat, 'projects', 'api', 'new.txt')));
 
   const status = runCli(root, 'status');
-  assert.match(status.stdout, /^main\/projects\/api\s+main\s+up to date\s+clean$/m);
+  assert.match(status.stdout, /^main\/projects\/api\s+main\s+up to date\s+clean\s+-$/m);
 });
 
 test('help describes project groups', () => {

@@ -26,7 +26,8 @@ for (const info of listWorkspaces(root)) {
   console.log(info.name, info.branch ?? info.shortHead, info.clean, info.broken ?? "ok");
 }
 
-removeWorkspace(root, "agent-1", { force: true });
+// Save local files and import any unpreserved commits first; normal removal checks both.
+removeWorkspace(root, "agent-1");
 ```
 
 The API and the CLI share the same core: `workler add` and
@@ -46,7 +47,7 @@ The API and the CLI share the same core: `workler add` and
   Unexpected host failures from Node/Git (for example an I/O permission error)
   may remain ordinary `Error` instances and should still be caught. Codes include
   `ROOT_NOT_FOUND`, `NOT_INITIALIZED`, `NOT_A_GIT_REPO`, `MAIN_WORKSPACE`,
-  `WORKSPACE_EXISTS`, `WORKSPACE_NOT_FOUND`, `WORKSPACE_DIRTY`,
+  `WORKSPACE_EXISTS`, `WORKSPACE_NOT_FOUND`, `WORKSPACE_DIRTY`, `WORKSPACE_HISTORY`,
   `BRANCH_EXISTS`, `BAD_REF`, `INVALID_NAME`, `INVALID_OPTIONS`,
   `CONFIG_INVALID`, `RULE_CONFLICT`, `SETUP_FAILED`, `SETUP_COMMAND_FAILED`,
   and `LOCKED`.
@@ -225,21 +226,50 @@ project group `checkout` is absent, `projects` holds one
 `{ project, root, target, checkout, setup }` per member, and `setup` is the
 group's own commands.
 
-### `listWorkspaces(root): WorkspaceInfo[]`
+### `listWorkspaces(root, options?): WorkspaceInfo[]`
 
 The main project plus every entry under `.worktrees/`, including broken
 ones: `{ name, path, isMain, isClone, broken?, branch?, head?,
-shortHead?, detached, clean?, projects? }`. `clean` uses the same guard as `remove`
+shortHead?, detached, clean?, history?, projects? }`. `clean` uses the same **file** guard as `remove`
 (untracked and ignored files count as dirty, except, in a workspace, what the project's `.workler` produces: copy and link destinations that are what `apply` makes of their source (a link to it, or a copy with its content, the source reached through real directories), and `setup --if-missing` paths a guarded command created there, per the workspace's record; in the main checkout everything counts, since the rules' sources live there, not their outputs; an empty `.worktrees/`, Workler's own lock directory, does not count either), so for a non-main workspace
-`clean === true` means removable without force.
+`clean === true` means file-clean, **not removable**: history must also be safe.
 
 Under a project group every entry has `projects`, one `{ project, path,
-isClone, broken?, branch?, head?, shortHead?, detached, clean? }` per
+isClone, broken?, branch?, head?, shortHead?, detached, clean?, history? }` per
 declared project (for `main`, the source repositories). A member's `isClone` is true only for its usable clone, so it is false whenever that member's `broken` is set. The entry's own
 `isClone` is true for every recognized group workspace, even one left behind
 with no member cloned yet; `branch` is set only when every member is on it, `clean` only when every
 member is clean and the workspace folder holds nothing but the members (real directories reached through real directories that carry the recorded member identity; a symbolic link or file at a member's path, or at any folder on the way to it, is local data, and so is a repository that is not the recorded clone) plus an unchanged `.workler` copy (a regular file; a symbolic link in its place is local data), and
 `broken` joins the reasons of every broken or missing member.
+
+`HistoryAssessment` is exported as a type:
+
+```ts
+interface HistoryAssessment {
+  state: 'safe' | 'unsafe' | 'unknown';
+  unpreservedCount?: number; // exact count when unsafe
+  commits?: string[];        // at most five full commit IDs when unsafe
+  reason?: string;           // diagnostic when unknown
+}
+```
+
+Pass `{ history: true }` to opt in to the history proof (`ListWorkspacesOptions`).
+By default, listing omits history and does not walk Git history; the CLI `list`
+also stays lightweight because it only displays names, branches and paths.
+Invalid non-boolean `history` options throw `INVALID_OPTIONS`.
+
+With history enabled, non-main repository entries have `history`; in groups it
+is on each `projects[]` member, not the group folder. Main/source entries and
+absent (not cloned) members omit it; absent members hold no history to delete.
+`safe` means **commit-preserved in the immediate source**, not file-clean or
+backed up. All refs, HEAD and reflogs are assessed offline using the same
+[policy as remove](/reference/cli/remove#history-preservation-policy): source
+direct local branches/tags or detached HEAD only, never synchronization
+mirrors or remote-tracking refs. Failures/warnings, missing objects,
+unsupported shallow/replace/graft/alternate/partial histories, linked Git
+metadata, and per-command 30-second / 32-MiB limits (or 30 seconds / one million
+Git metadata entries) produce `unknown`. Read-only listing does not lock;
+its assessment is a snapshot, and remove reassesses under Workler locks.
 
 ### `resolveWorkspacePath(root, name): string`
 
@@ -262,6 +292,16 @@ lists what was found in a plain workspace (`{ path, kind }`, `kind` one of
 reported it; absent when `git status` failed); for a project group,
 `details.reasons` holds one line per reason, with unusual names quoted as in
 the message.
+
+After existing file checks pass, unpreserved or unknown history throws
+`WORKSPACE_HISTORY`. `details.history` contains one `{ source, clone,
+project?, assessment: HistoryAssessment }` per assessed repository, with raw
+paths retained for API consumers. All existing group members are preflighted
+against their proper sources before deletion; missing/broken/linked sources
+block. Nonempty nested workspaces still block via the file guard: there is no
+recursive history-rescue operation. `{ force: true }` skips both guards and
+**destroys files and history without any backup**. No commits, stashes or refs
+are automatically imported/restored/rewritten.
 
 ### `groupRefNamespace(groupRoot): string`
 

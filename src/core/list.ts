@@ -9,7 +9,9 @@ import { recordedSetupOutputs } from '../setup';
 import type { SyncTarget } from '../multi-git';
 import { findWorkspace } from '../workspaces';
 import { requireProject } from './project';
+import { WorklerError } from '../errors';
 import { memberManagedPaths } from './remove';
+import { targetHistory, type HistoryAssessment } from '../history';
 
 // One member clone of a group workspace (or one source repository of the
 // group itself, for the "main" entry).
@@ -24,6 +26,8 @@ export interface MemberInfo {
   shortHead?: string;
   detached: boolean;
   clean?: boolean;
+  // Absent on main and un-cloned members; separate from file cleanliness.
+  history?: HistoryAssessment;
 }
 
 export interface WorkspaceInfo {
@@ -49,17 +53,27 @@ export interface WorkspaceInfo {
   detached: boolean;
   // No local changes: nothing modified, staged, untracked or ignored beyond
   // what the project's .workler rules produce (copy/link destinations,
-  // `setup --if-missing` paths) and an empty .worktrees/. Matches the guard
-  // `remove` uses, so for non-main workspaces clean === removable without
-  // force. Undefined when broken.
+  // `setup --if-missing` paths) and an empty .worktrees/. This is ONLY file
+  // safety: remove also requires history.state === 'safe' (all members for
+  // groups). Undefined when broken.
   clean?: boolean;
+  // Absent on main and group folders (see projects[].history).
+  history?: HistoryAssessment;
   // Per-member details; only present under a project group root.
   projects?: MemberInfo[];
 }
 
+export interface ListWorkspacesOptions {
+  // Opt in to expensive read-only history proofs. File/branch listings stay lightweight by default.
+  history?: boolean;
+}
+
 // Structured listing for the API: the main project, every workspace, and
 // broken entries under .worktrees/ (flagged, not hidden).
-export function listWorkspaceInfos(rootInput: string): WorkspaceInfo[] {
+export function listWorkspaceInfos(rootInput: string, options: ListWorkspacesOptions = {}): WorkspaceInfo[] {
+  if (!options || typeof options !== 'object' || (options.history !== undefined && typeof options.history !== 'boolean')) {
+    throw new WorklerError('INVALID_OPTIONS', 'listWorkspaces options must be an object with an optional boolean history');
+  }
   const info = requireProject(rootInput);
   const targets = listSyncTargets(info.root);
 
@@ -68,7 +82,9 @@ export function listWorkspaceInfos(rootInput: string): WorkspaceInfo[] {
       const isMain = target.path === info.root;
       // The main checkout holds the rules' sources, not their outputs: nothing is exempt there.
       const managed = isMain ? [] : managedWorkspacePaths(info.root, target.path, recordedSetupOutputs(target.path, 'clone'));
-      return { name: target.name, isMain, ...inspectTarget(target, isMain, managed) };
+      const history = options.history === true ? targetHistory(info.root, target) : undefined;
+      return { name: target.name, isMain, ...inspectTarget(target, isMain, managed),
+        ...(history === undefined ? {} : { history }) };
     });
   }
 
@@ -100,7 +116,9 @@ export function listWorkspaceInfos(rootInput: string): WorkspaceInfo[] {
       // A member is a clone only when it is the member's usable clone: a
       // repository that is not the recorded one, or a .git reached through a
       // link, is local data (see broken), not the member.
-      const memberInfo: MemberInfo = { project: member.project, ...details, isClone: details.isClone && details.broken === undefined };
+      const history = options.history === true ? targetHistory(info.root, member) : undefined;
+      const memberInfo: MemberInfo = { project: member.project, ...details, isClone: details.isClone && details.broken === undefined,
+        ...(history === undefined ? {} : { history }) };
       projects.push(memberInfo);
       if (memberInfo.broken) {
         brokenReasons.push(`${member.project}: ${memberInfo.broken}`);

@@ -40,7 +40,7 @@ Useful commands:
 
 ```sh
 workler list                 # list workspaces
-workler status               # show branch and working-tree state
+workler status               # show branch, file state and history preservation
 workler sync                 # safely fast-forward workspaces
 workler remove feature-a     # remove a workspace
 ```

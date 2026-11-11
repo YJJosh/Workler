@@ -4,7 +4,7 @@ import { readConfig, readRules, readSetupCommands } from '../config';
 import { CONFIG_FILE, PACKAGE_NAME, ROOT_REMOTE, WORKSPACES_DIR } from '../constants';
 import { WorklerError } from '../errors';
 import { addLineIfMissing, assertInside, canonicalPath } from '../fs-utils';
-import { git, gitInfoExcludePath, gitMaybe, isGitWorkTreeClean, localBranchExists } from '../git';
+import { git, gitInfoExcludePath, gitMaybe, hasIndependentGitDirectory, isGitWorkTreeClean, localBranchExists } from '../git';
 import { forProject, memberPath, sourceBrokenReason } from '../groups';
 import { withProjectLocks } from '../lock';
 import { validateBranchName, validateNewWorkspaceName, validateStartRef, validateWorkspaceRefName } from '../names';
@@ -90,7 +90,7 @@ export interface WorkspacePlan {
   // The `setup` commands root's .workler declares, in run order. For a
   // group: the group's own, which run after every member's.
   setup: SetupCommand[];
-  // Human-readable warnings (currently: a project has uncommitted changes).
+  // Human-readable warnings about uncommitted changes or unsupported removal-proof layouts.
   warnings: string[];
 }
 
@@ -266,6 +266,12 @@ function workspaceTarget(root: string, name: string): string {
   return target;
 }
 
+function warnIfLinkedSource(root: string, warnings: string[], label: string): void {
+  if (!hasIndependentGitDirectory(root)) {
+    warnings.push(`${label} uses a linked Git directory; the offline removal history proof does not support this layout, so normal removal will refuse. Use an independent source checkout.`);
+  }
+}
+
 function planLocked(root: string, options: CreateWorkspaceOptions): WorkspacePlan {
   const target = workspaceTarget(root, options.name);
 
@@ -279,6 +285,7 @@ function planLocked(root: string, options: CreateWorkspaceOptions): WorkspacePla
   const checkout = planCheckout(root, options);
 
   const warnings: string[] = [];
+  warnIfLinkedSource(root, warnings, 'source');
   if (!isGitWorkTreeClean(root)) {
     warnings.push('main project has uncommitted changes; the clone will only contain committed tracked files');
   }
@@ -315,6 +322,7 @@ function planGroupLocked(root: string, projects: string[], options: CreateWorksp
       assertRepositoryDeclaresNoProjects(memberRoot);
       applyRules(memberRoot, memberTarget, { force: options.force === true, copyLinks: options.copyLinks === true, dryRun: true });
       const checkout = planCheckout(memberRoot, options);
+      warnIfLinkedSource(memberRoot, warnings, project);
       if (!isGitWorkTreeClean(memberRoot)) {
         warnings.push(`${project} has uncommitted changes; its clone will only contain committed tracked files`);
       }

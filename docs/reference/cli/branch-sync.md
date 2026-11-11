@@ -65,9 +65,15 @@ git branch spike refs/workler/feature-a/spike  # adopt it as a real branch
 
 This is the review flow for [nested/agent workspaces](/guide/nested-workspaces): agents commit on branches in their own clones, `branch-sync` makes those visible in the root without letting any workspace move your branches.
 
+Mirrors are temporary synchronization refs, **not durable preservation for
+[`remove`](/reference/cli/remove). They are pruned after removal and do not
+cover every detached, stash or reflog-only commit. Import needed specific
+commits into user-chosen source branches/tags and save local files before
+normal removal; `--force` saves nothing.
+
 ## Examples
 
 ```bash
 workler branch-sync                        # both directions, all workspaces
-workler branch-sync && workler remove exp  # preserve exp's branches, then delete it
+workler status                             # inspect commit preservation before removal
 ```

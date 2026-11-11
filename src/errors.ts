@@ -13,6 +13,7 @@ export type WorklerErrorCode =
   | 'WORKSPACE_NOT_FOUND'
   | 'MAIN_WORKSPACE'
   | 'WORKSPACE_DIRTY'
+  | 'WORKSPACE_HISTORY'
   | 'BRANCH_EXISTS'
   | 'BAD_REF'
   | 'CONFIG_INVALID'

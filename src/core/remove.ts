@@ -6,13 +6,14 @@ import { assertInside } from '../fs-utils';
 import { managedWorkspacePaths, pathBelow } from '../config';
 import { describeLocalData, displayPath, gitWorkTreeLocalData, LOCAL_DATA_SHOWN, type LocalDataEntry } from '../git';
 import { ancestorReason, foreignMemberReason, groupWorkspaceExtras, inspectMember, memberPath, sourceBrokenReason } from '../groups';
+import { assessHistory, describeHistory, historyAdvice, historyLabel } from '../history';
 import { withProjectLocks } from '../lock';
 import { recordedSetupOutputs } from '../setup';
 import { findWorkspace, validateWorkspaceName } from '../workspaces';
 import { lockRootsOf, requireProject } from './project';
 
 export interface RemoveWorkspaceOptions {
-  // Remove even when the workspace has local changes.
+  // Destructive override: remove even with local files or unpreserved/unknown history.
   force?: boolean;
 }
 
@@ -77,6 +78,30 @@ export function removeWorkspace(
             { name, path: workspace.path, ...(entries === undefined ? {} : { entries }) },
           );
         }
+      }
+      // Preflight ALL group members before deleting anything. Never count a
+      // mirror in the source (branch-sync prunes those after removal).
+      const repositories = info.isGroup
+        ? info.projects.filter((project) => inspectMember(workspace.path, project).state !== 'missing')
+            .map((project) => ({ source: memberPath(info.root, project), clone: memberPath(workspace.path, project), project }))
+        : [{ source: info.root, clone: workspace.path, project: undefined }];
+      const history = repositories.map((repo) => ({ ...repo, assessment:
+        repo.project !== undefined && sourceBrokenReason(info.root, repo.project) !== undefined
+          ? { state: 'unknown' as const, reason: 'source repository is missing, broken or linked' }
+          : assessHistory(repo.source, repo.clone),
+      }));
+      const blocked = history.filter((repo) => repo.assessment.state !== 'safe');
+      if (blocked.length > 0) {
+        const lines = blocked.slice(0, 10).flatMap((repo) => [
+          `  ${historyLabel(repo.project ?? name)}: ${describeHistory(repo.assessment)}`,
+          ...(repo.assessment.commits ?? []).map((commit) => `    ${commit}`),
+          ...historyAdvice(repo.source, repo.clone, repo.assessment).map((line) => `  ${line}`),
+        ]);
+        if (blocked.length > 10) lines.push('  ... and more members; inspect workler status');
+        throw new WorklerError('WORKSPACE_HISTORY',
+          `refusing to remove workspace with unpreserved or unknown Git history: ${historyLabel(workspace.path)}\n` +
+          lines.join('\n') + '\nUse --force only to destroy this workspace without preserving its files or history.',
+          { name, path: workspace.path, history });
       }
     }
 

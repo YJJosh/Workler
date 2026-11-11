@@ -225,8 +225,8 @@ test('status and sync still run after the refactor', (t) => {
 
   const status = runCli(root, 'status');
   assert.strictEqual(status.status, 0);
-  assert.match(status.stdout, /^NAME\s+BRANCH\s+UPSTREAM\s+STATE$/m);
-  assert.match(status.stdout, /^feat\s+feat\s+no upstream\s+clean$/m);
+  assert.match(status.stdout, /^NAME\s+BRANCH\s+UPSTREAM\s+STATE\s+HISTORY$/m);
+  assert.match(status.stdout, /^feat\s+feat\s+no upstream\s+clean\s+preserved in source$/m);
 
   const sync = runCli(root, 'sync');
   assert.strictEqual(sync.status, 0);
