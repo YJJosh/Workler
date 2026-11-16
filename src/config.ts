@@ -159,10 +159,8 @@ export function readSetupCommands(root: string): SetupCommand[] {
 }
 
 /**
- * Paths in `workspace` that `remove` and `clean` do not count as local data,
- * because apply and setup can make them again: rule destinations that match
- * their source, and guard paths listed in `produced` (what setup recorded).
- * A .workler that does not parse yields none.
+ * Paths `remove` and `clean` do not count as local data, because apply and setup recreate them: rule
+ * outputs that match their source and guard paths in `produced`. A .workler that does not parse yields none.
  */
 export function managedWorkspacePaths(root: string, workspace: string, produced: readonly string[]): string[] {
   let config: WorklerConfig;
@@ -188,9 +186,8 @@ export function managedWorkspacePaths(root: string, workspace: string, produced:
   return [...paths];
 }
 
-// True only when apply would leave the destination as it is: it passes
-// apply's symlink checks and matches the source. Anything else, like an
-// edited copy of .env, is data, and so is whatever cannot be inspected.
+// True only when apply would leave the destination as it is (passes its symlink checks, matches the source).
+// An edited copy of .env is data, and so is whatever cannot be inspected.
 function ruleOutputInPlace(root: string, workspace: string, rule: WorklerRule): boolean {
   const source = path.join(root, rule.targetPath);
   const destination = path.join(workspace, rule.targetPath);
@@ -306,9 +303,8 @@ export function readConfig(root: string): WorklerConfig {
     );
   }
 
-  // A guard into a project must use the project line's case: on a
-  // case-sensitive file system `PROJECTS/API/generated` lies outside the
-  // member that `list` and `remove` credit it to.
+  // A guard into a project must use its spelling: on a case-sensitive file system
+  // `PROJECTS/API/generated` lies outside the member that `list` and `remove` credit it to.
   for (const guard of guards) {
     for (const project of projects) {
       if (pathsOverlap(guard.path, project.path) && !spelledLike(guard.path, project.path)) {
@@ -326,10 +322,7 @@ export function readConfig(root: string): WorklerConfig {
   return { rules, projects, setup };
 }
 
-/**
- * Same entry, or parent and child. Case-insensitive, since `API` and `api`
- * are one folder on a case-insensitive file system.
- */
+/** Same entry, or parent and child. Case-insensitive: `API` and `api` are one folder on a case-insensitive file system. */
 export function pathsOverlap(first: string, second: string): boolean {
   const firstParts = first.split('/').map((part) => part.toLowerCase());
   const secondParts = second.split('/').map((part) => part.toLowerCase());
@@ -338,11 +331,7 @@ export function pathsOverlap(first: string, second: string): boolean {
   return samePrefix && (firstParts.length === shared || secondParts.length === shared);
 }
 
-/**
- * `generated` for `projects/api/generated` under `projects/api`; undefined
- * unless strictly inside. Case-sensitive, unlike pathsOverlap: readConfig
- * makes guards into a project use its spelling.
- */
+/** The part of `child` strictly inside `parent`, else undefined. Case-sensitive: readConfig makes guards use the project's spelling. */
 export function pathBelow(child: string, parent: string): string | undefined {
   const childParts = child.split('/');
   const parentParts = parent.split('/');
@@ -421,10 +410,7 @@ function validateRulePath(targetPath: string, lineNumber: number, column: number
   return parts.join('/');
 }
 
-/**
- * The parser has no escapes, so a path with both quote kinds or a line break
- * cannot be written, nor one with a backslash, which reads as a separator.
- */
+/** False when the parser, which has no escapes, cannot read the path back: line breaks, backslashes, both quote kinds. */
 export function canWriteConfigPath(value: string): boolean {
   return !/[\r\n\\]/.test(value) && !(value.includes('"') && value.includes("'"));
 }

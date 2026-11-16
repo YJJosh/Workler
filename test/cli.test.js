@@ -91,8 +91,7 @@ test('remove names what blocks it: changed, untracked and ignored entries, a ren
 
 test('status.showUntrackedFiles=all does not turn the lock file into "uncommitted changes"', (t) => {
   const root = makeRepo(t, { includeWorkler: false });
-  // With `all`, Git lists `?? .worktrees/.workler.lock` instead of the collapsed
-  // `?? .worktrees/`.
+  // With `all`, Git lists `?? .worktrees/.workler.lock` instead of the collapsed `?? .worktrees/`.
   git(root, 'config', 'status.showUntrackedFiles', 'all');
 
   const add = runCli(root, 'add', 'plain');
@@ -195,19 +194,17 @@ test('shell-init accepts the executable name supplied by a platform shim', () =>
   assert.ok(result.stdout.includes('dest="$(devworkler path "$1")"'));
 });
 
-test('--version/-v/version print the package version', (t) => {
+test('--version/-v/version print the bare package version; help keeps "workler <version>"', (t) => {
   const root = makeRepo(t);
   const { version } = require('../package.json');
 
   for (const flag of ['--version', '-v', 'version']) {
     const result = runCli(root, flag);
     assert.strictEqual(result.status, 0, `${flag} must exit 0`);
-    // Bare version, like `npm --version`: parseable without stripping a prefix.
     assert.strictEqual(result.stdout.trim(), version, `${flag} must print ${version}`);
     assert.strictEqual(result.stderr, '');
   }
 
-  // `help` keeps the decorated form.
   assert.match(runCli(root, 'help').stdout, new RegExp(`^workler ${version.replace(/\./g, '\\.')}$`, 'm'));
 });
 

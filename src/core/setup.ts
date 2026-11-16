@@ -18,10 +18,7 @@ import { requireProject } from './project';
 import type { ProjectInfo } from './project';
 
 export interface WorkspaceSetupOptions extends SetupOptions {
-  /**
-   * Project group only. Called before a member's commands run, with the
-   * number its source declares, or with the reason the member is skipped.
-   */
+  /** Project group only: called before a member's commands run, with its source's command count or why it is skipped. */
   onProjectSetup?: (project: string, commandCount: number, skipped?: string) => void;
   /** Project group only. Called before the group's own commands run. */
   onGroupSetup?: (commandCount: number) => void;
@@ -93,9 +90,8 @@ function memberSkipReason(groupRoot: string, workspacePath: string, project: str
 }
 
 /**
- * For a group: every cloned member's commands in file order, then the
- * group's. The first failure stops everything with SETUP_COMMAND_FAILED.
- * Takes no lock: commands can run for minutes and must not block siblings.
+ * For a group: every cloned member's commands in file order, then the group's; the first failure throws
+ * SETUP_COMMAND_FAILED. Takes no lock: commands can run for minutes and must not block siblings.
  */
 export function runWorkspaceSetup(info: ProjectInfo, workspace: Workspace, options: WorkspaceSetupOptions = {}): WorkspaceSetupOutcome {
   if (!info.isGroup) {
@@ -128,10 +124,7 @@ export function runWorkspaceSetup(info: ProjectInfo, workspace: Workspace, optio
   return { setup, projects };
 }
 
-/**
- * Re-runs the `setup` commands in an existing workspace. Under a group,
- * `<name>/<project path>` runs one member's commands only.
- */
+/** Re-runs the `setup` commands in an existing workspace; under a group, `<name>/<project path>` runs one member's only. */
 export function setupWorkspace(rootInput: string, name: string, options: WorkspaceSetupOptions = {}): SetupWorkspaceResult {
   if (typeof name !== 'string') {
     throw new WorklerError('INVALID_NAME', 'workspace name must be a string');

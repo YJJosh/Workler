@@ -60,9 +60,8 @@ export interface RuleApplyResult {
   source: string;
   destination: string;
   /**
-   * 'ok': nothing to do. 'applied': linked or copied. 'planned': dry run would
-   * apply. 'skipped': source missing. 'conflict': dry run only; otherwise a
-   * conflict throws RULE_CONFLICT.
+   * 'ok': nothing to do. 'applied': linked or copied. 'planned': dry run would apply. 'skipped': source
+   * missing. 'conflict': dry run only; otherwise a conflict throws RULE_CONFLICT.
    */
   status: 'ok' | 'applied' | 'planned' | 'skipped' | 'conflict';
   /** Reason for 'ok' or 'skipped'. */
@@ -78,10 +77,7 @@ export interface RuleApplyResult {
 export interface ApplyRulesOptions {
   force: boolean;
   dryRun: boolean;
-  /**
-   * Copy `link` rules instead of linking. A symlink to the source is
-   * converted without --force, since it holds no data of its own.
-   */
+  /** Copy `link` rules instead of linking; a symlink to the source holds no data, so it is converted without --force. */
   copyLinks?: boolean;
   /** Called as each rule resolves; the results are also returned. */
   onResult?: (result: RuleApplyResult) => void;

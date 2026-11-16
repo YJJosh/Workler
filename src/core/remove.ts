@@ -114,9 +114,8 @@ interface GroupLocalData {
   entries?: LocalDataEntry[] | undefined;
 }
 
-// Everything deletion would destroy: member local data beyond what rules
-// produce, members that are not clones, and entries no project or group rule
-// accounts for, including an edited .workler copy.
+// Everything deletion would destroy: member local data beyond rule outputs, members that are not
+// clones, and entries no project or group rule accounts for, including an edited .workler copy.
 function groupLocalData(workspacePath: string, groupRoot: string, projects: string[]): GroupLocalData[] {
   const reasons: GroupLocalData[] = [];
   // Already reported by the member loop; the extras walk would repeat them.
@@ -157,9 +156,8 @@ function groupLocalData(workspacePath: string, groupRoot: string, projects: stri
 }
 
 /**
- * Paths in a member clone that are not local data: its source's rule outputs,
- * its recorded setup outputs, and `groupManaged` paths inside the member,
- * made relative to it. A broken or linked source exempts nothing.
+ * Paths in a member clone that are not local data: its source's rule outputs, its recorded setup outputs
+ * and `groupManaged` paths inside it (made relative). A broken or linked source exempts nothing.
  */
 export function memberManagedPaths(groupRoot: string, project: string, member: string, groupManaged: readonly string[] = []): string[] {
   const own =

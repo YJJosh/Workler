@@ -11,9 +11,8 @@ import type { SetupCommand } from './types';
 // Per stream, with `setupStdio: 'pipe'`.
 const OUTPUT_BUFFER_LIMIT = 64 * 1024 * 1024;
 
-// Commands run in file order through the platform shell. The first failure
-// throws SETUP_COMMAND_FAILED; the workspace is not rolled back, so it can be
-// inspected and `workler setup` re-runs the commands.
+// Commands run in file order through the platform shell. The first failure throws SETUP_COMMAND_FAILED with
+// no rollback, so the workspace can be inspected and `workler setup` re-runs the commands.
 
 /** 'failed' appears only as the last entry of the error details; otherwise the run throws. */
 export interface SetupCommandResult {
@@ -39,16 +38,9 @@ export interface SetupOptions {
   onSetupSkip?: (command: SetupCommand, index: number, total: number) => void;
   /** Called when a guarded command exited 0 without creating its path. */
   onSetupGuardMissing?: (command: SetupCommand, index: number, total: number, project?: string) => void;
-  /**
-   * Default 'inherit'. 'stderr' keeps the caller's stdout free of command
-   * output. Only with setupStdio 'inherit'.
-   */
+  /** Default 'inherit'; 'stderr' keeps the caller's stdout free of command output. Only with setupStdio 'inherit'. */
   setupStdout?: 'inherit' | 'stderr';
-  /**
-   * Default 'inherit': shares stdin, stdout and stderr. 'pipe' closes stdin
-   * and captures output, delivered to onSetupOutput and the result after
-   * each command exits.
-   */
+  /** Default 'inherit' (shares stdio). 'pipe' closes stdin and captures output for onSetupOutput and the result after each command. */
   setupStdio?: 'inherit' | 'pipe';
   /** setupStdio 'pipe' only. Called once per stream with output, before any failure is thrown. */
   onSetupOutput?: (chunk: string, stream: 'stdout' | 'stderr', command: SetupCommand, index: number) => void;
@@ -97,10 +89,7 @@ export function validateSetupOptions(options: SetupOptions): void {
   }
 }
 
-/**
- * Makes `add` act as with --no-setup. "0" and empty mean off. An explicit
- * `workler setup` ignores it.
- */
+/** Makes `add` act as with --no-setup; "0" and empty mean off. An explicit `workler setup` ignores it. */
 export const NO_SETUP_VARIABLE = 'WORKLER_NO_SETUP';
 
 export function setupDisabledByEnvironment(env: NodeJS.ProcessEnv = process.env): boolean {
@@ -108,9 +97,8 @@ export function setupDisabledByEnvironment(env: NodeJS.ProcessEnv = process.env)
   return value !== undefined && value !== '' && value !== '0';
 }
 
-// Set by npm, pnpm and yarn for the scripts they run; inherited, they would
-// make a setup `pnpm install` act on the caller's package. Case-sensitive:
-// uppercase ones like NPM_CONFIG_REGISTRY or PNPM_HOME are user settings.
+// npm, pnpm and yarn set these for their scripts; inherited, a setup `pnpm install` would act on the caller's
+// package. Case-sensitive: uppercase ones like NPM_CONFIG_REGISTRY or PNPM_HOME are user settings.
 const PACKAGE_MANAGER_VARIABLE = /^(npm_|pnpm_|yarn_)/;
 const INIT_CWD_VARIABLE = 'INIT_CWD';
 
@@ -146,10 +134,8 @@ export function setupEnvironment(target: SetupTarget): NodeJS.ProcessEnv {
 }
 
 /**
- * A guard cannot tell the command's output from a user's folder at the same
- * path, so only paths a successful command left behind are recorded and
- * exempt from remove's local-data check. 'clone': git config; 'folder': a
- * file in a group workspace folder, which has no git config.
+ * A guard cannot tell the command's output from a user's folder, so only paths a successful command left are
+ * recorded and exempt from remove's local-data check. 'clone': git config; 'folder': a file in a group folder.
  */
 export type SetupRecordKind = 'clone' | 'folder';
 
@@ -158,9 +144,8 @@ function recordKind(target: Pick<SetupTarget, 'group'>): SetupRecordKind {
 }
 
 /**
- * `id` is the lstat identity (device, inode, creation time) of what the
- * command left, so a later replacement by the user is not exempt. Stored as
- * `<id> <path>`, split at the first space so the path keeps its whitespace.
+ * `id` is the lstat identity (device, inode, creation time) of what the command left, so a user's later
+ * replacement is not exempt. Stored as `<id> <path>`, split at the first space so the path keeps its whitespace.
  */
 export interface SetupRecordEntry {
   id: string;
@@ -196,11 +181,7 @@ function entryIdentity(p: string): string | undefined {
   }
 }
 
-/**
- * Recorded guard paths whose entry is still the one the command made. An
- * unreadable or foreign record, or a replaced entry, names nothing, so those
- * paths count as local data.
- */
+/** Recorded guard paths whose entry is still the one the command made; unreadable, foreign or replaced ones count as local data. */
 export function recordedSetupOutputs(dir: string, kind: SetupRecordKind): string[] {
   return readSetupRecord(dir, kind)
     .filter((entry) => entryIdentity(path.join(dir, ...entry.path.split('/'))) === entry.id)
@@ -225,10 +206,7 @@ function readSetupRecord(dir: string, kind: SetupRecordKind): SetupRecordEntry[]
   return readSetupRecordFile(dir) ?? [];
 }
 
-/**
- * Undefined unless the file is a regular file with exactly the text Workler
- * writes; anything else there is the user's local data.
- */
+/** Undefined unless a regular file with exactly the text Workler writes; anything else there is the user's local data. */
 export function readSetupRecordFile(dir: string): SetupRecordEntry[] | undefined {
   try {
     const file = path.join(dir, SETUP_RECORD_FILE);
@@ -306,10 +284,7 @@ function writeSetupRecord(dir: string, values: string[]): void {
   fs.renameSync(staging, file);
 }
 
-/**
- * A guarded command that exited 0. Whether its path exists is judged once
- * every setup line has run, since a later or group line may change it.
- */
+/** A guarded command that exited 0; its path is judged once every setup line ran, since a later or group line may change it. */
 export interface PendingGuard {
   result: SetupCommandResult;
   setup: SetupCommand;
@@ -331,11 +306,7 @@ export function settleGuards(pending: PendingGuard[], options: SetupOptions = {}
   }
 }
 
-/**
- * Runs the workspace's setup lines. Pass `pending` to collect the guarded
- * commands that succeeded instead of settling them here, when more setup lines
- * run afterwards (see settleGuards).
- */
+/** Runs the workspace's setup lines. `pending` collects succeeded guarded commands for a later settleGuards instead of settling here. */
 export function runSetupCommands(target: SetupTarget, options: SetupOptions = {}, pending?: PendingGuard[]): SetupOutcome {
   if (pathsReferToSameLocation(target.root, target.path)) {
     throw new WorklerError('INVALID_OPTIONS', 'refusing to run setup commands in the main workspace');

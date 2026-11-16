@@ -20,15 +20,9 @@ import type { WorkspaceSetupOptions } from './setup';
 
 export interface CreateWorkspaceOptions extends WorkspaceSetupOptions {
   name: string;
-  /**
-   * Start point for a new branch: branch, tag or commit; origin/* also sets
-   * upstream. The branch is `branch`, or else the workspace name. Not with `checkout`.
-   */
+  /** Start of a new branch named `branch` or the workspace name: branch, tag or commit; origin/* also sets upstream. Not with `checkout`. */
   base?: string;
-  /**
-   * Without `base`, an existing branch is reused or a new one starts at HEAD.
-   * With `base`, the branch must be new. Not with `checkout`.
-   */
+  /** Without `base`, an existing branch is reused or a new one starts at HEAD; with `base` it must be new. Not with `checkout`. */
   branch?: string;
   /** Existing ref to check out; tags and commits are detached. Not with `base` or `branch`. */
   checkout?: string;
@@ -36,10 +30,7 @@ export interface CreateWorkspaceOptions extends WorkspaceSetupOptions {
   force?: boolean;
   /** Copy what `link` rules would symlink; remembered for later `apply` runs. */
   copyLinks?: boolean;
-  /**
-   * Run the .workler `setup` commands at the end. Default true. A failure
-   * throws SETUP_COMMAND_FAILED and keeps the finished workspace.
-   */
+  /** Run the .workler `setup` commands at the end (default true). A failure throws SETUP_COMMAND_FAILED and keeps the workspace. */
   setup?: boolean;
   /** Human-readable progress lines. */
   onProgress?: (message: string) => void;
@@ -47,10 +38,7 @@ export interface CreateWorkspaceOptions extends WorkspaceSetupOptions {
   onRuleResult?: (result: RuleApplyResult) => void;
 }
 
-/**
- * Planned against the main project, so refs mean what the user sees there.
- * Run in the clone, where the main project's branches are origin/*.
- */
+/** Planned against the main project, so refs mean what the user sees there; run in the clone, where its branches are origin/*. */
 export type CheckoutPlan =
   // startPoint: a sha resolved in the main project; absent means HEAD.
   // startPointLabel: the name the user typed.
@@ -116,10 +104,7 @@ export interface CreateWorkspaceResult {
   setup?: SetupOutcome;
 }
 
-/**
- * On SETUP_COMMAND_FAILED, `details.workspace`: the created workspace,
- * without setup outcomes, for a retry with `setupWorkspace`.
- */
+/** `details.workspace` on SETUP_COMMAND_FAILED: the created workspace without setup outcomes, for a retry with `setupWorkspace`. */
 export type CreatedWorkspace = Omit<CreateWorkspaceResult, 'setup' | 'projects'> & {
   projects?: Omit<MemberCreateResult, 'setup'>[];
 };
@@ -398,9 +383,8 @@ function headState(repo: string): { branch?: string; head?: string; detached: bo
   return { branch: detached ? undefined : abbrev, head: gitMaybe(repo, ['rev-parse', 'HEAD']), detached };
 }
 
-// True for <group>/.worktrees/<name> of a group root, not for a group that only
-// sits in a folder named .worktrees. A parent whose .workler does not parse is
-// no group root.
+// True for <group>/.worktrees/<name> of a group root, not a group that only sits in a folder named
+// .worktrees. A parent whose .workler does not parse is no group root.
 function isNestedGroupWorkspace(root: string): boolean {
   try {
     return groupWorkspaceParent(root) !== undefined;
@@ -677,9 +661,8 @@ function configureWorkspace(root: string, target: string, name: string): void {
   // Clones do not inherit .git/info/exclude, and may host nested workspaces.
   addLineIfMissing(gitInfoExcludePath(target), `${WORKSPACES_DIR}/`);
 
-  // `clone --local` points origin at the main checkout, so `push origin`
-  // would push into it. Inherit the main project's real origin, or have
-  // none. The way back is always the workler-root remote.
+  // `clone --local` points origin at the main checkout, so `push origin` would push into it: inherit
+  // the main project's real origin, or have none. The way back is always the workler-root remote.
   const rootOriginUrls = gitConfigValues(root, 'remote.origin.url').map((url) => inheritedRemoteUrl(root, url));
   const rootRemotes = gitMaybe(root, ['remote']);
   if (rootRemotes === undefined) {

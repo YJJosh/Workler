@@ -1,11 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-/**
- * One spelling for a path that may be reached through a symlink, macOS
- * /var -> /private/var, or a Windows 8.3 short name. A missing path is
- * resolved lexically.
- */
+/** One spelling across symlinks, macOS /var -> /private/var and Windows 8.3 short names; a missing path resolves lexically. */
 export function canonicalPath(filePath: string): string {
   try {
     return fs.realpathSync.native(filePath);
@@ -30,9 +26,8 @@ export function assertInside(root: string, child: string, message: string): void
 }
 
 /**
- * The first symlink or junction ancestor through which `child` could escape
- * `root` before a destructive action. `child` itself is not checked, so a
- * rule may replace a symlink at its own target path.
+ * The first symlink or junction ancestor through which `child` could escape `root` before a destructive
+ * action. `child` itself is not checked, so a rule may replace a symlink at its own target path.
  */
 export function findSymlinkAncestor(root: string, child: string): string | undefined {
   assertInside(root, child, 'path escaped its expected root');
@@ -151,9 +146,8 @@ function internalLinkTarget(roots: string[], relativeLinkPath: string, target: s
 }
 
 /**
- * Re-aims absolute links into the copied tree at the copy, so the copy never
- * writes the source's files. `finalRoot` is where a staged copy ends up:
- * Windows junctions store absolute targets only.
+ * Re-aims absolute links into the copied tree at the copy, so the copy never writes the source's files.
+ * `finalRoot` is where a staged copy ends up: Windows junctions store absolute targets only.
  */
 export function rebaseInternalLinks(
   sourceRoot: string,

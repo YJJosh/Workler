@@ -146,10 +146,7 @@ export function describeAheadBehind(counts: AheadBehind): string {
   return parts.join(', ');
 }
 
-/**
- * Tracked files only: copy rules create untracked files in every workspace,
- * and a fast-forward never overwrites untracked files. Undefined when Git fails.
- */
+/** Tracked files only: copy rules create untracked files and a fast-forward never overwrites those. Undefined when Git fails. */
 export function trackedChanges(repo: string): boolean | undefined {
   const status = gitMaybe(repo, ['status', '--porcelain', '--untracked-files=no']);
   return status === undefined ? undefined : status !== '';

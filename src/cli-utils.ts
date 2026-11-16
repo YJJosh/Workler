@@ -35,10 +35,7 @@ export interface ParsedCommandArgs {
   help: boolean;
 }
 
-/**
- * Never prints or exits. -h/--help anywhere returns `help: true` before the
- * arity check; the caller prints usage. Other failures throw.
- */
+/** Never prints or exits: -h/--help anywhere returns `help: true` before the arity check; other failures throw. */
 export function parseCommandArgs(args: string[], spec: CommandArgsSpec): ParsedCommandArgs {
   const flags: Record<string, string | boolean> = {};
   const positionals: string[] = [];

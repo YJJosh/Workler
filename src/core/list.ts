@@ -34,10 +34,7 @@ export interface WorkspaceInfo {
   path: string;
   /** The main project itself, always the first entry. */
   isMain: boolean;
-  /**
-   * The directory has a .git entry. For a group workspace: it is recognized
-   * as one (copied .workler or a cloned member), even with every member missing.
-   */
+  /** The directory has a .git entry; a group workspace counts once recognized (copied .workler or a cloned member). */
   isClone: boolean;
   /** Why the directory is not a usable clone; for a group, every broken member's reason. */
   broken?: string;
@@ -48,9 +45,8 @@ export interface WorkspaceInfo {
   shortHead?: string;
   detached: boolean;
   /**
-   * Nothing modified, staged, untracked or ignored beyond what .workler rules
-   * and `setup --if-missing` produce. File safety only: remove also needs
-   * `history.state === 'safe'`. Undefined when broken.
+   * Nothing modified, staged, untracked or ignored beyond what .workler rules and `setup --if-missing`
+   * produce. File safety only: remove also needs `history.state === 'safe'`. Undefined when broken.
    */
   clean?: boolean;
   /** Absent on main and group folders (see `projects[].history`). */
@@ -159,10 +155,7 @@ function inspectTarget(target: SyncTarget, isMain: boolean, managedPaths: readon
   };
 }
 
-/**
- * "main" resolves to the root. Under a group, `<name>/<project path>` is one
- * member (`main/projects/api` is the source repository).
- */
+/** "main" resolves to the root; under a group, `<name>/<project path>` is one member (`main/projects/api` is the source). */
 export function resolveWorkspacePath(rootInput: string, name: string): string {
   const info = requireProject(rootInput);
   const address = info.isGroup ? splitWorkspaceAddress(name) : { workspace: name, project: undefined };

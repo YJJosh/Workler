@@ -177,7 +177,6 @@ test('rule conflicts fail setup but leave the clone inspectable; force replaces'
     () => api.createWorkspace(root, { name: 'feat' }),
     (e) => e.code === 'SETUP_FAILED' && /left in place/.test(e.message) && /cannot copy data\.txt/.test(e.message),
   );
-  // The clone stays for inspection; the lock does not.
   assert.ok(fs.existsSync(path.join(target, '.git')));
   assert.ok(!fs.existsSync(api.projectLockPath(root)));
 

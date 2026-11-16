@@ -119,10 +119,7 @@ export function isGitTopLevel(dir: string): boolean {
   return topLevel !== undefined && pathsReferToSameLocation(topLevel, dir);
 }
 
-/**
- * Workler clones have a .git directory; a linked `git worktree` has a file.
- * Filesystem only: `git rev-parse` would answer for an enclosing repository.
- */
+/** A .git directory, not a linked `git worktree`'s file. Filesystem only: `git rev-parse` would answer for an enclosing repo. */
 export function hasIndependentGitDirectory(repo: string): boolean {
   try {
     return fs.lstatSync(path.join(repo, '.git')).isDirectory();
@@ -137,10 +134,8 @@ export function gitInfoExcludePath(repo: string): string {
 }
 
 export function isGitWorkTreeClean(repo: string): boolean {
-  // For add's "uncommitted changes are not cloned" warning. Untracked
-  // .worktrees/ is Workler's lock directory, not a change; a repo without
-  // `init` has no exclude line for it. `--untracked-files=normal` and the
-  // prefix match cover status.showUntrackedFiles=all. A Git failure is not clean.
+  // For add's "uncommitted changes" warning. Untracked .worktrees/ is the lock directory, unexcluded before `init`;
+  // --untracked-files=normal and the prefix match cover status.showUntrackedFiles=all. A Git failure is not clean.
   const status = gitMaybe(repo, ['status', '--porcelain', '--untracked-files=normal']);
   return status !== undefined && status.split('\n').every((line) => line === '' || line.startsWith(`?? ${WORKSPACES_DIR}/`));
 }
@@ -152,12 +147,9 @@ export interface LocalDataEntry {
 }
 
 /**
- * Remove's data-loss guard: tracked and staged changes, and untracked or
- * ignored entries, except `managedPaths` (what .workler produces and
- * apply/setup regenerate, forward-slash relative to `repo`) and an empty
- * .worktrees/ (left by the lock). Other ignored files, like a hand-made
- * .env, count. Stops after `limit` entries. Undefined when Git fails, which
- * must never read as clean.
+ * Remove's data-loss guard: tracked/staged changes and untracked or ignored entries (a hand-made .env counts),
+ * except `managedPaths` (forward-slash, relative to `repo`) and an empty .worktrees/ left by the lock.
+ * Stops after `limit` entries. Undefined when Git fails, which must never read as clean.
  */
 export function gitWorkTreeLocalData(repo: string, managedPaths: readonly string[] = [], limit = Infinity): LocalDataEntry[] | undefined {
   // -z: one NUL-terminated record per path, never quoted, whatever the name.
@@ -217,9 +209,8 @@ export function describeLocalData(entries: readonly LocalDataEntry[] | undefined
   return lines;
 }
 
-// git status -z and readdir return names verbatim, so a newline, terminal
-// escape or bidi control in a name could forge or reorder message text.
-// Such names are quoted with C-style escapes, the way git quotes paths.
+// git status -z and readdir return names verbatim: a newline, terminal escape or bidi control could forge or
+// reorder message text, so such names get C-style escapes, the way git quotes paths.
 const UNSAFE_IN_DISPLAY = /[\p{Cc}\p{Bidi_Control}\p{Zl}\p{Zp}"\\]/u;
 
 export function displayPath(path: string): string {
@@ -250,9 +241,8 @@ function isUnderManagedPath(entryPath: string, managedPaths: readonly string[]):
   return managedPaths.some((managed) => entryPath === managed || entryPath.startsWith(`${managed}/`));
 }
 
-// Git folds an untracked directory into one record, so a folder above a
-// managed path (`config/` holding `config/local.json`) is managed only when
-// everything inside it is.
+// Git folds an untracked directory into one record, so a folder above a managed path
+// (`config/` holding `config/local.json`) is managed only when everything inside it is.
 function isManagedEntry(repo: string, entryPath: string, isDirectory: boolean, managedPaths: readonly string[]): boolean {
   if (isUnderManagedPath(entryPath, managedPaths)) {
     return true;

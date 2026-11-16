@@ -1,7 +1,6 @@
-// Every operation takes an explicit project root, never reads process.cwd() or
-// changes global state, and is synchronous. Domain failures throw WorklerError;
-// I/O and Git failures may be plain Errors; concurrent changes to one project
-// throw LockError.
+// Every operation takes an explicit project root, never reads process.cwd() or changes
+// global state, and is synchronous. Domain failures throw WorklerError, I/O and Git
+// failures may be plain Errors, and concurrent changes to one project throw LockError.
 
 export { WorklerError, LockError } from './errors';
 export type { WorklerErrorCode, LockHolder } from './errors';

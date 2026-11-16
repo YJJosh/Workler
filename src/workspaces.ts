@@ -7,10 +7,7 @@ import { findGitTopLevel, git, gitConfigUnset, gitMaybe, hasIndependentGitDirect
 import { groupProjects, hasGroupConfig, inspectMember, isGroupWorkspaceDirectory, memberPath, sourceBrokenReason } from './groups';
 import type { Workspace } from './types';
 
-/**
- * The nearest enclosing Workler project, CLI-style.
- * @throws WorklerError ROOT_NOT_FOUND
- */
+/** The nearest enclosing Workler project, CLI-style. @throws WorklerError ROOT_NOT_FOUND */
 export function findWorklerRoot(startDir: string): string {
   const cwd = path.resolve(startDir);
 
@@ -69,9 +66,8 @@ export function resolveParent(root: string): ParentResolution {
     return group === undefined ? {} : { parent: group };
   }
 
-  // A member lives at <group>/.worktrees/<name>/<project>, cloned from
-  // <group>/<project>. A stale workler.root is not trusted just because some
-  // directory exists at the recorded path.
+  // A member lives at <group>/.worktrees/<name>/<project>, cloned from <group>/<project>. A stale
+  // workler.root is not trusted just because some directory exists at the recorded path.
   const configured = gitMaybe(root, ['config', '--local', '--get', 'workler.root']);
   const membership = groupMembership(root);
   if (membership) {
@@ -150,9 +146,8 @@ export function groupMembership(repo: string): GroupMembership | undefined {
   return structuralMembership(repo);
 }
 
-// The nearest .worktrees/<name> above whose parent declares a project at
-// exactly this path, if inspectMember accepts the clone. A broken group
-// .workler declares nothing here; add reports it.
+// The nearest .worktrees/<name> above whose parent declares a project at exactly this path, if inspectMember
+// accepts the clone. A broken group .workler declares nothing here; add reports it.
 function structuralMembership(repo: string): GroupMembership | undefined {
   const resolved = path.resolve(repo);
   let current = resolved;
@@ -241,8 +236,7 @@ function findNearestExplicitRoot(start: string): string | undefined {
 }
 
 /**
- * .worktrees bounds clone creation and recursive removal; a symlink or
- * junction there would let add or remove change a directory outside the project.
+ * .worktrees bounds clone creation and recursive removal; a symlink or junction there would escape the project.
  * @throws WorklerError SETUP_FAILED
  */
 export function assertSafeWorkspacesDirectory(root: string): void {

@@ -58,7 +58,6 @@ test('workspaces nest: each project manages its own .worktrees', (t) => {
   const featureA = api.createWorkspace(root, { name: 'feature-a' });
   assert.strictEqual(featureA.path, path.join(root, '.worktrees', 'feature-a'));
 
-  // add marks the workspace as a project, so it needs no init.
   assert.strictEqual(api.inspectProject(featureA.path).initialized, true);
   assert.strictEqual(api.inspectProject(featureA.path).parent, root);
 
@@ -71,7 +70,6 @@ test('workspaces nest: each project manages its own .worktrees', (t) => {
   assert.strictEqual(api.resolveWorkspacePath(featureA.path, 'agent-1'), agent1.path);
   assert.strictEqual(api.resolveWorkspacePath(featureA.path, 'main'), featureA.path);
 
-  // agent-1/node_modules points at feature-a/node_modules, itself a link to the root's.
   const nestedLink = path.join(agent1.path, 'node_modules');
   assert.ok(fs.lstatSync(nestedLink).isSymbolicLink());
   const directTarget = path.resolve(path.dirname(nestedLink), fs.readlinkSync(nestedLink));

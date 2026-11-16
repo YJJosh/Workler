@@ -55,8 +55,7 @@ function makeProject(t, opts) {
   return root;
 }
 
-// Gives `root` a real upstream: a bare repo added as `origin`, with the
-// current branch pushed and tracking it. Returns the bare repo's path.
+// A bare repo as `origin`, with the current branch pushed and tracking it; returns its path.
 function addOrigin(t, root) {
   const remote = path.join(makeTempDir(t, 'workler-remote-'), 'origin.git');
   git(path.dirname(remote), 'init', '-q', '--bare', '-b', 'main', remote);
@@ -65,7 +64,6 @@ function addOrigin(t, root) {
   return remote;
 }
 
-// The remotes configured in a repo, as { name: url }.
 function remotes(repo) {
   const output = git(repo, 'remote', '-v');
   const result = {};
@@ -81,13 +79,11 @@ function runCli(cwd, ...args) {
   return { status: result.status, stdout: result.stdout, stderr: result.stderr };
 }
 
-// The paths in a setup record, without the entry identity Workler keeps
-// in front of each (`<dev>:<ino>:<birth> <path>`).
+// Strips the `<dev>:<ino>:<birth> ` identity Workler keeps in front of each recorded path.
 function recordedPaths(values) {
   return values.map((value) => value.replace(/^\d+:\d+:\d+ /, ''));
 }
 
-// A pid that is guaranteed dead: spawn a no-op node process and wait for it.
 function deadPid() {
   const result = spawnSync(process.execPath, ['-e', ''], { encoding: 'utf8' });
   return result.pid;

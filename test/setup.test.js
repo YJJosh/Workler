@@ -7,8 +7,7 @@ const path = require('node:path');
 const { test } = require('node:test');
 const { api, CLI, git, makeRepo, makeProject, makeTempDir, recordedPaths, runCli } = require('./helpers');
 
-// Shell commands that work under sh and cmd.exe alike by running node itself.
-// node is quoted because its path may contain spaces (Program Files).
+// node itself works under sh and cmd.exe alike; quoted because its path may contain spaces (Program Files).
 const NODE = `"${process.execPath}"`;
 
 // Appends `label|cwd|WORKLER_*` as one line to <cwd>/setup.log.
@@ -17,8 +16,7 @@ function logCommand(label) {
   return `${NODE} -e "require('fs').appendFileSync('setup.log', ${fields}.join('|') + String.fromCharCode(10))"`;
 }
 
-// Like logCommand, but first creates <relPath> (a file, or a directory with
-// kind 'dir') so a guarded command produces the output its guard names.
+// Like logCommand, but first creates <relPath> (a directory with kind 'dir'), as a guarded command would.
 function makingCommand(label, relPath, kind = 'file') {
   const fields = `['${label}', process.cwd(), process.env.WORKLER_WORKSPACE, process.env.WORKLER_WORKSPACE_PATH, process.env.WORKLER_ROOT]`;
   const make = kind === 'dir'
@@ -153,7 +151,6 @@ test('a failing setup command keeps the workspace, exits non-zero, and hints at 
   assert.ok(fs.existsSync(path.join(wsPath, '.git')));
   assert.strictEqual(git(wsPath, 'config', '--get', 'workler.name'), 'feat');
   assert.deepStrictEqual(readLog(wsPath).map((fields) => fields[0]), ['one']);
-  // The project lock was released before the commands ran.
   assert.ok(!fs.existsSync(api.projectLockPath(root)));
 
   assert.throws(
@@ -355,8 +352,6 @@ test('setup --if-missing <path> runs the command only while the path is absent',
     [['skipped', 'node_modules'], ['ok', undefined], ['ok', undefined]],
   );
   assert.deepStrictEqual(readLog(ws.path).map((fields) => fields[0]), ['quoted', 'always']);
-  // Only what the guarded command made is recorded for remove; the link at node_modules
-  // is the rule's output.
   assert.ok(fs.existsSync(path.join(ws.path, 'with space', 'marker.txt')));
   const record = git(ws.path, 'config', '--get-all', 'workler.setupOutput');
   assert.match(record, /^\d+:\d+:\d+ with space\/marker\.txt$/, 'the path, behind the identity of the entry the command made');
@@ -376,8 +371,7 @@ test('setup --if-missing <path> runs the command only while the path is absent',
   assert.ok(fs.statSync(path.join(ws.path, 'node_modules')).isDirectory());
   assert.deepStrictEqual(recordedPaths(git(ws.path, 'config', '--get-all', 'workler.setupOutput').split(/\r?\n/)), ['with space/marker.txt', 'node_modules']);
 
-  // A workspace whose link rule found no source (root without node_modules)
-  // runs the install: the guard looks at the workspace, not the root.
+  // Without node_modules in the root the link rule finds no source, so the workspace's guard runs the install.
   fs.rmSync(path.join(root, 'node_modules'), { recursive: true });
   const fresh = api.createWorkspace(root, { name: 'fresh' });
   assert.strictEqual(fresh.setup.results[0].status, 'ok');
@@ -385,8 +379,6 @@ test('setup --if-missing <path> runs the command only while the path is absent',
 });
 
 test('a guarded command that created its path before failing says the re-run would skip it', (t) => {
-  // The guard only asks whether the path exists, so after a half-way install the
-  // recommended re-run would skip the command and exit 0.
   const halfInstall = `${NODE} -e "require('fs').mkdirSync('node_modules'); process.exit(7)"`;
   const root = makeProject(t, { workler: `setup --if-missing node_modules ${halfInstall}\n` });
 
@@ -409,8 +401,7 @@ test('a guarded command that created its path before failing says the re-run wou
 });
 
 test('a guarded command that exits 0 without creating its path is reported, and nothing is recorded', (t) => {
-  // The guard names another folder than the one the command writes to, a usual slip
-  // in a group's line.
+  // The guard names another folder than the one the command writes to, a usual slip.
   const wrongFolder = `${NODE} -e "require('fs').mkdirSync('venv')"`;
   const root = makeProject(t, { workler: `setup --if-missing .venv ${wrongFolder}\n` });
 
@@ -438,7 +429,6 @@ test('a guarded command that exits 0 without creating its path is reported, and 
 
 test('a guard is judged once every setup line has run, so a later line that creates the path silences it', (t) => {
   // The first line exits 0 without making `marker`; the second creates it.
-  // From then on both are skipped, so warning after the first would be false.
   const noop = `${NODE} -e "0"`;
   const makeMarker = `${NODE} -e "require('fs').mkdirSync('marker')"`;
   const root = makeProject(t, { workler: `setup --if-missing marker ${noop}\nsetup --if-missing marker ${makeMarker}\n` });
@@ -460,8 +450,7 @@ test('a guard is judged once every setup line has run, so a later line that crea
   assert.deepStrictEqual(undoneSeen, ['1/2 marker']);
   assert.deepStrictEqual(undoneAgain.setup.results.map((result) => [result.status, result.guardMissing]), [['ok', true], ['ok', undefined]]);
 
-  // In a group the group's own lines run after its members', so a member guard that
-  // the group's line creates is fine.
+  // Group lines run after the members', so a member guard that the group's line creates is fine.
   const group = makeGroup(t, {
     rules: { 'projects/api': `setup --if-missing .venv ${noop}\n`, tools: `setup --if-missing .cache ${noop}\n` },
     groupLines: `setup ${NODE} -e "require('fs').mkdirSync('projects/api/.venv')"\n`,
@@ -533,8 +522,7 @@ test('--if-missing paths are validated like rule paths and the option must be sp
 
 // --- project groups ------------------------------------------------------
 
-// Like logCommand, plus the group variables, so a member's run can be told
-// from the group's own.
+// Like logCommand, plus the group variables, so a member's run can be told from the group's own.
 function logGroupCommand(label) {
   const fields =
     `['${label}', process.cwd(), process.env.WORKLER_WORKSPACE, process.env.WORKLER_WORKSPACE_PATH, process.env.WORKLER_ROOT, ` +
@@ -556,8 +544,7 @@ function makeRepoAt(dir, workler) {
 
 const GROUP_PROJECTS = ['projects/api', 'projects/web', 'tools'];
 
-// A project group whose members carry the given .workler contents, with
-// optional group-level lines after the `project` lines.
+// A project group whose members carry the given .workler contents, plus group lines after the `project` lines.
 function makeGroup(t, { rules = {}, groupLines = '', declare = true } = {}) {
   const candidate = path.join(makeTempDir(t, 'workler-group-'), 'root');
   fs.mkdirSync(candidate);
@@ -645,7 +632,7 @@ test("add at a group root runs each member's setup commands in its clone, then t
   assert.deepStrictEqual(logLabels(path.join(nested.path, 'projects', 'api')), ['api']);
 });
 
-test('a failing member command stops the whole run and names the project', (t) => {
+test('a failing member command stops the whole run, names the project, and the retry hint keeps the address', (t) => {
   const root = makeGroup(t, {
     rules: { 'projects/api': `setup ${exitCommand(3)}\n`, tools: `setup ${logGroupCommand('tools')}\n` },
     groupLines: `setup ${logGroupCommand('group')}\n`,
@@ -660,8 +647,6 @@ test('a failing member command stops the whole run and names the project', (t) =
   assert.deepStrictEqual(logLabels(path.join(feat, 'tools')), []);
   assert.deepStrictEqual(logLabels(feat), []);
 
-  // The retry hint repeats the address that was run, so retrying one member does not
-  // widen into every member's commands.
   const direct = runCli(root, 'setup', 'feat/projects/api');
   assert.strictEqual(direct.status, 1);
   assert.match(direct.stderr, /^the workspace was kept; fix the problem and re-run `workler setup feat\/projects\/api`$/m);
@@ -703,8 +688,7 @@ function withStaleGroupEnv(t) {
 
 test('setup commands never inherit group variables from the process that runs Workler', (t) => {
   withStaleGroupEnv(t);
-  // A plain project: a member's command that runs `workler add` for another
-  // project must not make that workspace look like a group member.
+  // A plain project, as when a member's command runs `workler add` elsewhere: the new workspace is no group member.
   const root = makeProject(t, { workler: `setup ${logGroupCommand('plain')}\n` });
   const ws = api.createWorkspace(root, { name: 'feat' });
   assert.deepStrictEqual(readLog(ws.path), [['plain', ws.path, 'feat', ws.path, root, '', '', '']]);
@@ -732,9 +716,8 @@ function withEnv(t, values) {
 }
 
 test("setup commands do not inherit the caller's package-manager variables", (t) => {
-  // `npm run` sets npm_config_* and INIT_CWD for the script it runs; a setup
-  // command that runs an installer must see the workspace, not that script.
-  // The injected variables are lowercase; a user's own uppercase installer settings pass through.
+  // `npm run` sets lowercase npm_config_* and INIT_CWD for its script; an installer in setup must see the
+  // workspace. A user's own uppercase settings (NPM_CONFIG_REGISTRY, PNPM_HOME) pass through.
   withEnv(t, { npm_config_example: 'from-npm', INIT_CWD: '/elsewhere', WORKLER_TEST_UNRELATED: 'kept', NPM_CONFIG_REGISTRY: 'https://registry.example', PNPM_HOME: '/pnpm' });
   const names = ['npm_config_example', 'INIT_CWD', 'WORKLER_TEST_UNRELATED', 'NPM_CONFIG_REGISTRY', 'PNPM_HOME'];
   const fields = `[${names.map((name) => `process.env.${name}`).join(', ')}]`;

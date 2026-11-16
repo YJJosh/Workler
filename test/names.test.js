@@ -1,6 +1,4 @@
 'use strict';
-// Names are validated before anything is cloned, so each case checks both the error
-// and that .worktrees/ is untouched.
 
 const assert = require('node:assert');
 const fs = require('node:fs');
@@ -32,7 +30,6 @@ const INVALID_NAMES = [
   ['main', 'reserved for the main project'],
   ['..', 'directory traversal'],
   ['', 'empty'],
-  // Windows: invalid characters, reserved device names, trailing dot/space.
   ['con', 'reserved device name on Windows'],
   ['NUL.txt', 'reserved device name on Windows, extension and all'],
   ['com1', 'reserved device name on Windows'],
@@ -107,7 +104,6 @@ test('planWorkspaceCreation (add --dry-run) rejects the same names', (t) => {
 test('a name that is only a valid DIRECTORY is still allowed with --branch', (t) => {
   const root = makeProject(t);
 
-  // The branch may hold slashes; only the workspace name has to be one directory name.
   const workspace = api.createWorkspace(root, { name: 'ws', branch: 'feature/nested/name' });
   assert.strictEqual(workspace.branch, 'feature/nested/name');
   assert.deepStrictEqual(worktreeEntries(root), ['ws']);
@@ -130,8 +126,7 @@ test('the CLI reports an invalid name on stderr with exit code 1 and no clone', 
 test('remove still accepts the name of a workspace that predates these rules', { skip: process.platform === 'win32' }, (t) => {
   const root = makeProject(t);
 
-  // A workspace named `con` (made before add rejected it) must stay removable.
-  // Windows cannot create a directory with that reserved name, hence the skip.
+  // Windows cannot create a directory named `con`, hence the skip.
   const legacy = path.join(root, '.worktrees', 'con');
   fs.mkdirSync(path.dirname(legacy), { recursive: true });
   git(root, 'clone', '-q', '--local', root, legacy);
@@ -145,8 +140,6 @@ test('remove still accepts the name of a workspace that predates these rules', {
   assert.deepStrictEqual(worktreeEntries(root), []);
 });
 
-// A path separator gets remove's own advice, not add's --branch hint: the caller usually
-// typed a nested workspace (feat/agent-1) or a group member's address (feat/web).
 for (const name of ['feat/web', 'feat\\web']) {
   test(`remove rejects ${JSON.stringify(name)} with advice for remove, not add`, (t) => {
     const root = makeProject(t);

@@ -23,8 +23,7 @@ function hasControlCharacter(value: string): boolean {
 }
 
 /**
- * For a new workspace: stricter than validateWorkspaceName, which `remove`
- * uses and so must accept any name already on disk.
+ * For a new workspace; stricter than validateWorkspaceName, which `remove` uses and so must accept any name on disk.
  * @throws WorklerError INVALID_NAME
  */
 export function validateNewWorkspaceName(name: string): void {

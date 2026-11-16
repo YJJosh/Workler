@@ -152,9 +152,8 @@ export function applyCommand(args: string[]): void {
     if (info.gitRepo) {
       const parent = parentProject(root);
       if (parent) {
-        // A member clone takes the group's locks, as `apply <name>/<project>`
-        // and `remove` do, plus the source's, so a `sync` there cannot
-        // rewrite a file while it is copied.
+        // A member clone takes the group's locks, as `apply <name>/<project>` and `remove` do, plus the
+        // source's, so a `sync` there cannot rewrite a file while it is copied.
         const lockRoots = info.memberOf
           ? mergeLockRoots(lockRootsOf(inspectProject(info.memberOf.group)), lockRootsOf(inspectProject(parent)))
           : lockRootsOf(inspectProject(parent));

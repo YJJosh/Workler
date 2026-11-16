@@ -52,7 +52,7 @@ test('add --copy-links plans and creates copies via the CLI', (t) => {
   assert.ok(isRealDirectory(path.join(root, '.worktrees', 'solo', 'node_modules')));
 });
 
-test('apply --copy-links converts an existing linked workspace without --force', (t) => {
+test('apply --copy-links converts an existing linked workspace without --force, and the mode sticks', (t) => {
   const root = makeProject(t, { workler: RULES });
   const ws = api.createWorkspace(root, { name: 'feat' });
   const destination = path.join(ws.path, 'node_modules');
@@ -76,7 +76,6 @@ test('apply --copy-links converts an existing linked workspace without --force',
     'temporary replacement entries must be cleaned up',
   );
 
-  // The mode sticks: a plain apply keeps the copy instead of reporting a link conflict.
   const again = runCli(root, 'apply', '--all');
   assert.strictEqual(again.status, 0, again.stderr);
   assert.match(again.stdout, /^ok {5}link node_modules \(destination matches source\)$/m);
@@ -267,8 +266,7 @@ test('copied links rebase absolute targets through a symlinked source alias', (t
     }
     assertIndependent(ws);
 
-    // A stale copy whose link still points into the source: identical link text is not
-    // identical content.
+    // A stale copy whose link still points into the source: same link text, different content.
     const stale = path.join(ws.path, 'linked-cache', '.bin', 'aliased');
     fs.unlinkSync(stale);
     fs.symlinkSync(path.join(source, 'pkg', 'index.js'), stale);
@@ -283,7 +281,7 @@ test('copied links rebase absolute targets through a symlinked source alias', (t
   }
 });
 
-test('apply --no-copy-links fails when the mode cannot be cleared', (t) => {
+test('apply --no-copy-links fails when the mode cannot be cleared, not when it is already absent', (t) => {
   const root = makeProject(t, { workler: 'link node_modules\n' });
   const ws = api.createWorkspace(root, { name: 'solo', copyLinks: true });
   const destination = path.join(ws.path, 'node_modules');
@@ -299,7 +297,6 @@ test('apply --no-copy-links fails when the mode cannot be cleared', (t) => {
   const forced = runCli(root, 'apply', 'solo', '--no-copy-links', '--force');
   assert.strictEqual(forced.status, 0, forced.stderr);
   assert.ok(fs.lstatSync(destination).isSymbolicLink());
-  // Clearing an already absent key is not a failure.
   const repeated = runCli(root, 'apply', 'solo', '--no-copy-links');
   assert.strictEqual(repeated.status, 0, repeated.stderr);
 });

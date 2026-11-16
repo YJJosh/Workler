@@ -452,8 +452,7 @@ test('init leaves a malformed .workler alone, says so, and still prepares the fo
   assert.match(run.stdout, /^ready   \.worktrees$/m);
   assert.equal(fs.readFileSync(configPath, 'utf8'), broken);
 
-  // Inside an outer repository the repositories below still make the folder the
-  // project, so init prepares it and not the outer repository.
+  // Inside an outer repository the repositories below still make the folder the project.
   const outer = makeRepo(t, { includeWorkler: false });
   const outerWorktreesBefore = fs.existsSync(path.join(outer, '.worktrees'));
   const outerExclude = path.join(outer, '.git', 'info', 'exclude');
@@ -492,7 +491,6 @@ test('add at a group root clones every project into one workspace, in the same l
   assert.ok(progress.includes('project projects/api'));
   assert.ok(progress.includes('group rules'));
 
-  // The .workler copy lets the workspace host nested workspaces.
   assert.strictEqual(fs.readFileSync(path.join(feat, '.workler'), 'utf8'), fs.readFileSync(path.join(root, '.workler'), 'utf8'));
   assert.strictEqual(fs.readFileSync(path.join(feat, '.env.shared'), 'utf8'), 'SHARED=1\n');
   assert.strictEqual(result.rules.ruleCount, 1);
@@ -914,7 +912,6 @@ test('a symbolic link on the way to a nested member is never followed: status, a
   assert.strictEqual(refs(sourceApi, 'refs/workler-group'), '');
   assert.strictEqual(refs(sourceWeb, 'refs/workler-group'), '');
 
-  // Each member behind the link is named once, not again as a stray entry.
   assert.throws(() => api.removeWorkspace(root, 'feat'), (error) =>
     error.code === 'WORKSPACE_DIRTY'
     && /projects\/api: behind a symbolic link at projects, not a clone/.test(error.message)
@@ -1025,7 +1022,6 @@ test('a member clone is a project of its own that can host nested workspaces', (
 
   assert.deepStrictEqual(api.listWorkspaces(clone).map((item) => item.name), ['main', 'sub']);
   assert.deepStrictEqual(api.listWorkspaces(root).map((item) => item.name), ['main', 'feat']);
-  // The nested workspace inside the member makes the group workspace dirty for remove.
   assert.strictEqual(api.listWorkspaces(root)[1].clean, false);
 });
 
@@ -1054,7 +1050,6 @@ test('a group workspace is a group root of its own: nested group workspaces', (t
   assert.deepStrictEqual(api.listWorkspaces(feat).map((item) => item.name), ['main', 'feat2']);
   assert.strictEqual(api.resolveWorkspacePath(feat, 'feat2/tools'), member(nested.path, 'tools'));
 
-  // The nested workspace is data the outer remove would destroy.
   assert.throws(() => api.removeWorkspace(root, 'feat'), (error) => error.code === 'WORKSPACE_DIRTY' && /\.worktrees: not part of a declared project/.test(error.message));
   api.removeWorkspace(feat, 'feat2');
   assert.deepStrictEqual(api.removeWorkspace(root, 'feat'), { name: 'feat', path: feat });
@@ -1141,7 +1136,6 @@ test('the group rules keep their own copy-links mode; one member switching its m
   assert.throws(() => git(clone, 'config', '--get', 'workler.copyLinks'));
   assert.strictEqual(git(clone, 'config', '--get', 'workler.groupCopyLinks'), 'true');
 
-  // A plain apply still sees the group's copy as a copy, not a conflict with the link rule.
   const whole = runCli(root, 'apply', 'feat');
   assert.strictEqual(whole.status, 0, whole.stderr);
   assert.match(whole.stdout, /^ok {5}link shared \(destination matches source\)$/m);
@@ -1514,8 +1508,6 @@ test('a clone that an interrupted add left unmarked still counts as the member',
   const status = runCli(root, 'status');
   assert.strictEqual(status.status, 0);
   assert.doesNotMatch(status.stdout, /broken/);
-  // Unmarked, it is recognized by where it sits, so commands inside it still know
-  // (and lock) their group.
   const unmarked = api.inspectProject(apiMember);
   assert.deepStrictEqual(unmarked.memberOf, { group: root, workspace: 'feat', project: 'projects/api' });
   assert.strictEqual(unmarked.parent, sourceApi);
@@ -1838,8 +1830,7 @@ test('group and member guard paths are output only once their commands made them
   assert.deepStrictEqual(recordedPaths([git(apiClone, 'config', '--get-all', 'workler.setupOutput')]), ['stamp.txt']);
   assert.deepStrictEqual(recordedPaths(JSON.parse(fs.readFileSync(path.join(feat.path, '.workler-setup.json'), 'utf8')).setupOutput), ['shared.txt']);
   assert.strictEqual(clean('feat'), true);
-  // A file of the user's put in place of a recorded entry is data, at either
-  // level; once setup makes the path again it is output again.
+  // A user's file in place of a recorded entry is data at either level, until setup makes the path again.
   for (const file of [path.join(feat.path, 'shared.txt'), path.join(apiClone, 'stamp.txt')]) {
     fs.rmSync(file);
     fs.writeFileSync(file, 'mine\n');
@@ -1870,8 +1861,7 @@ test('group and member guard paths are output only once their commands made them
   );
   fs.rmSync(path.join(member(bare.path, 'projects/api'), 'stamp.txt'));
 
-  // A later setup makes and records both; the record itself is Workler's
-  // only while it is a regular file.
+  // A later setup makes and records both; the record itself is Workler's only while it is a regular file.
   api.setupWorkspace(root, 'bare');
   assert.strictEqual(clean('bare'), true);
   fs.rmSync(path.join(bare.path, '.workler-setup.json'));

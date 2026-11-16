@@ -252,7 +252,6 @@ test('remove does not count what the rules produce, ignored or not, but everythi
     assert.ok(fs.existsSync(path.join(workspace.path, output)), output);
   }
   assert.strictEqual(clean(), true, 'rule outputs are not local data');
-  // apply won't replace an edited copy without --force, so remove must not delete it either.
   fs.appendFileSync(path.join(workspace.path, '.env'), 'MORE=1\n');
   assert.strictEqual(clean(), false, 'an edited copy is data');
   assert.throws(() => api.removeWorkspace(root, 'feat'), (error) => error.code === 'WORKSPACE_DIRTY');
@@ -285,8 +284,6 @@ test('remove does not count what the rules produce, ignored or not, but everythi
 });
 
 test('a rule destination whose source is missing in the main project is data, not output', (t) => {
-  // With no .env in main, apply skips `copy .env`, so nothing regenerates a .env
-  // the user makes in the workspace.
   const root = makeProject(t, { workler: 'copy .env\n' });
   fs.rmSync(path.join(root, '.env'), { force: true });
   assert.ok(!fs.existsSync(path.join(root, '.env')));
@@ -302,7 +299,6 @@ test('a rule destination whose source is missing in the main project is data, no
   assert.throws(() => api.removeWorkspace(root, 'feat'), (error) => error.code === 'WORKSPACE_DIRTY');
   assert.strictEqual(fs.readFileSync(path.join(workspace.path, '.env'), 'utf8'), 'SECRET=mine\n');
 
-  // apply refuses the differing .env without --force, so it stays data until then.
   fs.writeFileSync(path.join(root, '.env'), 'SECRET=1\n');
   assert.strictEqual(clean(), false, 'a source appearing later does not claim what is there');
   assert.strictEqual(runCli(root, 'apply', 'feat').status, 1);
@@ -315,8 +311,6 @@ test('a rule destination whose source is missing in the main project is data, no
 });
 
 test('a rule added after a workspace has its own file there does not claim it', (t) => {
-  // apply refuses to replace a workspace's own .env or node_modules without --force,
-  // so rules added later must not let remove delete them without it.
   const root = makeProject(t);
   fs.writeFileSync(path.join(root, '.gitignore'), '.env\nnode_modules\n');
   git(root, 'add', '.gitignore');
@@ -367,8 +361,6 @@ test('a recorded guard path keeps the whitespace it is spelled with', (t) => {
 });
 
 test("the main checkout's rule sources are local data, not rule outputs", (t) => {
-  // In the main checkout .env is the source of `copy .env`, not something
-  // apply regenerates, so the listing's `clean` for main has to count it.
   const root = makeProject(t, { workler: 'copy .env\n' });
   fs.rmSync(path.join(root, 'node_modules'), { recursive: true, force: true });
   fs.writeFileSync(path.join(root, '.gitignore'), '.env\n');
@@ -406,7 +398,6 @@ test('a guard path is rule output only once its guarded command made it', (t) =>
   fs.writeFileSync(path.join(workspace.path, 'out', 'stamp.txt'), 'mine\n');
   assert.strictEqual(clean(), false, 'a hand-made file at the guard path is data');
   assert.throws(() => api.removeWorkspace(root, 'feat'), (error) => error.code === 'WORKSPACE_DIRTY');
-  // A skipped command proves nothing about who made the path.
   assert.strictEqual(api.setupWorkspace(root, 'feat').setup.results[0].status, 'skipped');
   assert.strictEqual(recorded(), '');
   assert.strictEqual(clean(), false);
@@ -420,7 +411,6 @@ test('a guard path is rule output only once its guarded command made it', (t) =>
   assert.strictEqual(recorded(), 'out/stamp.txt');
   assert.strictEqual(clean(), true);
 
-  // The record only means something for a guard line the project still has.
   fs.writeFileSync(path.join(root, '.workler'), '');
   assert.strictEqual(clean(), false, 'no guard line, no output');
   fs.writeFileSync(path.join(root, '.workler'), `setup --if-missing out/stamp.txt ${stamp}\n`);
@@ -472,8 +462,7 @@ test('a guarded command that runs again starts without its earlier record', (t) 
   assert.deepStrictEqual(recorded(), ['other.txt', 'out/stamp.txt']);
   assert.strictEqual(clean(), true);
 
-  // The command dies after re-creating the path. The record must drop it, or `remove`
-  // would delete the half-made output without --force.
+  // The command dies after re-creating the path; `remove` must not take the half-made file for output.
   fs.rmSync(path.join(workspace.path, 'out'), { recursive: true });
   fs.writeFileSync(path.join(root, '.workler'), config(makeAndDie));
   assert.throws(
@@ -495,8 +484,6 @@ test('a guarded command that runs again starts without its earlier record', (t) 
 });
 
 test('a rule whose source sits behind a symlinked parent is not output', (t) => {
-  // apply skips the rule while main has no secrets/, and refuses to follow `secrets` once
-  // it is a link, so either way nothing regenerates the workspace's file.
   const root = makeProject(t, { workler: 'copy secrets/.env\n' });
   const workspace = api.createWorkspace(root, { name: 'feat' });
   const clean = () => api.listWorkspaces(root).find((entry) => entry.name === 'feat').clean;

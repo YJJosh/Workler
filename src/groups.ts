@@ -8,9 +8,8 @@ import { canonicalPath, pathsReferToSameLocation } from './fs-utils';
 import { gitMaybe, hasIndependentGitDirectory, isGitTopLevel } from './git';
 import { readSetupRecordFile } from './setup';
 
-// A group workspace clones every declared repository into
-// .worktrees/<name>/<path>, keeping the layout so relative paths between
-// projects still work. Each clone takes its rules from its own source.
+// A group workspace clones every declared repository into .worktrees/<name>/<path>, keeping the layout
+// so relative paths between projects still work. Each clone takes its rules from its own source.
 
 // A Git repository is never a group, whatever its .workler says.
 export function groupProjects(root: string): string[] {
@@ -103,9 +102,8 @@ function walkToMember(base: string, project: string): MemberWalk {
 }
 
 /**
- * Only a real directory with its own .git directory, reached through real
- * directories, is a clone. A symlink or file on the way is local data and is
- * never followed, even when it points at the source.
+ * Only a real directory with its own .git directory, reached through real directories, is a clone.
+ * A symlink or file on the way is local data and is never followed, even when it points at the source.
  */
 export type MemberState = 'missing' | 'clone' | 'link' | 'not-a-clone' | 'foreign';
 
@@ -136,11 +134,9 @@ export function inspectMember(base: string, project: string): MemberCheck {
   }
 }
 
-// Judged by the identity `add` records in git config, not by a .git
-// directory: an unrelated repository at the path is local data that remove,
-// apply and sync must not touch. An interrupted `add` can leave any prefix of
-// its marks, so every mark present must match, and the clone must be tied to
-// the source by workler.root or, before that is written, by a remote URL.
+// Judged by the identity `add` records in git config, not by a .git directory: an unrelated repository there is
+// local data remove, apply and sync must not touch. An interrupted `add` can leave any prefix of its marks, so
+// every mark present must match, and workler.root or (before that is written) a remote URL ties clone to source.
 function isRecordedMember(base: string, project: string, member: string): boolean {
   const group = path.dirname(path.dirname(base));
   const source = memberPath(group, project);
@@ -220,10 +216,7 @@ export function memberBrokenReason(base: string, project: string): string | unde
   }
 }
 
-/**
- * Undefined when the source is usable. A symlink on the way is refused, not
- * followed, so a group only reaches repositories physically below its root.
- */
+/** Undefined when usable. A symlink on the way is refused, not followed, so a group only reaches repositories physically below it. */
 export function sourceBrokenReason(groupRoot: string, project: string): string | undefined {
   const walk = walkToMember(groupRoot, project);
   switch (walk.kind) {
@@ -243,10 +236,8 @@ export function sourceBrokenReason(groupRoot: string, project: string): string |
 }
 
 /**
- * Entries in a group workspace that removal would lose: anything but an
- * unchanged .workler copy, members and folders leading to them,
- * `managedPaths` (what the group's rules produce), the setup record, and an
- * empty .worktrees/ left by a lock.
+ * Entries in a group workspace that removal would lose: all but an unchanged .workler copy, members and folders
+ * leading to them, `managedPaths` (group rule outputs), the setup record and an empty .worktrees/ left by a lock.
  */
 export function groupWorkspaceExtras(dir: string, groupRoot: string, projects: string[], managedPaths: readonly string[] = []): string[] {
   const extras: string[] = [];
@@ -314,10 +305,8 @@ function configCopyMatches(dir: string, groupRoot: string): boolean {
 }
 
 /**
- * Where `branch-sync` at a group root mirrors members in their sources:
- * refs/workler-group/<group>/<workspace>/<branch>. A repository can belong to
- * several groups and pruning deletes whatever the group does not own, so
- * <group> is the folder name plus a hash of its canonical path.
+ * Where group-root `branch-sync` mirrors members in their sources: refs/workler-group/<group>/<workspace>/<branch>.
+ * Pruning deletes what a group does not own and a repo can be in several, so <group> adds a hash of its canonical path.
  */
 export function groupRefNamespace(groupRoot: string): string {
   const canonical = canonicalPath(groupRoot);

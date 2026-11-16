@@ -29,9 +29,8 @@ export interface ProjectInfo {
   /** Any Git repository, or a non-Git directory with a .workler file. */
   initialized: boolean;
   /**
-   * When this is a managed workspace: the project it was cloned from, or the
-   * group root for a group workspace folder. For a member clone: the source,
-   * only while it is usable and reached without symlinks.
+   * For a managed workspace, the project it was cloned from, or the group root for a group workspace folder.
+   * For a member clone: the source, only while it is usable and reached without symlinks.
    */
   parent?: string;
   /** A group's `project <path>` entries in file order; empty for a Git repository. */
@@ -40,10 +39,7 @@ export interface ProjectInfo {
   isGroup: boolean;
   /** .workler does not parse. inspectProject never throws; operations raise CONFIG_INVALID. */
   configError?: string;
-  /**
-   * Set for a member clone of a group workspace, even when an interrupted
-   * `add` never marked it or the source is gone: the group still owns it.
-   */
+  /** Set for a group member clone even when an interrupted `add` never marked it or the source is gone: the group owns it. */
   memberOf?: GroupMembership;
 }
 
@@ -149,10 +145,7 @@ export function requireRepositoryOrGroup(rootInput: string, command: string): Pr
   return info;
 }
 
-/**
- * Git repositories up to two levels below `root`, as sorted forward-slash
- * paths. Skips hidden directories, node_modules and linked `git worktree`s.
- */
+/** Sorted forward-slash paths of Git repositories up to two levels down; skips hidden dirs, node_modules, linked `git worktree`s. */
 export function discoverProjects(rootInput: string): string[] {
   const root = path.resolve(rootInput);
   const found: string[] = [];
@@ -200,10 +193,7 @@ export interface InitResult {
   discoveredProjects: string[];
   /** Left out of a new config: the path cannot be spelled in .workler. */
   unwritableProjects: string[];
-  /**
-   * Left out because the path overlaps a declared or earlier one, compared
-   * like the parser does (case-insensitively, parent against child).
-   */
+  /** Left out because the path overlaps a declared or earlier one (case-insensitive, parent against child, like the parser). */
   overlappingProjects: Array<{ path: string; overlaps: string }>;
   /** Why an existing .workler does not parse; the file is left as is. */
   configError?: string;
@@ -219,9 +209,8 @@ function enclosingGroupOf(info: Pick<ProjectInfo, 'gitRepo' | 'parent' | 'member
 }
 
 /**
- * Every enclosing group, outermost first, then the root. `remove` and `apply`
- * at a group hold only the group's lock while changing member clones, so work
- * inside a clone must share it. A workspace nested in a clone locks only itself.
+ * Enclosing groups outermost first, then the root: `remove` and `apply` at a group hold only its lock while
+ * changing member clones, so work in a clone must share it. A workspace nested in a clone locks only itself.
  */
 export function lockRootsOf(info: Pick<ProjectInfo, 'root' | 'gitRepo' | 'parent' | 'memberOf'>): string[] {
   const roots = [info.root];
@@ -238,9 +227,8 @@ export function lockRootsOf(info: Pick<ProjectInfo, 'root' | 'gitRepo' | 'parent
 }
 
 /**
- * Adds each usable source's locks for group commands that read or write the
- * sources. Broken sources are not locked: that would create .worktrees/ at a
- * path Workler must not touch.
+ * Adds each usable source's locks, for group commands that read or write the sources. Broken sources
+ * stay unlocked: locking would create .worktrees/ at a path Workler must not touch.
  */
 export function lockRootsWithSourcesOf(info: ProjectInfo): string[] {
   const roots = lockRootsOf(info);

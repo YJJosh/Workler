@@ -45,9 +45,8 @@ function realDirectory(dir: string): boolean {
   return stat.isDirectory() && !stat.isSymbolicLink();
 }
 
-// A source ref/object reached through a symlink into the workspace would
-// disappear on deletion despite looking reachable today. Refuse linked Git
-// history metadata, without following it. Bound filesystem inspection too.
+// A source ref/object reached through a symlink into the workspace would vanish on deletion despite looking
+// reachable. Refuse linked Git history metadata without following it, and bound filesystem inspection.
 function unlinkedMetadata(dotGit: string): void {
   const started = Date.now();
   let entries = 0;
@@ -144,9 +143,8 @@ function walk(repo: string, revisions: string[]): string[] {
 }
 
 /**
- * Read-only, offline proof against source refs that survive workspace
- * deletion: local branches and tags, plus a detached HEAD. Remote refs,
- * stash, reflogs, symbolic refs and Workler mirrors do not count.
+ * Read-only, offline proof against source refs that survive workspace deletion: local branches, tags and a
+ * detached HEAD. Remote refs, stash, reflogs, symbolic refs and Workler mirrors do not count.
  */
 export function assessHistory(source: string, workspace: string): HistoryAssessment {
   try {

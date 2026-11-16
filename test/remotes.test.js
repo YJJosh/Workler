@@ -1,7 +1,6 @@
 'use strict';
-// `git clone --local` points `origin` at the main checkout, so fetch/sync would treat it as
-// upstream and `git push origin` would push into it. `add` repoints origin at the main
-// project's real origin (or removes it) and adds a `workler-root` remote for the main checkout.
+// `git clone --local` points `origin` at the main checkout; `add` repoints it at the main project's
+// real origin (or removes it) and adds a `workler-root` remote for the main checkout.
 
 const assert = require('node:assert');
 const fs = require('node:fs');
@@ -64,8 +63,7 @@ test('a root with no origin leaves the workspace with no origin at all', (t) => 
   assert.ok(!('origin' in configured), `workspace must have no origin, got ${JSON.stringify(configured)}`);
   assert.strictEqual(configured['workler-root'], root);
 
-  // Its remote-tracking refs go too: they copy the root's local branches and would show
-  // as bogus ahead/behind in `status`.
+  // clone --local's origin/* copies of the root's branches go too, or `status` shows bogus ahead/behind.
   assert.strictEqual(git(workspace.path, 'for-each-ref', '--format=%(refname)', 'refs/remotes/origin'), '');
 
   const sync = runCli(root, 'sync');
