@@ -20,92 +20,80 @@ import type { WorkspaceSetupOptions } from './setup';
 
 export interface CreateWorkspaceOptions extends WorkspaceSetupOptions {
   name: string;
-  // Start point for a new branch (branch, tag, or commit; origin/* also
-  // sets upstream tracking). Without `branch`, the new branch is named after
-  // the workspace. With `branch`, that branch is created from this base.
-  // Mutually exclusive with checkout.
+  /**
+   * Start point for a new branch: branch, tag or commit; origin/* also sets
+   * upstream. The branch is `branch`, or else the workspace name. Not with `checkout`.
+   */
   base?: string;
-  // Branch to put the workspace on. Without `base`, an existing branch is
-  // reused or a missing branch is created from HEAD. With `base`, the branch
-  // must be new and is created from that ref. Mutually exclusive with checkout.
+  /**
+   * Without `base`, an existing branch is reused or a new one starts at HEAD.
+   * With `base`, the branch must be new. Not with `checkout`.
+   */
   branch?: string;
-  // Existing ref to check out without creating a branch (tags/commits are
-  // checked out detached). Mutually exclusive with base/branch.
+  /** Existing ref to check out; tags and commits are detached. Not with `base` or `branch`. */
   checkout?: string;
-  // Replace conflicting rule destinations (same as `add --force`).
+  /** Replace conflicting rule destinations, like `add --force`. */
   force?: boolean;
-  // Copy what `link` rules would symlink, so the workspace shares nothing
-  // with the main project (same as `add --copy-links`). Remembered in the
-  // workspace, so later `apply` runs keep copying.
+  /** Copy what `link` rules would symlink; remembered for later `apply` runs. */
   copyLinks?: boolean;
-  // Run the `setup` commands from .workler once the workspace is complete
-  // (default true; `add --no-setup` passes false). A failing command throws
-  // SETUP_COMMAND_FAILED and leaves the finished workspace in place.
+  /**
+   * Run the .workler `setup` commands at the end. Default true. A failure
+   * throws SETUP_COMMAND_FAILED and keeps the finished workspace.
+   */
   setup?: boolean;
-  // Human-readable progress lines (the CLI prints these verbatim).
+  /** Human-readable progress lines. */
   onProgress?: (message: string) => void;
-  // Per-rule results as they resolve (the CLI prints these incrementally).
+  /** Called as each rule resolves. */
   onRuleResult?: (result: RuleApplyResult) => void;
 }
 
-// What to do in the fresh clone. Planned against the MAIN project so refs mean
-// what the user sees there; executed in the clone, where the main project's
-// local branches appear as origin/* (only its HEAD branch exists locally) but
-// every object is present.
+/**
+ * Planned against the main project, so refs mean what the user sees there.
+ * Run in the clone, where the main project's branches are origin/*.
+ */
 export type CheckoutPlan =
-  // Create a NEW branch. Without startPoint it starts at the clone's HEAD
-  // (= the main project's current HEAD). startPoint is a commit sha resolved
-  // in the main project; startPointLabel is the name the user typed.
+  // startPoint: a sha resolved in the main project; absent means HEAD.
+  // startPointLabel: the name the user typed.
   | { kind: 'create-branch'; branch: string; startPoint?: string; startPointLabel?: string; upstream?: string }
-  // Checkout a branch that exists locally in the main project. `sha` is the
-  // exact local tip; upstream state is copied only when the root's real
-  // origin snapshot contains the same branch.
+  // Upstream is copied only when the root's origin has the same branch.
   | { kind: 'checkout-branch'; branch: string; sha: string; upstream?: string; upstreamSha?: string }
-  // Checkout a tag/commit without a branch (detached HEAD).
   | { kind: 'detach'; sha: string; ref: string };
 
-// One declared project of a group workspace plan.
 export interface MemberPlan {
-  // The declared project path (`projects/api`).
+  /** The declared project path (`projects/api`). */
   project: string;
-  // The source repository: <group>/<project>.
+  /** The source repository, <group>/<project>. */
   root: string;
-  // Where its clone will be created: <group>/.worktrees/<name>/<project>.
+  /** <group>/.worktrees/<name>/<project>. */
   target: string;
   checkout: CheckoutPlan;
-  // The `setup` commands the source's .workler declares, in run order.
   setup: SetupCommand[];
 }
 
 export interface WorkspacePlan {
   root: string;
   name: string;
-  // Where the workspace will be created: <root>/.worktrees/<name>.
+  /** <root>/.worktrees/<name>. */
   target: string;
-  // Absent for a project group, which has one checkout per member instead.
+  /** Absent for a project group; see `projects`. */
   checkout?: CheckoutPlan;
-  // Project group only: one plan per declared project, in file order. The
-  // same branch options apply to every member.
+  /** Project group only: one plan per declared project, in file order. */
   projects?: MemberPlan[];
-  // The `setup` commands root's .workler declares, in run order. For a
-  // group: the group's own, which run after every member's.
+  /** For a group: the group's own commands, which run after every member's. */
   setup: SetupCommand[];
-  // Human-readable warnings about uncommitted changes or unsupported removal-proof layouts.
   warnings: string[];
 }
 
 export interface MemberCreateResult {
   project: string;
-  // The source repository the member was cloned from.
+  /** The source repository the member was cloned from. */
   root: string;
   path: string;
   branch?: string;
   head?: string;
   detached: boolean;
-  // That project's own copy/link rules, applied inside its clone.
   rules: ApplyRulesOutcome;
-  // That project's own setup commands, run inside its clone; undefined when
-  // `setup: false` skipped them.
+  /** Undefined when `setup: false`. */
   setup?: SetupOutcome;
 }
 
@@ -113,30 +101,25 @@ export interface CreateWorkspaceResult {
   name: string;
   path: string;
   root: string;
-  // Branch checked out in the new workspace; undefined when detached. For a
-  // group workspace: set only when every member ended up on that same branch.
+  /** Undefined when detached; for a group, set only when all members agree. */
   branch?: string;
-  // Full commit sha of the workspace HEAD; absent for a group workspace.
+  /** Full HEAD sha; absent for a group workspace. */
   head?: string;
-  // For a group workspace: every member is detached.
+  /** For a group: every member is detached. */
   detached: boolean;
-  // `link` rules were (and will keep being) applied as copies.
   copyLinks: boolean;
-  // The rules of `root` applied to the workspace. For a group that is the
-  // group's own .workler (shared files next to the clones); each member's
-  // rules are in `projects`.
+  /** For a group: the group's own rules; members' rules are in `projects`. */
   rules: ApplyRulesOutcome;
-  // Project group only: one result per declared project, in file order.
+  /** Project group only: one result per declared project, in file order. */
   projects?: MemberCreateResult[];
-  // Outcome of the `setup` commands (for a group: the group's own, run after
-  // every member's); undefined when `setup: false` skipped them.
+  /** For a group: the group's own commands. Undefined when `setup: false`. */
   setup?: SetupOutcome;
 }
 
-// What `createWorkspace` had finished when a setup command failed: the
-// result without the setup outcomes, on the error's `details.workspace`, so a
-// consumer knows the workspace exists and where (and can retry with
-// `setupWorkspace`).
+/**
+ * On SETUP_COMMAND_FAILED, `details.workspace`: the created workspace,
+ * without setup outcomes, for a retry with `setupWorkspace`.
+ */
 export type CreatedWorkspace = Omit<CreateWorkspaceResult, 'setup' | 'projects'> & {
   projects?: Omit<MemberCreateResult, 'setup'>[];
 };
@@ -184,10 +167,8 @@ function validateOptions(options: CreateWorkspaceOptions): void {
     );
   }
 
-  // Every name and ref is validated HERE, before planning touches the
-  // repository and long before the clone exists. A branch name git rejects
-  // used to surface only when `git checkout -b` ran inside the fresh clone,
-  // which failed the operation but left the clone on disk.
+  // Names and refs are validated before the clone exists, so a name git
+  // rejects never leaves a clone on disk.
   validateNewWorkspaceName(options.name);
   if (options.branch !== undefined) {
     validateBranchName(options.branch, '--branch');
@@ -198,21 +179,14 @@ function validateOptions(options: CreateWorkspaceOptions): void {
   if (options.checkout !== undefined) {
     validateStartRef(options.checkout, '--checkout');
   }
-  // Without --branch/--checkout the workspace name IS the new branch name, so
-  // it has to satisfy git's ref rules as well as the filesystem's.
   if (!options.branch && !options.checkout) {
     validateBranchName(options.name, 'workspace name (used as the branch name)');
   }
   validateWorkspaceRefName(options.name);
 }
 
-// A root `add` can clone: a Git repository, or a project group whose members
-// are Git repositories. A repository that also declares projects is rejected
-// rather than half-honored.
-// A repository's .workler holds copy/link rules only; "project" lines belong
-// to a group root, which is a plain folder. Checked for the repository `add`
-// runs in and for every member of a group, so a repository is never accepted
-// through a group when `add` would refuse it directly.
+// Checked for group members too, so a group never accepts a repository that
+// `add` would refuse directly.
 function assertRepositoryDeclaresNoProjects(root: string): void {
   if (!fs.existsSync(path.join(root, CONFIG_FILE))) {
     return;
@@ -237,8 +211,7 @@ function requireCloneableProject(rootInput: string): ProjectInfo {
     return info;
   }
   if (info.configError) {
-    // Re-read to throw the original CONFIG_INVALID (inspectProject only
-    // records its message).
+    // Throws the original CONFIG_INVALID; inspectProject only kept the message.
     readConfig(info.root);
   }
   throw new WorklerError(
@@ -248,9 +221,7 @@ function requireCloneableProject(rootInput: string): ProjectInfo {
   );
 }
 
-// Validates options and resolves everything `add` needs without touching
-// disk: the target path, the checkout plan, and any warnings. Used directly
-// for dry runs; createWorkspace re-plans under the project lock.
+/** Plans without touching disk, for dry runs; createWorkspace re-plans under the lock. */
 export function planWorkspaceCreation(rootInput: string, options: CreateWorkspaceOptions): WorkspacePlan {
   validateOptions(options);
   const info = requireCloneableProject(rootInput);
@@ -275,13 +246,9 @@ function warnIfLinkedSource(root: string, warnings: string[], label: string): vo
 function planLocked(root: string, options: CreateWorkspaceOptions): WorkspacePlan {
   const target = workspaceTarget(root, options.name);
 
-  // Parse and safety-check every rule against the still-nonexistent target.
-  // This has no side effects, but prevents a known-bad rule (including a
-  // source symlink-ancestor escape) from leaving a clone behind.
+  // A bad rule or ref fails here, before a clone could be left behind.
   applyRules(root, target, { force: options.force === true, copyLinks: options.copyLinks === true, dryRun: true });
 
-  // Resolve the requested branch/ref against the main project BEFORE cloning
-  // so name clashes and bad refs fail cleanly without leaving a clone behind.
   const checkout = planCheckout(root, options);
 
   const warnings: string[] = [];
@@ -293,12 +260,10 @@ function planLocked(root: string, options: CreateWorkspaceOptions): WorkspacePla
   return { root, name: options.name, target, checkout, setup: readSetupCommands(root), warnings };
 }
 
-// Plans every member of a group workspace. All-or-nothing: a bad ref or an
-// existing branch in ANY member fails here, before anything is cloned.
+// All-or-nothing: a problem in any member fails before anything is cloned.
 function planGroupLocked(root: string, projects: string[], options: CreateWorkspaceOptions): WorkspacePlan {
   const target = workspaceTarget(root, options.name);
 
-  // The group's own rules land next to the member clones.
   applyRules(root, target, { force: options.force === true, copyLinks: options.copyLinks === true, dryRun: true });
 
   const warnings: string[] = [];
@@ -307,9 +272,8 @@ function planGroupLocked(root: string, projects: string[], options: CreateWorksp
     const memberRoot = memberPath(root, project);
     const memberTarget = memberPath(target, project);
     forProject(project, () => {
-      // Reached through real folders only: a symbolic link on the way would
-      // make the group clone from (and later sync into) a repository that
-      // lives somewhere else.
+      // A symlink on the way would make the group clone from, and sync into,
+      // a repository elsewhere.
       const unusable = sourceBrokenReason(root, project);
       if (unusable !== undefined) {
         throw new WorklerError(
@@ -339,16 +303,11 @@ export function createWorkspace(rootInput: string, options: CreateWorkspaceOptio
   const root = info.root;
   const progress = options.onProgress ?? (() => {});
 
-  // A group add clones from every declared source and applies its rules from
-  // there, so it holds the sources' locks as well as the group's.
   const result = withProjectLocks(lockRootsWithSourcesOf(info), `add ${options.name}`, () =>
     info.isGroup ? createGroupLocked(root, info.projects, options, progress) : createSingleLocked(root, options, progress),
   );
 
-  // Setup commands (`pnpm install`, ...) can run for minutes, so they run
-  // AFTER the locks are released: other workspaces can be added or listed
-  // meanwhile. The workspace is complete at this point; a failing command
-  // throws but leaves it in place for `workler setup` to retry.
+  // Setup can run for minutes, so it runs after the locks are released.
   if (options.setup !== false) {
     let outcome;
     try {
@@ -380,9 +339,7 @@ function createSingleLocked(
     progress(`warning: ${warning}`);
   }
 
-  // `init` excludes .worktrees/ on the main project, but a workspace acting
-  // as the root of nested workspaces (or a root from an older workler) may
-  // not have the entry yet; make sure it does before creating the clone.
+  // A workspace hosting nested workspaces never ran `init`.
   addLineIfMissing(gitInfoExcludePath(root), `${WORKSPACES_DIR}/`);
 
   fs.mkdirSync(path.dirname(plan.target), { recursive: true });
@@ -441,15 +398,8 @@ function headState(repo: string): { branch?: string; head?: string; detached: bo
   return { branch: detached ? undefined : abbrev, head: gitMaybe(repo, ['rev-parse', 'HEAD']), detached };
 }
 
-// Creates a group workspace: the directory, a copy of the group's .workler
-// (so the workspace is a group root of its own and can host nested group
-// workspaces), one clone per declared project, then the group's own rules.
-// A failure midway leaves the partial workspace in place; `list` and
-// `status` flag what is missing and `remove --force` cleans it up.
-// Whether `root` is a workspace of an enclosing group root
-// (<group>/.worktrees/<name>), as opposed to a group that merely sits in a
-// folder of that name. A parent whose own .workler does not parse is no group
-// root here.
+// Not just a group in a folder named .worktrees. A parent whose .workler does
+// not parse is no group root.
 function isNestedGroupWorkspace(root: string): boolean {
   try {
     return groupWorkspaceParent(root) !== undefined;
@@ -458,6 +408,8 @@ function isNestedGroupWorkspace(root: string): boolean {
   }
 }
 
+// The copied .workler makes the workspace a group root of its own. A failure
+// midway keeps the partial workspace for `remove --force`.
 function createGroupLocked(
   root: string,
   projects: string[],
@@ -469,14 +421,8 @@ function createGroupLocked(
     progress(`warning: ${warning}`);
   }
 
-  // A group root is never a Git repository, so there is no info/exclude to
-  // use; mirror `init` and ignore the workspaces directory in .gitignore. That
-  // only matters when the group sits inside an outer repository, where the
-  // clones and group-level copies would otherwise show up as untracked outer
-  // content. A real nested group workspace skips this: it already lives under
-  // a .worktrees/ that its parent group ignores. The parent folder's name alone
-  // does not prove that (a hand-written group may sit in a tracked folder
-  // called .worktrees), so ask for the workspace itself.
+  // No info/exclude without a repository; .gitignore matters when the group
+  // sits in an outer repository. A nested group workspace is ignored already.
   if (!isNestedGroupWorkspace(root)) {
     addLineIfMissing(path.join(root, '.gitignore'), `${WORKSPACES_DIR}/`);
   }
@@ -548,16 +494,12 @@ function createMember(
   let rules: ApplyRulesOutcome;
   try {
     executeCheckout(member.target, member.checkout, progress);
-    // The member is an ordinary workspace of its source repository (rules,
-    // link targets and branch-sync come from there) that additionally knows
-    // which group workspace it belongs to.
     configureWorkspace(member.root, member.target, options.name);
     git(member.target, ['config', '--local', 'workler.group', canonicalPath(group)]);
     git(member.target, ['config', '--local', 'workler.groupProject', member.project]);
     if (options.copyLinks === true) {
       setWorkspaceCopiesLinks(member.target, true);
-      // The group's own rules are applied in this mode too (createGroupLocked);
-      // the workspace folder is not a repository, so each member remembers it.
+      // The group folder has no git config, so each member remembers its mode.
       setGroupWorkspaceCopiesLinks([member.target], true);
     }
     rules = applyRules(member.root, member.target, {
@@ -578,8 +520,7 @@ function createMember(
 }
 
 function planCheckout(root: string, options: CreateWorkspaceOptions): CheckoutPlan {
-  // `add <name> --checkout <ref>`: never create a new branch. Branches are
-  // checked out as branches; tags/commits leave a detached HEAD.
+  // --checkout never creates a branch.
   if (options.checkout) {
     const existing = planExistingBranch(root, options.checkout);
     if (existing) {
@@ -596,9 +537,7 @@ function planCheckout(root: string, options: CreateWorkspaceOptions): CheckoutPl
     return { kind: 'detach', sha, ref: options.checkout };
   }
 
-  // `add <name> <base> --branch <branch>`: create the explicitly named
-  // branch from the requested base. This is the programmatic integration
-  // form used when a workspace name cannot equal a slash-containing branch.
+  // `add <name> <base> --branch <branch>`, for branch names with "/".
   if (options.branch && options.base) {
     if (
       localBranchExists(root, options.branch) ||
@@ -609,13 +548,10 @@ function planCheckout(root: string, options: CreateWorkspaceOptions): CheckoutPl
     return planNewBranchFromBase(root, options.branch, options.base);
   }
 
-  // `add <name> --branch <branch>`: checkout <branch> if it exists, create it
-  // from HEAD otherwise.
   if (options.branch) {
     return planExistingBranch(root, options.branch) ?? { kind: 'create-branch', branch: options.branch };
   }
 
-  // `add <name> [base]`: always create a NEW branch <name>.
   const branch = options.name;
   if (localBranchExists(root, branch) || revParseCommit(root, `refs/remotes/origin/${branch}`) !== undefined) {
     throw branchExistsError(branch);
@@ -636,9 +572,7 @@ function branchExistsError(branch: string): WorklerError {
 }
 
 function planNewBranchFromBase(root: string, branch: string, base: string): CheckoutPlan {
-  // A remote-branch base (e.g. origin/main) also becomes the new branch's
-  // upstream; other remotes than origin are not carried into the clone, so
-  // only origin/* bases can track.
+  // Only origin/* bases track: other remotes are not carried into the clone.
   const remoteSha = revParseCommit(root, `refs/remotes/${base}`);
   if (remoteSha !== undefined) {
     const upstream = base.startsWith('origin/') ? base : undefined;
@@ -655,11 +589,9 @@ function planNewBranchFromBase(root: string, branch: string, base: string): Chec
   return { kind: 'create-branch', branch, startPoint: sha, startPointLabel: base };
 }
 
-// A branch "exists" if the main project has it locally, or knows it on origin
-// (checking out a remote branch creates the usual local tracking branch).
+// Local in the main project, or on its origin (then a tracking branch is created).
 function planExistingBranch(root: string, branch: string): CheckoutPlan | undefined {
-  // HEAD and @ are revision shorthands, never literal branches. In a normal
-  // clone origin/HEAD exists, but --checkout HEAD/@ must still detach.
+  // origin/HEAD usually exists, but --checkout HEAD or @ must detach.
   if (branch === 'HEAD' || branch === '@') {
     return undefined;
   }
@@ -687,13 +619,10 @@ function executeCheckout(repo: string, plan: CheckoutPlan, progress: (message: s
     progress(`checkout branch ${plan.branch}${tracking}`);
     if (localBranchExists(repo, plan.branch)) {
       git(repo, ['checkout', plan.branch]);
-      // The clone's initial local branch should already be at this commit, but
-      // pin it to the SHA resolved during planning rather than trusting a
-      // clone-generated ref if the source changed concurrently.
+      // Pin to the planned sha in case the source moved during the clone.
       git(repo, ['reset', '--hard', plan.sha]);
     } else {
-      // clone --local synthesizes origin/<branch> from root local branches.
-      // Create from the exact root-local tip instead of trusting that ref.
+      // Not from clone --local's synthetic origin/<branch>.
       git(repo, ['checkout', '--no-track', '-b', plan.branch, plan.sha]);
     }
     if (plan.upstream && plan.upstreamSha) {
@@ -701,8 +630,7 @@ function executeCheckout(repo: string, plan: CheckoutPlan, progress: (message: s
       git(repo, ['config', `branch.${plan.branch}.merge`, `refs/heads/${plan.upstream.slice('origin/'.length)}`]);
       git(repo, ['update-ref', `refs/remotes/${plan.upstream}`, plan.upstreamSha]);
     } else {
-      // A root-local-only branch must not retain clone --local's synthetic
-      // origin tracking, including when it was the initially cloned branch.
+      // Drop clone --local's synthetic origin tracking.
       gitMaybe(repo, ['config', '--unset-all', `branch.${plan.branch}.remote`]);
       gitMaybe(repo, ['config', '--unset-all', `branch.${plan.branch}.merge`]);
     }
@@ -724,19 +652,12 @@ function executeCheckout(repo: string, plan: CheckoutPlan, progress: (message: s
     git(repo, ['checkout', '-b', plan.branch]);
   }
   if (plan.upstream) {
-    // Set upstream via config: the clone's origin/* refs are the main
-    // project's local branches, so the upstream ref itself may not exist in
-    // the clone until the first fetch (configureWorkspace repoints origin at
-    // the real remote right after this).
+    // Via config: the upstream ref may not exist in the clone yet.
     git(repo, ['config', `branch.${plan.branch}.remote`, 'origin']);
     git(repo, ['config', `branch.${plan.branch}.merge`, `refs/heads/${plan.upstream.slice('origin/'.length)}`]);
     if (plan.startPoint) {
-      // `clone --local` created the clone's origin/* refs from the main
-      // project's LOCAL branches, and they are not rewritten when origin is
-      // repointed at the real remote. Pin the tracking ref to the sha we
-      // resolved from the main project's refs/remotes/origin/* so status
-      // reflects the real remote state at creation time instead of a bogus
-      // ahead/behind count against a stale ref.
+      // clone --local made origin/* from the main project's local branches;
+      // pin the real remote state so status shows no bogus ahead/behind.
       git(repo, ['update-ref', `refs/remotes/${plan.upstream}`, plan.startPoint]);
     }
   }
@@ -747,29 +668,17 @@ function revParseCommit(repo: string, ref: string): string | undefined {
 }
 
 function configureWorkspace(root: string, target: string, name: string): void {
-  // workler.root records the IMMEDIATE parent: for a nested workspace that
-  // is the enclosing workspace, not the outermost root.
+  // The immediate parent: for a nested workspace, the enclosing workspace.
   const canonicalRoot = canonicalPath(root);
   git(target, ['config', '--local', 'workler.root', canonicalRoot]);
   git(target, ['config', '--local', 'workler.name', name]);
 
-  // Independent clones do not inherit .git/info/exclude, so exclude
-  // .worktrees/ here too: the workspace may host nested workspaces of its
-  // own (`workler add` run inside it).
+  // Clones do not inherit .git/info/exclude, and may host nested workspaces.
   addLineIfMissing(gitInfoExcludePath(target), `${WORKSPACES_DIR}/`);
 
-  // `clone --local` leaves the clone's origin pointing at the main checkout on
-  // disk, which is never what a user means by "origin": `push origin` would
-  // push into the main project and `fetch origin` would treat it as upstream.
-  //
-  // If the main project has a real origin, inherit it. If it has none, the
-  // workspace must not have one either — dropping it also removes the
-  // remote-tracking refs `clone --local` copied from the main project's LOCAL
-  // branches, which would otherwise masquerade as origin/* state.
-  //
-  // Either way the link back to the main checkout is kept under a dedicated
-  // `workler-root` remote (what `branch-sync` uses), so it exists for EVERY
-  // workspace and not just the ones whose root happens to have an origin.
+  // `clone --local` points origin at the main checkout, so `push origin`
+  // would push into it. Inherit the main project's real origin, or have
+  // none. The way back is always the workler-root remote.
   const rootOriginUrls = gitConfigValues(root, 'remote.origin.url').map((url) => inheritedRemoteUrl(root, url));
   const rootRemotes = gitMaybe(root, ['remote']);
   if (rootRemotes === undefined) {
@@ -778,9 +687,7 @@ function configureWorkspace(root: string, target: string, name: string): void {
   const rootHasOrigin = rootRemotes.split('\n').includes('origin');
   if (rootOriginUrls.length > 0) {
     setGitConfigValues(target, 'remote.origin.url', rootOriginUrls);
-    // A separate push URL is part of the root's origin semantics. Dropping it
-    // can send workspace pushes to the fetch mirror instead of the intended
-    // push endpoint. No pushurl means Git correctly falls back to the URL list.
+    // Without the pushurl, pushes would go to the fetch URL.
     const pushUrls = gitConfigValues(root, 'remote.origin.pushurl').map((url) => inheritedRemoteUrl(root, url));
     setGitConfigValues(target, 'remote.origin.pushurl', pushUrls);
     reconcileOriginRefs(root, target);
@@ -792,9 +699,8 @@ function configureWorkspace(root: string, target: string, name: string): void {
   setRemote(target, ROOT_REMOTE, canonicalRoot);
 }
 
-// clone --local synthesizes origin/* from the source's LOCAL branches. Once
-// origin is repointed those refs would masquerade as real upstream state.
-// Replace them, without network access, with the root's actual origin snapshot.
+// Replaces clone --local's origin/* (made from the source's local branches)
+// with the root's real origin refs, offline.
 function reconcileOriginRefs(root: string, target: string): void {
   const prefix = 'refs/remotes/origin/';
   const refs = (repo: string): Map<string, string> => {
@@ -814,8 +720,7 @@ function reconcileOriginRefs(root: string, target: string): void {
   for (const ref of refs(target).keys()) {
     git(target, ['update-ref', '--no-deref', '-d', ref]);
   }
-  // origin/HEAD is normally symbolic and was excluded above. Remove the
-  // clone-generated one before recreating the root snapshot's symbolic ref.
+  // origin/HEAD is symbolic and handled on its own.
   gitMaybe(target, ['update-ref', '--no-deref', '-d', `${prefix}HEAD`]);
   for (const [ref, sha] of desired) {
     git(target, ['update-ref', ref, sha]);
@@ -825,8 +730,7 @@ function reconcileOriginRefs(root: string, target: string): void {
     git(target, ['symbolic-ref', `${prefix}HEAD`, rootHead]);
   }
 
-  // The initially cloned branch may carry auto-created tracking config. Keep
-  // it only when its upstream exists in the real root origin snapshot.
+  // Keep the cloned branch's tracking only when its upstream really exists.
   const branches = git(target, ['for-each-ref', '--format=%(refname:strip=2)', 'refs/heads/']);
   for (const branch of branches.split('\n').filter(Boolean)) {
     if (gitMaybe(target, ['config', '--get', `branch.${branch}.remote`]) !== 'origin') {
@@ -849,8 +753,7 @@ function gitConfigValues(repo: string, key: string): string[] {
 }
 
 function setGitConfigValues(repo: string, key: string, values: string[]): void {
-  // --unset-all exits non-zero when the key is absent; that is already the
-  // desired state, so use the non-throwing helper.
+  // --unset-all fails when the key is absent, which is fine here.
   gitMaybe(repo, ['config', '--unset-all', key]);
   for (const value of values) {
     git(repo, ['config', '--add', key, value]);
@@ -867,13 +770,11 @@ function inheritedRemoteUrl(root: string, url: string): string {
   ) {
     return url;
   }
-  // Git interprets a relative local remote against each repository's working
-  // directory. The clone lives two levels deeper, so copying the text verbatim
-  // points somewhere else; make its meaning stable before inheriting it.
+  // Git resolves a relative remote against each repository's working tree,
+  // and the clone lives elsewhere.
   return path.resolve(fs.realpathSync.native(root), url);
 }
 
-// Adds the remote, or corrects its URL if it somehow already points elsewhere.
 function setRemote(repo: string, name: string, url: string): void {
   const existing = gitMaybe(repo, ['remote', 'get-url', name]);
   if (existing === undefined) {

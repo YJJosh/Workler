@@ -86,8 +86,7 @@ function branchSyncAll(root: string): void {
   }
 }
 
-// A group has no repository of its own: each member clone syncs with the
-// source repository it was cloned from, which is where its mirrors live.
+// Each member clone syncs with, and mirrors into, its source repository.
 function branchSyncGroup(root: string): void {
   const targets = listSyncTargets(root);
   const sources = targets.filter((target) => target.name === MAIN_WORKSPACE_NAME);
@@ -140,11 +139,8 @@ function branchSyncGroup(root: string): void {
   }
 }
 
-// Mirrored refs live in the root forever unless something deletes them, so a
-// removed workspace would leave a stale <namespace>/<workspace>/ behind.
-// Delete every namespace whose workspace is no longer present (broken
-// workspaces still have a directory, so they stay in `current` and keep their
-// refs).
+// Deletes the mirrors of removed workspaces. Broken workspaces still have a
+// directory, so they stay in `current` and keep their refs.
 function pruneRemovedWorkspaceRefs(root: string, current: Set<string>, namespace: string): number {
   const output = git(root, ['for-each-ref', '--format=%(refname)', `${namespace}/`]);
   if (!output) {
@@ -155,9 +151,7 @@ function pruneRemovedWorkspaceRefs(root: string, current: Set<string>, namespace
   for (const ref of output.split('\n')) {
     const rest = ref.slice(`${namespace}/`.length);
     const separator = rest.indexOf('/');
-    // Workspace names never contain "/" (validateWorkspaceName), so the first
-    // segment is the workspace; the remainder is the branch (which may itself
-    // contain slashes).
+    // Workspace names never contain "/"; branch names may.
     const workspace = separator === -1 ? rest : rest.slice(0, separator);
     if (!current.has(workspace)) {
       const refs = stale.get(workspace) ?? [];
@@ -195,8 +189,6 @@ function listLocalBranches(repo: string): RootBranch[] {
 function syncWorkspaceBranches(root: string, target: SyncTarget, rootBranches: RootBranch[]): number {
   ensureRootRemote(target.path, root);
 
-  // Make the root's branch tips (and their objects) available in the
-  // workspace as refs/remotes/workler-root/*.
   git(target.path, ['fetch', '--prune', ROOT_REMOTE]);
 
   if (rootBranches.length === 0) {
@@ -204,8 +196,7 @@ function syncWorkspaceBranches(root: string, target: SyncTarget, rootBranches: R
     return 0;
   }
 
-  // undefined when HEAD is detached; then no branch is checked out and every
-  // branch is safe to move.
+  // Undefined on a detached HEAD: every branch is safe to move.
   const checkedOut = gitMaybe(target.path, ['symbolic-ref', '--quiet', '--short', 'HEAD']);
   const width = Math.max(...rootBranches.map((entry) => entry.branch.length));
 
@@ -248,14 +239,12 @@ function syncBranch(repo: string, rootBranch: RootBranch, checkedOut: string | u
   if (branch === checkedOut) {
     return 'skipped (checked out)';
   }
-  // Move the branch only when it is strictly behind the root's tip; a branch
-  // with local-only commits (ahead or truly diverged) is never touched.
+  // A branch with local-only commits is never moved.
   if (gitMaybe(repo, ['merge-base', '--is-ancestor', localSha, sha]) === undefined) {
     return 'skipped (diverged)';
   }
   try {
-    // update-ref with the expected old value: refuses if the branch moved
-    // between our read and the update.
+    // The old value makes git refuse if the branch moved since the read.
     git(repo, ['update-ref', `refs/heads/${branch}`, sha, localSha]);
     return 'fast-forwarded';
   } catch (error) {
@@ -263,9 +252,7 @@ function syncBranch(repo: string, rootBranch: RootBranch, checkedOut: string | u
   }
 }
 
-// Fetches the workspace's local branches into the root as namespaced,
-// read-only refs (no local branches are created in the root). Returns a
-// one-line result for the report.
+// Mirrors as namespaced refs only; no local branches are created in the root.
 function mirrorIntoRoot(root: string, target: SyncTarget, namespace: string): string {
   if (target.broken) {
     return `skipped (broken: ${target.broken})`;

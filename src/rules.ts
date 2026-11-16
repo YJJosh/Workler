@@ -13,8 +13,7 @@ import {
 } from './fs-utils';
 import type { RuleAction, WorklerRule } from './types';
 
-// What already sits at a rule's destination. 'correct-link' means a symlink
-// that already points at the intended source, which is not a conflict.
+// 'correct-link': a symlink already pointing at the source; not a conflict.
 type DestinationState =
   | { kind: 'none' }
   | { kind: 'correct-link' }
@@ -55,42 +54,40 @@ function conflictDetails(source: string, destination: string, description: strin
   );
 }
 
-// One rule's outcome. 'ok' = nothing to do (already linked / contents match),
-// 'applied' = linked or copied, 'planned' = dry-run would apply, 'skipped' =
-// source missing, 'conflict' = dry-run found a conflicting destination
-// (outside dry-run a conflict throws RULE_CONFLICT instead).
 export interface RuleApplyResult {
   action: RuleAction;
   targetPath: string;
   source: string;
   destination: string;
+  /**
+   * 'ok': nothing to do. 'planned': dry run would apply. 'skipped': source
+   * missing. 'conflict': dry run only; otherwise a conflict throws RULE_CONFLICT.
+   */
   status: 'ok' | 'applied' | 'planned' | 'skipped' | 'conflict';
-  // Reason for 'ok'/'skipped' ("already linked", "source does not exist: …").
+  /** Reason for 'ok' or 'skipped'. */
   note?: string;
-  // Description of what --force replaced (or would replace in dry-run).
+  /** What --force replaced, or would replace in a dry run. */
   replaced?: string;
-  // Description of the conflicting destination ('conflict' only).
+  /** The conflicting destination ('conflict' only). */
   existing?: string;
-  // Set when a `link` rule was materialized as a copy (copyLinks); `action`
-  // still names the rule as written in .workler.
+  /** A `link` rule copied under copyLinks; `action` still says 'link'. */
   copiedLink?: boolean;
 }
 
 export interface ApplyRulesOptions {
   force: boolean;
   dryRun: boolean;
-  // Materialize `link` rules as independent copies instead of symlinks. A
-  // destination that is still a symlink to its source is converted without
-  // --force: the link holds no data of its own, so nothing can be lost. Any
-  // other conflicting destination keeps the usual --force requirement.
+  /**
+   * Copy `link` rules instead of linking. A symlink to the source is
+   * converted without --force, since it holds no data of its own.
+   */
   copyLinks?: boolean;
-  // Called as each rule resolves so the CLI can print incrementally; the
-  // same results are also returned in the outcome.
+  /** Called as each rule resolves; the results are also returned. */
   onResult?: (result: RuleApplyResult) => void;
 }
 
 export interface ApplyRulesOutcome {
-  // Total rules parsed from .workler (0 means the file is empty or missing).
+  /** 0 when .workler is empty or missing. */
   ruleCount: number;
   results: RuleApplyResult[];
   conflicts: number;
@@ -117,11 +114,8 @@ export function applyRules(root: string, workspacePath: string, options: ApplyRu
     assertInside(root, source, `rule escapes project: ${rule.raw}`);
     assertInside(workspacePath, destination, `rule escapes workspace: ${rule.raw}`);
 
-    // Relative paths can still traverse an existing symlink/junction. Check
-    // both trees before even treating a missing source as a harmless skip, and
-    // repeat this during real application after creation preflight. The final
-    // entry is intentionally excluded: direct symlink sources and destination
-    // symlinks remain supported and can be inspected/replaced safely.
+    // A relative path can still traverse a symlink or junction. Check both
+    // trees before even skipping a missing source.
     const sourceSymlinkAncestor = findSymlinkAncestor(root, source);
     if (sourceSymlinkAncestor) {
       const target = fs.readlinkSync(sourceSymlinkAncestor);
@@ -182,8 +176,6 @@ export function applyRules(root: string, workspacePath: string, options: ApplyRu
   return outcome;
 }
 
-// Renders one result exactly as the CLI printed it before results became
-// structured; kept next to the result type so the two stay in sync.
 export function formatRuleResult(result: RuleApplyResult): string {
   switch (result.status) {
     case 'skipped':
@@ -222,10 +214,8 @@ function ruleConflictError(
   );
 }
 
-// Build a forced replacement next to its destination before moving the old
-// entry away. If construction or installation fails, the original remains in
-// place (or is rolled back); `--force` must not turn a transient copy/symlink
-// failure into silent data loss.
+// Builds the replacement before moving the original away, and rolls back on
+// failure, so `--force` never turns a failed copy into data loss.
 function replaceDestination(destination: string, createStaged: (staged: string) => void): void {
   const parent = path.dirname(destination);
   const staged = path.join(parent, `.workler-${randomUUID()}.tmp`);
@@ -263,8 +253,7 @@ function replaceDestination(destination: string, createStaged: (staged: string) 
     }
   } finally {
     fs.rmSync(staged, { recursive: true, force: true });
-    // On an error before installation, preserve/restore the original rather
-    // than deleting the backup in this cleanup path.
+    // While the backup is still the only copy of the original, keep it.
     if (!movedOriginal) {
       fs.rmSync(backup, { recursive: true, force: true });
     }
@@ -296,9 +285,8 @@ function applyLink(source: string, destination: string, rule: WorklerRule, optio
   fs.mkdirSync(path.dirname(destination), { recursive: true });
   const relativeSource = path.relative(path.dirname(destination), source) || '.';
   const stat = fs.statSync(source);
-  // Junctions because real directory symlinks on Windows need elevation or
-  // Developer Mode. Node stores junction targets as ABSOLUTE paths, so the
-  // relative link computed above only survives moving the project on POSIX.
+  // Windows directory symlinks need elevation or Developer Mode, so use
+  // junctions. Node stores their targets as absolute paths.
   const type = process.platform === 'win32' && stat.isDirectory() ? 'junction' : undefined;
   const createLink = (target: string): void => fs.symlinkSync(relativeSource, target, type);
   if (replaced) {
@@ -320,10 +308,8 @@ function applyCopy(source: string, destination: string, rule: WorklerRule, optio
     ...(copiedLink ? { copiedLink } : {}),
   } as const;
   const existing = inspectDestination(destination, source);
-  // A link exposes whatever its source resolves to, so the copy standing in
-  // for it must too: when the source is itself a symlink (a nested workspace's
-  // parent usually links node_modules from ITS parent), copying the entry
-  // verbatim would just produce another link instead of independent files.
+  // A copied link copies what the source resolves to; a nested workspace's
+  // source is often itself a link, and copying that would make another link.
   const content = copiedLink ? fs.realpathSync(source) : source;
 
   let replaced: string | undefined;
@@ -355,21 +341,15 @@ function applyCopy(source: string, destination: string, rule: WorklerRule, optio
       errorOnExist: true,
       force: false,
       preserveTimestamps: true,
-      // Newer Node versions use a native directory-copy fast path that treats
-      // Windows junctions as directories. A filter selects the lstat-based JS
-      // path, preserving junctions as links for rebasing rather than following
-      // them (including any that point outside the copied tree).
+      // Newer Node's native copy follows Windows junctions; any filter forces
+      // the lstat-based JS path, which keeps them as links.
       filter: process.platform === 'win32' ? () => true : undefined,
-      // Without this Node rewrites relative symlinks inside the tree (every
-      // node_modules/.bin entry) into absolute paths back into the SOURCE, so
-      // the "copy" would still run the main project's files and would never
-      // compare equal to its source on the next apply.
+      // Otherwise Node makes relative links (node_modules/.bin) absolute,
+      // pointing back into the source.
       verbatimSymlinks: true,
     });
-    // Verbatim also keeps links that were ABSOLUTE to begin with aimed at the
-    // source; `target` may be a staging name, `destination` is where it lands.
-    // Keep the original source alias so links written through it are internal
-    // too, not just links written through the resolved content path.
+    // Absolute links still point at the source. `target` may be a staging
+    // name; `source` is passed so links written through its alias count too.
     rebaseInternalLinks(content, target, destination, source);
   };
   if (replaced) {

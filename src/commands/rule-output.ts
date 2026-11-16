@@ -5,10 +5,6 @@ import type { ApplyRulesOutcome, RuleApplyResult } from '../rules';
 import { formatSetupGuardMissing, formatSetupHeading, formatSetupSkip } from '../setup';
 import type { SetupCommand } from '../types';
 
-// Shared console rendering of rule application for `add` and `apply`:
-// results print incrementally via this callback, then printRuleSummary adds
-// the trailing lines (nothing to do, or how many conflicts need --force).
-
 export function printRuleResult(result: RuleApplyResult): void {
   console.log(formatRuleResult(result));
 }
@@ -22,11 +18,6 @@ export function printRuleSummary(outcome: ApplyRulesOutcome): void {
     console.log(`${outcome.conflicts} conflict${plural}; re-run with --force to replace the destination${plural}`);
   }
 }
-
-// Shared console rendering of setup commands for `add` and `setup`: a heading
-// per command before it runs (or a skip line for a guarded one), a project
-// heading per member of a group workspace, and the trailing line when there
-// were no commands anywhere.
 
 export function printSetupHeading(command: SetupCommand): void {
   console.log(formatSetupHeading(command));
@@ -67,9 +58,8 @@ export function setupCallbacks(): WorkspaceSetupOptions {
   };
 }
 
-// Setup commands print straight to the terminal. When stdout is a pipe (a
-// script reading the `path` line, a test), their output goes to stderr
-// instead so Workler's own lines stay the only thing on stdout.
+// When stdout is a pipe, setup output goes to stderr so scripts reading the
+// `path` line see only Workler's own lines.
 export function setupStdoutMode(): 'inherit' | 'stderr' {
   return process.stdout.isTTY ? 'inherit' : 'stderr';
 }

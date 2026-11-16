@@ -9,8 +9,9 @@ import type { SyncTarget } from './multi-git';
 /** Commit preservation, NOT working-tree cleanliness or a backup guarantee. */
 export interface HistoryAssessment {
   state: 'safe' | 'unsafe' | 'unknown';
-  // Exact count, with at most five full commit IDs as actionable examples.
+  /** Exact count of commits not preserved in the source. */
   unpreservedCount?: number;
+  /** At most five full commit IDs, as examples. */
   commits?: string[];
   reason?: string;
 }
@@ -104,9 +105,8 @@ function inspectRepository(repo: string): string[] {
     throw new Error('shallow history cannot be assessed');
   }
   unlinkedMetadata(dotGit);
-  // Parse config record boundaries and let Git interpret its boolean
-  // syntax: a valueless promisor means true, while an explicit false is not a
-  // partial clone. Newline-delimited --list missed the former and blocked the latter.
+  // Parse --null records and let Git read booleans: a valueless promisor is
+  // true, and an explicit false is not a partial clone.
   const config = inspect(repo, ['config', '--null', '--list', '--includes']).split('\0');
   const hasPromisor = config.some((entry) => /^remote\.[\s\S]*\.promisor(?:\n|$)/i.test(entry));
   const promisors = new Map<string, string>();
@@ -138,16 +138,15 @@ function ids(output: string): string[] {
 
 function walk(repo: string, revisions: string[]): string[] {
   const input = revisions.join('\n') + '\n';
-  // Check the reachable objects too: missing trees/blobs must not produce a
-  // reassuring answer merely because their commit headers are readable.
-  // Quiet traversal verifies connectivity without printing every object ID.
+  // Missing trees or blobs must fail the proof even when commits are readable.
   inspect(repo, ['rev-list', '--objects', '--quiet', '--stdin'], input);
   return ids(inspect(repo, ['rev-list', '--stdin'], input));
 }
 
-/** Read-only, offline proof against refs that survive workspace deletion.
- * Source policy: direct local branches/tags, plus detached HEAD. No remote
- * refs, stash/reflogs, symbolic aliases or Workler synchronization mirrors.
+/**
+ * Read-only, offline proof against source refs that survive workspace
+ * deletion: local branches and tags, plus a detached HEAD. Remote refs,
+ * stash, reflogs, symbolic refs and Workler mirrors do not count.
  */
 export function assessHistory(source: string, workspace: string): HistoryAssessment {
   try {
@@ -173,8 +172,7 @@ export function assessHistory(source: string, workspace: string): HistoryAssessm
 }
 
 export function targetHistory(root: string, target: SyncTarget): HistoryAssessment | undefined {
-  // An absent member holds no repository/history to delete; remove skips it
-  // too. This is not an inspection success and must not be labeled safe.
+  // An absent member has no history to delete, but it is not "safe" either.
   if (target.name === 'main' || (target.project !== undefined && target.broken === 'missing (not cloned)')) return undefined;
   if (target.broken) return { state: 'unknown', reason: 'workspace repository is missing or broken' };
   if (target.project !== undefined && sourceBrokenReason(root, target.project) !== undefined) {

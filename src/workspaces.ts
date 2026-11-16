@@ -7,23 +7,19 @@ import { findGitTopLevel, git, gitConfigUnset, gitMaybe, hasIndependentGitDirect
 import { groupProjects, hasGroupConfig, inspectMember, isGroupWorkspaceDirectory, memberPath, sourceBrokenReason } from './groups';
 import type { Workspace } from './types';
 
-// Discovers the nearest enclosing workler project from `startDir` (the CLI
-// passes process.cwd(); the programmatic API takes explicit roots instead
-// but exports this for callers that want CLI-style discovery).
+/**
+ * The nearest enclosing Workler project, CLI-style.
+ * @throws WorklerError ROOT_NOT_FOUND
+ */
 export function findWorklerRoot(startDir: string): string {
   const cwd = path.resolve(startDir);
 
-  // The nearest Git repository is a Workler project automatically; `.workler`
-  // is optional and only supplies copy/link rules. Managed workspaces are
-  // marked by `add`, so they win as their own roots and can host nested
-  // workspaces. Never follow workler.root here — it points at the immediate
-  // parent and would climb out of a successfully configured workspace.
+  // Never follow workler.root here: it points at the parent and would climb
+  // out of a workspace, which is its own root.
   const gitRoot = findGitTopLevel(cwd);
   if (gitRoot) {
-    // A project group is a plain folder, so it may sit inside some unrelated
-    // outer repository (a dotfiles checkout, a home directory under version
-    // control). A group root between the cwd and that repository is the
-    // nearer project and wins.
+    // A group folder may sit inside an unrelated outer repository (dotfiles,
+    // a versioned home directory); the nearer group wins.
     const groupRoot = findGroupRootBelow(cwd, gitRoot);
     if (groupRoot) {
       return groupRoot;
@@ -36,19 +32,13 @@ export function findWorklerRoot(startDir: string): string {
       return gitRoot;
     }
 
-    // A clone left behind by a failed `add` is a Git repository but was never
-    // marked. If it occupies <parent>/.worktrees/<name>, keep treating it as
-    // part of the parent project so list/remove can recover it. An ordinary
-    // unmarked Git repository anywhere else is immediately usable as a root.
+    // An unmarked clone under <parent>/.worktrees/ is left by a failed `add`;
+    // it belongs to the parent so list and remove can clean it up.
     return workspaceParentOf(gitRoot) ?? gitRoot;
   }
 
-  // Outside any repository the nearest explicit marker wins: a `.workler`
-  // file (the non-Git setup supported by `init`, and the copy `add` leaves in
-  // every group workspace so it is its own root, like a marked clone), or
-  // the .worktrees/ boundary of a project (a clone that failed before creating
-  // .git, or a half-created group workspace) so the project can report and
-  // clean up the leftover.
+  // Outside a repository: the nearest .workler, or a .worktrees/ boundary so
+  // the project can clean up a clone that failed before creating .git.
   const explicitRoot = findNearestExplicitRoot(cwd);
   if (explicitRoot) {
     return explicitRoot;
@@ -61,36 +51,27 @@ export function findWorklerRoot(startDir: string): string {
   );
 }
 
-// The immediate parent project of a managed workspace: workler.root as set
-// by `add` (the checkout it was cloned from). Returns undefined for the main
-// project, whose workler.root points at itself. For a group workspace
-// directory (not a clone) the parent is the group root.
+/** The checkout a workspace was cloned from, or the group root of a group workspace folder. */
 export function parentProject(root: string): string | undefined {
   return resolveParent(root).parent;
 }
 
 export interface ParentResolution {
-  // The immediate parent project; undefined for a main project, and for a
-  // member clone whose source is missing, not a repository, or behind a
-  // symbolic link (sourceBrokenReason).
+  /** Undefined for a main project, and for a member clone whose source is broken. */
   parent?: string;
-  // Set when root is a member clone of a group workspace: the slot it
-  // occupies, whether or not its source still exists.
+  /** The slot a member clone occupies, whether or not its source still exists. */
   memberOf?: GroupMembership;
 }
 
-// parentProject and the group membership behind it, computed once.
 export function resolveParent(root: string): ParentResolution {
   if (!isGitTopLevel(root)) {
     const group = groupWorkspaceParent(root)?.group;
     return group === undefined ? {} : { parent: group };
   }
 
-  // A member of a group workspace lives at <group>/.worktrees/<name>/<project>
-  // and was cloned from <group>/<project>. Its marks say so or, while `add`
-  // has not finished marking it, its location and remotes do (groupMembership).
-  // Do not trust a stale workler.root merely because a different directory
-  // now exists at the recorded path.
+  // A member lives at <group>/.worktrees/<name>/<project>, cloned from
+  // <group>/<project>. A stale workler.root is not trusted just because some
+  // directory exists at the recorded path.
   const configured = gitMaybe(root, ['config', '--local', '--get', 'workler.root']);
   const membership = groupMembership(root);
   if (membership) {
@@ -102,11 +83,8 @@ export function resolveParent(root: string): ParentResolution {
     ) {
       return {};
     }
-    // The source counts as the parent only while it is a usable repository
-    // reached without symbolic links. A replacement at that path, a link to
-    // some other repository or a plain folder, must not become the thing a
-    // bare `apply` refreshes from. memberOf stays set either way: the group
-    // still owns the clone.
+    // A link or folder now at the source path must not become what a bare
+    // `apply` refreshes from.
     const sourceUnusable = sourceBrokenReason(membership.group, membership.project);
     return sourceUnusable === undefined ? { parent: expectedParent, memberOf: membership } : { memberOf: membership };
   }
@@ -119,8 +97,6 @@ export function resolveParent(root: string): ParentResolution {
     return {};
   }
 
-  // A managed workspace always lives directly under its recorded parent's
-  // .worktrees directory.
   const workspaceParent = path.dirname(canonicalPath(root));
   if (!pathsReferToSameLocation(workspaceParent, path.join(parent, WORKSPACES_DIR))) {
     return {};
@@ -129,16 +105,13 @@ export function resolveParent(root: string): ParentResolution {
 }
 
 export interface GroupWorkspaceLocation {
-  // The group root the workspace belongs to.
   group: string;
-  // The workspace name (its directory name under .worktrees/).
+  /** The directory name under .worktrees/. */
   name: string;
   path: string;
 }
 
-// If `dir` is a group workspace directory (<group>/.worktrees/<name> of a
-// group root), return where it belongs. Undefined for clones and for
-// directories that are not recognizably a group workspace.
+/** Undefined for clones and for directories that are not a group workspace. */
 export function groupWorkspaceParent(dir: string): GroupWorkspaceLocation | undefined {
   const resolved = path.resolve(dir);
   const workspacesDir = path.dirname(resolved);
@@ -157,20 +130,16 @@ export function groupWorkspaceParent(dir: string): GroupWorkspaceLocation | unde
 }
 
 export interface GroupMembership {
-  // The group root (workler.group).
+  /** The group root (git config workler.group). */
   group: string;
-  // The group workspace this clone is part of (workler.name).
+  /** The group workspace name (workler.name). */
   workspace: string;
-  // The declared project path this clone was made from (workler.groupProject).
+  /** The declared project path (workler.groupProject). */
   project: string;
 }
 
-// What a member clone of a group workspace records about its group. A clone
-// `add` has not finished marking (interrupted after cloning) carries none or
-// only some of the marks, so it is recognized by where it sits instead:
-// <group>/.worktrees/<name>/<project> of a group that declares <project>,
-// with whatever identity it does carry pointing at that slot (inspectMember).
-// Validated against the filesystem by resolveParent.
+// A clone an interrupted `add` did not finish marking is recognized by where
+// it sits. resolveParent validates the result against the filesystem.
 export function groupMembership(repo: string): GroupMembership | undefined {
   const group = gitMaybe(repo, ['config', '--local', '--get', 'workler.group']);
   const workspace = gitMaybe(repo, ['config', '--local', '--get', 'workler.name']);
@@ -181,13 +150,9 @@ export function groupMembership(repo: string): GroupMembership | undefined {
   return structuralMembership(repo);
 }
 
-// The group workspace slot an unmarked or partially marked clone occupies:
-// the nearest .worktrees/<name> above it whose parent declares a project at
-// exactly this path, provided the clone passes inspectMember's identity check
-// there. Nothing for an ordinary workspace (its .worktrees/ parent is a
-// repository, never a group) and for a workspace nested inside a member
-// clone (the clone is a repository too). A group whose .workler is broken
-// declares nothing here; add reports that error itself.
+// The nearest .worktrees/<name> above whose parent declares a project at
+// exactly this path, if inspectMember accepts the clone. A broken group
+// .workler declares nothing here; add reports it.
 function structuralMembership(repo: string): GroupMembership | undefined {
   const resolved = path.resolve(repo);
   let current = resolved;
@@ -231,15 +196,12 @@ function findAncestor(start: string, check: (dir: string) => string | undefined)
   }
 }
 
-// If repo sits at <parent>/.worktrees/<name> and <parent> is a Git project
-// (or an explicitly configured non-Git project), return that parent.
 function workspaceParentOf(repo: string): string | undefined {
   const workspacesDir = path.dirname(repo);
   if (path.basename(workspacesDir) !== WORKSPACES_DIR) {
     return undefined;
   }
-  // A linked `git worktree` uses a .git file and must remain an independent
-  // project, never something Workler lists/removes as one of its own clones.
+  // A linked `git worktree` is never listed or removed as a Workler clone.
   if (!hasIndependentGitDirectory(repo)) {
     return undefined;
   }
@@ -250,8 +212,6 @@ function workspaceParentOf(repo: string): string | undefined {
   return undefined;
 }
 
-// The nearest group root strictly below `gitRoot` on the way up from `start`.
-// `gitRoot` itself is a repository and therefore never a group.
 function findGroupRootBelow(start: string, gitRoot: string): string | undefined {
   let current = path.resolve(start);
   while (!pathsReferToSameLocation(current, gitRoot)) {
@@ -280,9 +240,11 @@ function findNearestExplicitRoot(start: string): string | undefined {
   });
 }
 
-// `.worktrees` is the containment boundary for clone creation and recursive
-// removal. Following a symlink/junction here would let an apparently scoped
-// add/remove mutate an arbitrary directory outside the project.
+/**
+ * .worktrees bounds clone creation and recursive removal; a symlink or
+ * junction there would let add or remove change a directory outside the project.
+ * @throws WorklerError SETUP_FAILED
+ */
 export function assertSafeWorkspacesDirectory(root: string): void {
   const workspacesPath = path.join(root, WORKSPACES_DIR);
   let stat: fs.Stats;
@@ -326,8 +288,7 @@ export function listWorkspaces(root: string): Workspace[] {
     }
     const workspacePath = path.join(workspacesPath, entry.name);
 
-    // A group workspace is a plain directory holding the member clones; it is
-    // named by its directory, since there is no git config to record a name.
+    // A group workspace has no git config to record a name.
     if (projects.length > 0) {
       if (isGroupWorkspaceDirectory(workspacePath, projects)) {
         result.push({ name: entry.name, path: workspacePath });
@@ -335,10 +296,8 @@ export function listWorkspaces(root: string): Workspace[] {
       continue;
     }
 
-    // Every workspace is an independent clone with its own .git directory.
-    // Do NOT use `git rev-parse` here: .worktrees/ sits inside the main work
-    // tree, so for a plain directory it would walk up, answer for the MAIN
-    // repo, and report a phantom workspace named "main".
+    // Not `git rev-parse`: for a plain directory it would answer for the main
+    // repository and list a phantom "main".
     if (!hasIndependentGitDirectory(workspacePath)) {
       continue;
     }
@@ -349,8 +308,7 @@ export function listWorkspaces(root: string): Workspace[] {
   return result;
 }
 
-// The name `add` recorded in the workspace, falling back to the directory
-// name for a clone that was never marked.
+/** The name `add` recorded, or the directory name for an unmarked clone. */
 export function workspaceName(workspacePath: string): string {
   return gitMaybe(workspacePath, ['config', '--local', '--get', 'workler.name']) || path.basename(workspacePath);
 }
@@ -363,10 +321,8 @@ export function findWorkspace(root: string, name: string): Workspace {
   return workspace;
 }
 
-// Whether the workspace materializes `link` rules as copies. Recorded in the
-// workspace's own git config (next to workler.root/workler.name) so a later
-// plain `apply` or `apply --all` keeps the copies instead of reporting every
-// one of them as a conflict with its link rule.
+// Remembered so a later plain `apply` keeps the copies instead of reporting
+// each as a conflict with its link rule.
 export function workspaceCopiesLinks(workspacePath: string): boolean {
   return gitMaybe(workspacePath, ['config', '--local', '--type=bool', '--get', 'workler.copyLinks']) === 'true';
 }
@@ -379,12 +335,8 @@ export function setWorkspaceCopiesLinks(workspacePath: string, copyLinks: boolea
   }
 }
 
-// A group workspace folder is not a repository, so the copy-links mode of the
-// group's OWN rules is remembered in every member clone instead, under a key
-// of its own (workler.groupCopyLinks). It is deliberately not derived from
-// the members' workler.copyLinks: `apply <name>/<project> --no-copy-links`
-// switches one member's mode and must not silently flip the group's, whose
-// link destinations are still the stored copies.
+// The group folder has no git config, so its own rules' mode lives in every
+// member under a separate key: switching one member's mode must not flip the group's.
 export function groupWorkspaceCopiesLinks(members: string[]): boolean {
   return members.some(
     (member) => gitMaybe(member, ['config', '--local', '--type=bool', '--get', 'workler.groupCopyLinks']) === 'true',

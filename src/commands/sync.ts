@@ -43,10 +43,7 @@ function syncAll(root: string): void {
   const targets = listSyncTargets(root);
   const width = nameWidth(targets);
 
-  // A target whose fetch FAILED must not be updated: its origin/* refs are
-  // stale, so a fast-forward (or an "up to date" line) would silently mask
-  // the failure. Targets with no origin remote had no fetch to fail and keep
-  // the normal update behavior.
+  // A failed fetch leaves stale origin/* refs; updating would mask the failure.
   const fetchFailed = new Set<string>();
 
   console.log('fetching:');
@@ -96,10 +93,8 @@ function syncTarget(target: SyncTarget): SyncResult {
     return { line: `skipped (detached HEAD at ${head.branch})`, failed: false };
   }
 
-  // Safety first: never touch a workspace with uncommitted changes to
-  // tracked files, even if a fast-forward would probably succeed. Untracked
-  // files (e.g. from copy rules) do not block a sync: git itself refuses a
-  // merge that would overwrite one.
+  // Tracked changes block a sync. Untracked files don't: git refuses a merge
+  // that would overwrite one.
   const changes = trackedChanges(target.path);
   if (changes === undefined) {
     return { line: 'failed: git status could not inspect tracked changes', failed: true };

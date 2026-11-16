@@ -54,8 +54,7 @@ export function addCommand(args: string[]): void {
     return;
   }
 
-  // Setup runs here rather than inside createWorkspace so the rule summary
-  // lands before the first command's heading, in the order things happened.
+  // Setup runs here, not in createWorkspace, so the rule summary prints first.
   const result = createWorkspace(root, {
     ...options,
     setup: false,
@@ -63,21 +62,16 @@ export function addCommand(args: string[]): void {
     onRuleResult: printRuleResult,
   });
   if (result.projects) {
-    // Each member printed its own results as they resolved; summarize the
-    // group as a whole so "no workspace rules" means no rules anywhere.
+    // One summary for the group, so "no workspace rules" means none anywhere.
     printRuleSummary(combinedOutcome([result.rules, ...result.projects.map((project) => project.rules)]));
   } else {
     printRuleSummary(result.rules);
   }
 
   if (skipSetup === undefined) {
-    // A failing command throws SETUP_COMMAND_FAILED after the workspace is
-    // complete; the message names the command and how to retry. With no
-    // setup lines nothing is announced, so `done`/`path` stay the last lines.
+    // A failing command throws SETUP_COMMAND_FAILED; the workspace stays.
     setupWorkspace(root, result.name, setupCallbacks());
   } else {
-    // Say that declared commands were left out, and why, so a workspace that
-    // is missing its install is not a mystery.
     printSetupSkipped(declaredSetupCommandCount(requireProject(root)), skipSetup);
   }
 
@@ -85,9 +79,8 @@ export function addCommand(args: string[]): void {
   console.log(`path   ${result.path}`);
 }
 
-// Prints the full plan for `add --dry-run` without cloning anything. Mirrors
-// what createWorkspace reports as progress, with "would" phrasing, then
-// dry-runs the copy/link rules against the (nonexistent) target.
+// Mirrors createWorkspace's progress lines, then dry-runs the rules against
+// the target that does not exist yet.
 function printPlan(plan: WorkspacePlan, force: boolean, copyLinks: boolean): void {
   console.log('dry run: nothing will be created');
 
@@ -104,7 +97,6 @@ function printPlan(plan: WorkspacePlan, force: boolean, copyLinks: boolean): voi
     printClonePlan(member.root, member.target, member.checkout);
     outcomes.push(applyRules(member.root, member.target, { force, copyLinks, dryRun: true, onResult: printRuleResult }));
   }
-  // Same heading as the real add prints before the group's own rules.
   if (readRules(plan.root).length > 0) {
     console.log('group rules');
   }
@@ -112,8 +104,7 @@ function printPlan(plan: WorkspacePlan, force: boolean, copyLinks: boolean): voi
   printRuleSummary(combinedOutcome([groupOutcome, ...outcomes]));
 }
 
-// The setup commands in the order they would run: after every clone, each
-// member's from its source repository, then the group's own.
+// Run order: after every clone, each member's commands, then the group's.
 function printSetupPlan(plan: WorkspacePlan): void {
   if (!plan.projects) {
     for (const command of plan.setup) {
@@ -138,8 +129,6 @@ function printSetupPlan(plan: WorkspacePlan): void {
   }
 }
 
-// One line for the setup commands --no-setup or WORKLER_NO_SETUP skipped;
-// nothing when none were declared.
 function printSetupSkipped(count: number, reason: string): void {
   if (count > 0) {
     console.log(formatSetupSkipped(count, reason));

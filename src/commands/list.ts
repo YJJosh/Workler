@@ -7,8 +7,7 @@ export function listCommand(args: string[]): void {
   if (assertNoArgs(args, 'list')) return;
   const root = findWorklerRoot(process.cwd());
   const rows = listWorkspaceInfos(root)
-    // Plain directories under .worktrees/ have never shown up in `list`;
-    // clones stay listed even when git cannot read them (branch shows '?').
+    // Plain directories are hidden; clones git cannot read still show, with '?'.
     .filter((info) => info.isClone)
     .map((info) => ({
       name: info.name,
@@ -24,10 +23,7 @@ export function listCommand(args: string[]): void {
   }
 }
 
-// A group workspace is one line: its branch when every member agrees,
-// "detached" when no member is on a branch, "mixed" otherwise, and
-// "incomplete" when a member is missing or broken.
-// `status` shows the members one by one.
+// A group workspace gets one line; `status` shows the members.
 function branchColumn(info: WorkspaceInfo): string {
   if (!info.projects) {
     return info.branch ?? info.shortHead ?? '?';

@@ -34,10 +34,8 @@ export function setupCommand(args: string[]): void {
     return;
   }
 
-  // Bare `setup` inside a managed workspace re-runs the workspace's own
-  // commands from its immediate parent's .workler, like bare `apply`. A
-  // member clone of a group workspace runs its source repository's commands;
-  // the group workspace folder itself runs every member's and the group's.
+  // Bare `setup` inside a workspace uses its parent's .workler, like bare
+  // `apply`. A group workspace folder runs every member's and the group's.
   const info = inspectProject(root);
   if (info.gitRepo) {
     const parent = parentProject(root);
@@ -50,8 +48,7 @@ export function setupCommand(args: string[]): void {
       return;
     }
     if (info.memberOf) {
-      // The source is no longer a usable repository: refuse rather than run
-      // whatever .workler now sits at the source path, as `apply` does.
+      // Refuse rather than run whatever .workler sits at a broken source path.
       const { group, project } = info.memberOf;
       const unusable = sourceBrokenReason(group, project) ?? 'not a usable repository';
       throw new Error(`source ${MAIN_WORKSPACE_NAME}/${project} is ${unusable}: ${memberPath(group, project)}`);
