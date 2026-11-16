@@ -75,6 +75,23 @@ user documentation lives in [`docs/`](docs/).
   do not count; unknown blocks normal removal. `WorkspaceInfo.clean` is file safety only.
   `--force` bypasses both guards and saves nothing.
 
+## Comments
+
+- Default: no comment. Clear names come first.
+- Comment only what the code can't say: why, a hidden limit, a security reason,
+  a fact about an outside system (OS, Docker, k8s, git, a protocol). Name the system.
+- Never repeat the name, type or the next line.
+- Present tense only. No history ("used to", "previously", "now"). That goes in the commit.
+- No review or change notes: no `REVIEW:`, "moved", "reverted", "verified with".
+- 1–2 lines is normal. More than ~5 belongs in docs/, with a 1-line pointer.
+- JSDoc only for the contract: defaults, errors, units, side effects.
+- Tests: the test name says what is checked. Comment only unusual setup or timing.
+- TODO only for a real, current limit, and say what blocks it.
+- When you change code, fix or delete comments that are now wrong.
+- Never touch directives, shebangs, `"use client"`, or text inside strings.
+- Document exported types and option fields with `/** */`, not `//`, so they
+  show in editors and dist/*.d.ts.
+
 ## Keep docs in sync
 
 A change to a command, flag, rule or API also updates:
