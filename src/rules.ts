@@ -60,8 +60,9 @@ export interface RuleApplyResult {
   source: string;
   destination: string;
   /**
-   * 'ok': nothing to do. 'planned': dry run would apply. 'skipped': source
-   * missing. 'conflict': dry run only; otherwise a conflict throws RULE_CONFLICT.
+   * 'ok': nothing to do. 'applied': linked or copied. 'planned': dry run would
+   * apply. 'skipped': source missing. 'conflict': dry run only; otherwise a
+   * conflict throws RULE_CONFLICT.
    */
   status: 'ok' | 'applied' | 'planned' | 'skipped' | 'conflict';
   /** Reason for 'ok' or 'skipped'. */
