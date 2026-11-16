@@ -21,7 +21,6 @@ test('initProject creates config, workspaces dir, and git marks', (t) => {
   assert.strictEqual(git(root, 'config', '--get', 'workler.root'), root);
   assert.match(fs.readFileSync(result.excludePath, 'utf8'), /^\.worktrees\/$/m);
 
-  // Re-init is idempotent and reports the existing config.
   assert.strictEqual(api.initProject(root).configCreated, false);
 });
 
@@ -65,7 +64,6 @@ test('operations use the explicit root and never touch process.cwd()', (t) => {
       ['main', 'feat'],
     );
     api.removeWorkspace(root, 'feat', { force: true });
-    // Nothing leaked into the unrelated working directory.
     assert.deepStrictEqual(fs.readdirSync(neutral), []);
   } finally {
     process.chdir(previousCwd);
@@ -170,8 +168,7 @@ test('rule conflicts fail setup but leave the clone inspectable; force replaces'
   fs.writeFileSync(path.join(root, 'data.txt'), 'committed\n');
   git(root, 'add', 'data.txt');
   git(root, 'commit', '-qm', 'data');
-  // Uncommitted divergence: the clone gets "committed", the copy source says
-  // "changed" -> destination exists and differs -> conflict.
+  // The clone gets the committed data.txt while the copy source is changed, so the copy conflicts.
   fs.writeFileSync(path.join(root, 'data.txt'), 'changed\n');
   fs.writeFileSync(path.join(root, '.workler'), 'copy data.txt\n');
 
@@ -180,7 +177,7 @@ test('rule conflicts fail setup but leave the clone inspectable; force replaces'
     () => api.createWorkspace(root, { name: 'feat' }),
     (e) => e.code === 'SETUP_FAILED' && /left in place/.test(e.message) && /cannot copy data\.txt/.test(e.message),
   );
-  // Partial-create contract: the clone stays for inspection, the lock does not.
+  // The clone stays for inspection; the lock does not.
   assert.ok(fs.existsSync(path.join(target, '.git')));
   assert.ok(!fs.existsSync(api.projectLockPath(root)));
 

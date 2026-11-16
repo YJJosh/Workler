@@ -1,6 +1,4 @@
 'use strict';
-// Backward-compatibility checks: the CLI commands now delegate to the core
-// API but must keep their human output and exit codes.
 
 const assert = require('node:assert');
 const { spawnSync } = require('node:child_process');
@@ -36,8 +34,7 @@ test('init/add/list/path/remove round-trip via the CLI', (t) => {
     fs.realpathSync.native(path.join(root, '.worktrees', 'feat')),
   );
 
-  // The copied .env is the rule's output and does not block removal; a file
-  // of the user's own does (data-loss guard).
+  // The copied .env is rule output and does not block removal; the user's own file does.
   fs.writeFileSync(path.join(root, '.worktrees', 'feat', 'notes.txt'), 'wip\n');
   const removeDirty = runCli(root, 'remove', 'feat');
   assert.strictEqual(removeDirty.status, 1);
@@ -80,10 +77,8 @@ test('remove names what blocks it: changed, untracked and ignored entries, a ren
     '  ignored: .portler/',
     'Use --force to remove anyway.',
   ]);
-  // The copied .env is the rule's output and is not listed.
   assert.doesNotMatch(refused.stderr, /\.env/);
 
-  // A long list is cut, and says so.
   for (let i = 0; i < 12; i += 1) {
     fs.writeFileSync(path.join(ws, `scratch-${String(i).padStart(2, '0')}.txt`), 'x\n');
   }
@@ -96,9 +91,8 @@ test('remove names what blocks it: changed, untracked and ignored entries, a ren
 
 test('status.showUntrackedFiles=all does not turn the lock file into "uncommitted changes"', (t) => {
   const root = makeRepo(t, { includeWorkler: false });
-  // With `all`, Git lists `?? .worktrees/.workler.lock` instead of the
-  // collapsed `?? .worktrees/`. The clean check must still see only Workler's
-  // own directory, and a real untracked file must still be reported.
+  // With `all`, Git lists `?? .worktrees/.workler.lock` instead of the collapsed
+  // `?? .worktrees/`.
   git(root, 'config', 'status.showUntrackedFiles', 'all');
 
   const add = runCli(root, 'add', 'plain');
@@ -119,8 +113,7 @@ test('add works directly in a plain Git repository without .workler or init', (t
   const add = runCli(subdir, 'add', 'plain');
   assert.strictEqual(add.status, 0, add.stderr);
   assert.match(add.stdout, /^no workspace rules$/m);
-  // add created .worktrees/ for its lock before anything excluded it (no init
-  // ran here). Workler's own directory is not "uncommitted changes".
+  // Without init nothing excludes the .worktrees/ that add creates for its lock.
   assert.doesNotMatch(add.stdout, /^warning:/m);
   assert.ok(fs.existsSync(path.join(root, '.worktrees', 'plain', '.git')));
   assert.ok(!fs.existsSync(path.join(root, '.workler')));
@@ -214,11 +207,11 @@ test('--version/-v/version print the package version', (t) => {
     assert.strictEqual(result.stderr, '');
   }
 
-  // `help` keeps its decorated form, and it must not drift from package.json.
+  // `help` keeps the decorated form.
   assert.match(runCli(root, 'help').stdout, new RegExp(`^workler ${version.replace(/\./g, '\\.')}$`, 'm'));
 });
 
-test('status and sync still run after the refactor', (t) => {
+test('status and sync run on a fresh workspace', (t) => {
   const root = makeRepo(t);
   runCli(root, 'init');
   runCli(root, 'add', 'feat');

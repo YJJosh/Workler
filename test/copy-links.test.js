@@ -1,6 +1,4 @@
 'use strict';
-// --copy-links: `link` rules materialized as independent copies, both for a
-// new workspace and when converting one that was created with symlinks.
 
 const assert = require('node:assert');
 const fs = require('node:fs');
@@ -28,7 +26,6 @@ test('createWorkspace copyLinks copies link rules and records the mode', (t) => 
   assert.strictEqual(fs.readFileSync(path.join(copied, 'marker.txt'), 'utf8'), 'marker\n');
   assert.strictEqual(git(ws.path, 'config', '--get', 'workler.copyLinks'), 'true');
 
-  // Independent: a change in the workspace does not reach the main project.
   fs.writeFileSync(path.join(copied, 'marker.txt'), 'workspace only\n');
   assert.strictEqual(fs.readFileSync(path.join(root, 'node_modules', 'marker.txt'), 'utf8'), 'marker\n');
 
@@ -79,8 +76,7 @@ test('apply --copy-links converts an existing linked workspace without --force',
     'temporary replacement entries must be cleaned up',
   );
 
-  // The mode sticks: plain apply (and --all) keep the copy instead of
-  // reporting it as a conflict with the link rule.
+  // The mode sticks: a plain apply keeps the copy instead of reporting a link conflict.
   const again = runCli(root, 'apply', '--all');
   assert.strictEqual(again.status, 0, again.stderr);
   assert.match(again.stdout, /^ok {5}link node_modules \(destination matches source\)$/m);
@@ -271,8 +267,8 @@ test('copied links rebase absolute targets through a symlinked source alias', (t
     }
     assertIndependent(ws);
 
-    // Simulate a copy made before this fix: identical link text must no longer
-    // count as identical content when the destination still points to source.
+    // A stale copy whose link still points into the source: identical link text is not
+    // identical content.
     const stale = path.join(ws.path, 'linked-cache', '.bin', 'aliased');
     fs.unlinkSync(stale);
     fs.symlinkSync(path.join(source, 'pkg', 'index.js'), stale);

@@ -51,15 +51,14 @@ test('a managed workspace without .workler resolves to itself', (t) => {
 });
 
 test('workspaces nest: each project manages its own .worktrees', (t) => {
-  // .workler is COMMITTED so nested workspaces inherit the rules from the
-  // checkout, exactly as the docs describe.
+  // .workler is committed, so nested workspaces get the rules from their parent's checkout.
   const root = makeRepo(t, { workler: 'link node_modules\n' });
   api.initProject(root);
 
   const featureA = api.createWorkspace(root, { name: 'feature-a' });
   assert.strictEqual(featureA.path, path.join(root, '.worktrees', 'feature-a'));
 
-  // The workspace is itself a project (marked by add), no init needed.
+  // add marks the workspace as a project, so it needs no init.
   assert.strictEqual(api.inspectProject(featureA.path).initialized, true);
   assert.strictEqual(api.inspectProject(featureA.path).parent, root);
 
@@ -67,21 +66,18 @@ test('workspaces nest: each project manages its own .worktrees', (t) => {
   assert.strictEqual(agent1.path, path.join(featureA.path, '.worktrees', 'agent-1'));
   assert.strictEqual(git(agent1.path, 'config', '--get', 'workler.root'), featureA.path);
 
-  // Listings stay scoped to their own level.
   assert.deepStrictEqual(api.listWorkspaces(root).map((w) => w.name), ['main', 'feature-a']);
   assert.deepStrictEqual(api.listWorkspaces(featureA.path).map((w) => w.name), ['main', 'agent-1']);
   assert.strictEqual(api.resolveWorkspacePath(featureA.path, 'agent-1'), agent1.path);
   assert.strictEqual(api.resolveWorkspacePath(featureA.path, 'main'), featureA.path);
 
-  // Link targets resolve to the IMMEDIATE parent: agent-1/node_modules points
-  // at feature-a/node_modules (itself a link back to the root).
+  // agent-1/node_modules points at feature-a/node_modules, itself a link to the root's.
   const nestedLink = path.join(agent1.path, 'node_modules');
   assert.ok(fs.lstatSync(nestedLink).isSymbolicLink());
   const directTarget = path.resolve(path.dirname(nestedLink), fs.readlinkSync(nestedLink));
   assert.strictEqual(directTarget, path.join(featureA.path, 'node_modules'));
   assert.strictEqual(fs.realpathSync(nestedLink), fs.realpathSync(path.join(root, 'node_modules')));
 
-  // Nested removal only touches the nested level.
   api.removeWorkspace(featureA.path, 'agent-1', { force: true });
   assert.deepStrictEqual(api.listWorkspaces(root).map((w) => w.name), ['main', 'feature-a']);
 });

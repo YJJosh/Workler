@@ -28,7 +28,6 @@ test('mutating operations fail with LockError while a live process holds the loc
   assert.throws(() => api.removeWorkspace(root, 'feat', { force: true }), isLockError);
   assert.throws(() => api.initProject(root), isLockError);
 
-  // Nothing was created or removed while locked.
   assert.deepStrictEqual(
     api.listWorkspaces(root).map((w) => w.name),
     ['main', 'feat'],
@@ -42,7 +41,6 @@ test('a lock whose owner is dead is reclaimed', (t) => {
 
   const ws = api.createWorkspace(root, { name: 'feat' });
   assert.ok(fs.existsSync(ws.path));
-  // The reclaimed lock was released again after the operation.
   assert.ok(!fs.existsSync(api.projectLockPath(root)));
 });
 

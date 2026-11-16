@@ -1,11 +1,6 @@
 'use strict';
-// Cross-platform entry point for `npm test`.
-//
-// `node --test test/*.test.js` relies on the SHELL expanding the glob. npm
-// runs scripts through cmd.exe on Windows, which does not, and `node --test`
-// only learned to expand glob patterns itself in Node 21 — so the plain glob
-// silently breaks on Windows and on the older Node versions we support.
-// Enumerating the files here works everywhere from Node 18 up.
+// Lists the test files itself: npm runs scripts through cmd.exe on Windows, which does not
+// expand `test/*.test.js`, and `node --test` expands globs itself only from Node 21.
 
 const { spawnSync } = require('node:child_process');
 const fs = require('node:fs');

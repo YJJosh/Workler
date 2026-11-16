@@ -1,10 +1,6 @@
 'use strict';
-// Names are validated BEFORE anything is cloned.
-//
-// The regression: a name git rejects as a branch (`foo.lock`, `a..b`, ...) was
-// only caught by `git checkout -b` INSIDE the fresh clone, so `add` failed
-// with SETUP_FAILED and left the clone behind. Every case here asserts both
-// halves: the error, and that .worktrees/ is untouched.
+// Names are validated before anything is cloned, so each case checks both the error
+// and that .worktrees/ is untouched.
 
 const assert = require('node:assert');
 const fs = require('node:fs');
@@ -17,9 +13,8 @@ function worktreeEntries(root) {
   return fs.existsSync(dir) ? fs.readdirSync(dir) : [];
 }
 
-// Names that are invalid as a git branch, as a directory, or both. Without
-// --branch the workspace name is also the branch name, so all of them must be
-// rejected by `add <name>`.
+// Invalid as a git branch, a directory, or both. Without --branch the workspace name
+// is also the branch name, so `add <name>` must reject all of them.
 const INVALID_NAMES = [
   ['a..b', 'consecutive dots are not allowed in a ref'],
   ['foo.lock', 'a ref cannot end in .lock'],
@@ -65,8 +60,7 @@ for (const [name, why] of INVALID_NAMES) {
   });
 }
 
-// With --branch the workspace name only has to be a directory name, but the
-// BRANCH still has to be a branch git will accept.
+// With --branch the workspace name only has to be a directory name; the branch is checked on its own.
 const INVALID_BRANCHES = ['a..b', 'foo.lock', 'has space', 'tilde~1', 'HEAD', '@', '-dash', 'at@{brace', ''];
 
 for (const branch of INVALID_BRANCHES) {
@@ -113,8 +107,7 @@ test('planWorkspaceCreation (add --dry-run) rejects the same names', (t) => {
 test('a name that is only a valid DIRECTORY is still allowed with --branch', (t) => {
   const root = makeProject(t);
 
-  // "release.1" is a fine directory name and a fine branch name; the point is
-  // that a name needing no branch of its own goes through unharmed.
+  // The branch may hold slashes; only the workspace name has to be one directory name.
   const workspace = api.createWorkspace(root, { name: 'ws', branch: 'feature/nested/name' });
   assert.strictEqual(workspace.branch, 'feature/nested/name');
   assert.deepStrictEqual(worktreeEntries(root), ['ws']);
@@ -137,10 +130,8 @@ test('the CLI reports an invalid name on stderr with exit code 1 and no clone', 
 test('remove still accepts the name of a workspace that predates these rules', { skip: process.platform === 'win32' }, (t) => {
   const root = makeProject(t);
 
-  // Simulate a workspace created by an older workler, whose name `add` would
-  // now reject. `remove` must still be able to clean it up. Windows cannot
-  // create the reserved directory at all, so this compatibility fixture only
-  // applies on filesystems where such a legacy workspace can exist.
+  // A workspace named `con` (made before add rejected it) must stay removable.
+  // Windows cannot create a directory with that reserved name, hence the skip.
   const legacy = path.join(root, '.worktrees', 'con');
   fs.mkdirSync(path.dirname(legacy), { recursive: true });
   git(root, 'clone', '-q', '--local', root, legacy);
@@ -154,10 +145,8 @@ test('remove still accepts the name of a workspace that predates these rules', {
   assert.deepStrictEqual(worktreeEntries(root), []);
 });
 
-// remove names a workspace as `workler list` shows it. A path separator gets
-// remove's own message, not the --branch advice meant for add: the caller
-// usually typed a nested workspace (feat/agent-1) or a group member's address
-// (feat/web).
+// A path separator gets remove's own advice, not add's --branch hint: the caller usually
+// typed a nested workspace (feat/agent-1) or a group member's address (feat/web).
 for (const name of ['feat/web', 'feat\\web']) {
   test(`remove rejects ${JSON.stringify(name)} with advice for remove, not add`, (t) => {
     const root = makeProject(t);
