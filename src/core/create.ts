@@ -398,8 +398,9 @@ function headState(repo: string): { branch?: string; head?: string; detached: bo
   return { branch: detached ? undefined : abbrev, head: gitMaybe(repo, ['rev-parse', 'HEAD']), detached };
 }
 
-// Not just a group in a folder named .worktrees. A parent whose .workler does
-// not parse is no group root.
+// True for <group>/.worktrees/<name> of a group root, not for a group that only
+// sits in a folder named .worktrees. A parent whose .workler does not parse is
+// no group root.
 function isNestedGroupWorkspace(root: string): boolean {
   try {
     return groupWorkspaceParent(root) !== undefined;
