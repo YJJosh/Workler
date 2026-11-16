@@ -67,8 +67,8 @@ function isStale(lockPath: string, holder: LockHolder | undefined): boolean {
 
 export function acquireProjectLock(root: string, operation: string): ProjectLock {
   const lockPath = projectLockPath(root);
-  // init locks before .worktrees/ exists. Check both sides of mkdir so a
-  // symlink or junction, existing or swapped in meanwhile, is never followed.
+  // init locks before .worktrees/ exists. Reject existing symlinks or junctions
+  // before mkdir; checking again afterwards narrows the substitution race.
   assertSafeWorkspacesDirectory(root);
   fs.mkdirSync(path.dirname(lockPath), { recursive: true });
   assertSafeWorkspacesDirectory(root);
