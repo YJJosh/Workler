@@ -306,7 +306,7 @@ function configCopyMatches(dir: string, groupRoot: string): boolean {
 
 /**
  * Where group-root `branch-sync` mirrors members in their sources: refs/workler-group/<group>/<workspace>/<branch>.
- * Pruning deletes what a group does not own and a repo can be in several, so <group> adds a hash of its canonical path.
+ * Pruning deletes what a group does not own and a repo can be in several, so <group> is the folder name plus a hash of its canonical path.
  */
 export function groupRefNamespace(groupRoot: string): string {
   const canonical = canonicalPath(groupRoot);
