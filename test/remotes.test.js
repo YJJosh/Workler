@@ -1,12 +1,6 @@
 'use strict';
-// Remote wiring of a fresh workspace.
-//
-// `git clone --local` points the clone's `origin` at the main checkout on
-// disk. That is never what `origin` should mean: `workler fetch`/`sync` would
-// treat the main project as the upstream, and `git push origin` would push
-// into it. `add` therefore repoints origin at the main project's REAL origin,
-// or removes it when there is none, and always records the way back to the
-// main checkout as the `workler-root` remote.
+// `git clone --local` points `origin` at the main checkout; `add` repoints it at the main project's
+// real origin (or removes it) and adds a `workler-root` remote for the main checkout.
 
 const assert = require('node:assert');
 const fs = require('node:fs');
@@ -66,17 +60,12 @@ test('a root with no origin leaves the workspace with no origin at all', (t) => 
   const workspace = api.createWorkspace(root, { name: 'feat' });
   const configured = remotes(workspace.path);
 
-  // The bug this guards: `clone --local` left origin -> <root>, so the
-  // workspace fetched/pushed against the main checkout as if it were upstream.
   assert.ok(!('origin' in configured), `workspace must have no origin, got ${JSON.stringify(configured)}`);
   assert.strictEqual(configured['workler-root'], root);
 
-  // Removing origin must also take its remote-tracking refs with it: those
-  // were copies of the ROOT's local branches and would otherwise read as
-  // real upstream state (bogus ahead/behind in `status`).
+  // clone --local's origin/* copies of the root's branches go too, or `status` shows bogus ahead/behind.
   assert.strictEqual(git(workspace.path, 'for-each-ref', '--format=%(refname)', 'refs/remotes/origin'), '');
 
-  // And the multi-workspace commands must agree there is nothing to fetch.
   const sync = runCli(root, 'sync');
   assert.strictEqual(sync.status, 0);
   assert.match(sync.stdout, /^\s+feat\s+skipped \(no origin remote\)$/m);
@@ -161,7 +150,6 @@ test('branch-sync works over the remote add created, without re-adding it', (t) 
 
   const output = runCli(root, 'branch-sync');
   assert.strictEqual(output.status, 0);
-  // `add` already wired workler-root, so branch-sync has nothing to add.
   assert.doesNotMatch(output.stdout, /added remote workler-root/);
   assert.match(output.stdout, /^ {2}shared\s+created$/m);
 });

@@ -1,10 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-// Existing paths can have several valid spellings: a symlink alias, macOS's
-// /var -> /private/var mapping, Windows drive/case differences, or an 8.3
-// short name. Canonicalize before identity checks; for a not-yet-created path,
-// fall back to its resolved lexical spelling.
+/** One spelling across symlinks, macOS /var -> /private/var and Windows 8.3 short names; a missing path resolves lexically. */
 export function canonicalPath(filePath: string): string {
   try {
     return fs.realpathSync.native(filePath);
@@ -28,10 +25,10 @@ export function assertInside(root: string, child: string, message: string): void
   }
 }
 
-// Lexical containment is not enough before a destructive filesystem action:
-// `<workspace>/dir/file` can escape when `dir` is a symlink or junction. Return
-// the first such ancestor (the destination itself is intentionally excluded so
-// a rule may still replace a conflicting symlink at exactly its target path).
+/**
+ * The first symlink or junction ancestor through which `child` could escape `root` before a destructive
+ * action. `child` itself is not checked, so a rule may replace a symlink at its own target path.
+ */
 export function findSymlinkAncestor(root: string, child: string): string | undefined {
   assertInside(root, child, 'path escaped its expected root');
   const relative = path.relative(path.resolve(root), path.resolve(child));
@@ -46,7 +43,6 @@ export function findSymlinkAncestor(root: string, child: string): string | undef
       }
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-        // Once an ancestor does not exist, none of its descendants can exist.
         return undefined;
       }
       throw error;
@@ -73,9 +69,6 @@ export function addLineIfMissing(filePath: string, line: string): void {
 }
 
 export function isBrokenSymlink(filePath: string): boolean {
-  // lstat stats the link entry itself (it does NOT follow the link), so it
-  // succeeds for a broken symlink; existsSync follows the link and tells us
-  // whether the target resolves.
   let stat: fs.Stats;
   try {
     stat = fs.lstatSync(filePath);
@@ -132,17 +125,13 @@ function filesHaveSameContent(left: string, right: string): boolean {
   }
 }
 
-// Both spellings of a tree's root: an absolute link written before the tree
-// was reached through an alias (macOS /var -> /private/var, a linked
-// node_modules) may use either one.
+// An absolute link into the tree may use the alias or the canonical spelling.
 function rootSpellings(...roots: string[]): string[] {
   return [...new Set(roots.flatMap((root) => [path.resolve(root), canonicalPath(root)]))];
 }
 
-// For an absolute symlink target that stays inside its own tree, the
-// equivalent target relative to the link's directory; undefined for relative
-// targets and for targets outside the tree. Containment is lexical on purpose:
-// resolving the target could follow further links out of the tree.
+// An absolute target inside the tree, made relative to the link's directory.
+// Lexical on purpose: resolving could follow further links out of the tree.
 function internalLinkTarget(roots: string[], relativeLinkPath: string, target: string): string | undefined {
   if (!path.isAbsolute(target)) {
     return undefined;
@@ -156,12 +145,10 @@ function internalLinkTarget(roots: string[], relativeLinkPath: string, target: s
   return undefined;
 }
 
-// Copying symlinks verbatim keeps an ABSOLUTE link into the copied tree aimed
-// at the source, so the "independent" copy would still read and write the
-// original files. Re-aim every such link inside `copyRoot` at its own copy.
-// `finalRoot` is where the tree ends up (it may still be staged under another
-// name): Windows junctions only store absolute targets, so they have to name
-// the final location rather than the staging one.
+/**
+ * Re-aims absolute links into the copied tree at the copy, so the copy never writes the source's files.
+ * `finalRoot` is where a staged copy ends up: Windows junctions store absolute targets only.
+ */
 export function rebaseInternalLinks(
   sourceRoot: string,
   copyRoot: string,
@@ -206,8 +193,7 @@ export function rebaseInternalLinks(
         }
       }
 
-      // Replacing the entry touches the directory; keep the mtime the copy
-      // preserved from the source.
+      // Keep the directory mtime the copy preserved from the source.
       const dirStat = fs.statSync(dir);
       fs.unlinkSync(linkPath);
       fs.symlinkSync(target, linkPath, type);
@@ -217,19 +203,15 @@ export function rebaseInternalLinks(
   visit('');
 }
 
-// A link that points inside its own tree compares by where it lands in that
-// tree, so a source's absolute internal link equals the rebased link in its
-// copy (see rebaseInternalLinks). Other links compare by text, except for
-// equivalent absolute Windows path spellings: older Node versions append a
-// trailing separator to junction targets that copied directory symlinks omit.
+// Internal links compare by where they land, so they match their rebased copy.
+// On Windows, older Node versions add a trailing separator to junction targets.
 function comparableLinkTarget(roots: string[], relativeLinkPath: string, linkPath: string): string {
   const target = fs.readlinkSync(linkPath);
   return internalLinkTarget(roots, relativeLinkPath, target)
     ?? (process.platform === 'win32' && path.isAbsolute(target) ? path.resolve(target) : target);
 }
 
-// If the caller dereferenced `left`, keep its original alias for classifying
-// internal links, while inspecting the resolved content itself with lstat.
+/** `leftAlias`: the path `left` was reached by, used to classify internal links. */
 export function pathsHaveSameContent(left: string, right: string, leftAlias: string = left): boolean {
   return treesHaveSameContent(left, right, '', rootSpellings(leftAlias, left), rootSpellings(right));
 }
@@ -271,9 +253,8 @@ function treesHaveSameContent(
     if (leftStat.size !== rightStat.size) {
       return false;
     }
-    // No mtime fast path: equal size + mtime does not guarantee equal bytes
-    // (touch -r, timestamp-restoring tools), and applyCopy relies on this
-    // check to detect conflicts when --force is not set.
+    // No mtime shortcut: tools like `touch -r` restore timestamps, and
+    // applyCopy relies on this to detect conflicts.
     return filesHaveSameContent(left, right);
   }
 
@@ -305,11 +286,8 @@ function treesHaveSameContent(
 }
 
 export function relativeToCwd(filePath: string): string {
-  // Windows temp paths may alternate between an 8.3 spelling
-  // (`C:\\Users\\RUNNER~1`) and the long spelling used by process.cwd(). macOS
-  // similarly aliases /var to /private/var. Canonicalize existing paths before
-  // deciding whether one is below the other, or user-facing output becomes an
-  // unexpected absolute path.
+  // Windows 8.3 names and macOS /var -> /private/var would otherwise turn a
+  // path below the cwd into an absolute one.
   const canonical = (value: string): string => {
     try {
       return fs.realpathSync.native(value);

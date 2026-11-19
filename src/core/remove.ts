@@ -13,13 +13,13 @@ import { findWorkspace, validateWorkspaceName } from '../workspaces';
 import { lockRootsOf, requireProject } from './project';
 
 export interface RemoveWorkspaceOptions {
-  // Destructive override: remove even with local files or unpreserved/unknown history.
+  /** Remove even with local files or unpreserved or unknown history; saves nothing. */
   force?: boolean;
 }
 
 export interface RemoveWorkspaceResult {
   name: string;
-  // The path that was removed.
+  /** The path that was removed. */
   path: string;
 }
 
@@ -34,14 +34,11 @@ export function removeWorkspace(
   if (!options || typeof options !== 'object' || (options.force !== undefined && typeof options.force !== 'boolean')) {
     throw new WorklerError('INVALID_OPTIONS', 'removeWorkspace options must be an object with an optional boolean force');
   }
-  // Before validateWorkspaceName, whose generic reserved-name error would
-  // otherwise shadow this intent-specific message.
+  // Both checks come before validateWorkspaceName, whose errors are worded for
+  // `add`. A name with "/" usually means a nested workspace or group member.
   if (name === MAIN_WORKSPACE_NAME) {
     throw new WorklerError('MAIN_WORKSPACE', 'refusing to remove main workspace');
   }
-  // Also before validateWorkspaceName: its separator error suggests --branch,
-  // which is advice for add. Here the caller usually meant a nested workspace
-  // (feat/agent-1) or a group member (feat/web).
   if (name.includes('/') || name.includes('\\')) {
     throw new WorklerError(
       'INVALID_NAME',
@@ -111,27 +108,19 @@ export function removeWorkspace(
   });
 }
 
-// Everything in a group workspace that deletion would destroy: a member with
-// uncommitted, untracked or ignored files beyond what its source's rules
-// produce, a member directory that is not a clone (unknown contents), and any
-// entry neither a declared project nor the group's own rules account for,
-// including the .workler copy once it no longer matches the group's file. A
-// member that was never cloned holds nothing.
 interface GroupLocalData {
   reason: string;
-  // For a member clone with local data: what its working tree holds
-  // (undefined inside when Git failed). Absent for the other reasons.
+  // Set for a member clone with local data; the value is undefined when Git failed.
   entries?: LocalDataEntry[] | undefined;
 }
 
+// Everything deletion would destroy: member local data beyond rule outputs, members that are not
+// clones, and entries no project or group rule accounts for, including an edited .workler copy.
 function groupLocalData(workspacePath: string, groupRoot: string, projects: string[]): GroupLocalData[] {
   const reasons: GroupLocalData[] = [];
-  // Entries the member loop explains: a link or file at a member path, or at
-  // a folder on the way to one. The extras walk reports them too; skip those.
+  // Already reported by the member loop; the extras walk would repeat them.
   const covered = new Set<string>();
-  // What the group's own .workler produces in the folder: its rule outputs
-  // and the guard paths its setup recorded, some of which may lie inside a
-  // member.
+  // May include guard paths inside a member.
   const groupManaged = managedWorkspacePaths(groupRoot, workspacePath, recordedSetupOutputs(workspacePath, 'folder'));
   for (const project of projects) {
     const member = memberPath(workspacePath, project);
@@ -166,14 +155,10 @@ function groupLocalData(workspacePath: string, groupRoot: string, projects: stri
   return reasons;
 }
 
-// What a member clone's rules produce, read from its source repository, and
-// what its guarded setup commands made, read from the clone's own record. A
-// source that is missing, not a repository, or behind a symbolic link has no
-// trustworthy .workler to read (nothing is followed), so none of that is
-// exempt. `groupManaged` is what the group's own .workler produces in the
-// workspace folder (see managedWorkspacePaths); a group guard path that
-// lies inside this member (`projects/api/generated`, recorded by the group's
-// setup) is the member's output too, relative to the clone (`generated`).
+/**
+ * Paths in a member clone that are not local data: its source's rule outputs, its recorded setup outputs
+ * and `groupManaged` paths inside it (made relative). A broken or linked source exempts nothing.
+ */
 export function memberManagedPaths(groupRoot: string, project: string, member: string, groupManaged: readonly string[] = []): string[] {
   const own =
     sourceBrokenReason(groupRoot, project) === undefined
@@ -186,8 +171,7 @@ export function memberManagedPaths(groupRoot: string, project: string, member: s
   return [...new Set([...own, ...fromGroup])];
 }
 
-// Why the workspace's .workler is local data rather than the generated copy
-// (groupWorkspaceExtras already decided that it is).
+// groupWorkspaceExtras already decided the .workler is local data.
 function configCopyReason(workspacePath: string): string {
   try {
     const stat = fs.lstatSync(path.join(workspacePath, CONFIG_FILE));

@@ -24,24 +24,22 @@ import { printRuleResult, printRuleSummary } from './rule-output';
 interface ApplyFlags {
   force: boolean;
   dryRun: boolean;
-  // --copy-links / --no-copy-links; undefined keeps the workspace's own mode.
+  // Undefined keeps the workspace's remembered mode.
   copyLinks?: boolean;
 }
 
 type ApplyTarget =
-  // A Git clone remembers its own copy-links mode.
   | { isRepo: true }
-  // A group workspace folder is not a clone; the mode of the group's own
-  // rules is remembered in its cloned members (workler.groupCopyLinks).
+  // A group workspace folder has no git config; its mode lives in the
+  // member clones (workler.groupCopyLinks).
   | { isRepo: false; members: string[] };
 
 function applyAndPrint(root: string, workspacePath: string, flags: ApplyFlags, target: ApplyTarget): void {
   const { force, dryRun } = flags;
   const remembered = target.isRepo ? workspaceCopiesLinks(workspacePath) : groupWorkspaceCopiesLinks(target.members);
   const copyLinks = flags.copyLinks ?? remembered;
-  // Record the mode BEFORE applying: rules are not one transaction, and after
-  // a conflict halfway through a plain re-run must keep converting instead of
-  // tripping over the destinations that were already switched.
+  // Record the mode before applying: rules are not one transaction, so a
+  // re-run after a conflict halfway must keep converting.
   if (flags.copyLinks !== undefined && !dryRun) {
     if (target.isRepo) {
       setWorkspaceCopiesLinks(workspacePath, flags.copyLinks);
@@ -53,9 +51,7 @@ function applyAndPrint(root: string, workspacePath: string, flags: ApplyFlags, t
   printRuleSummary(outcome);
 }
 
-// Applies one workspace of `info`: the repository's rules for a plain
-// project; for a group, every cloned member from its source repository and
-// then the group's own rules into the workspace directory.
+// For a group: every cloned member from its source, then the group's rules.
 function applyWorkspace(info: ProjectInfo, workspace: Workspace, flags: ApplyFlags): void {
   if (!info.isGroup) {
     applyAndPrint(info.root, workspace.path, flags, { isRepo: true });
@@ -81,16 +77,14 @@ function applyWorkspace(info: ProjectInfo, workspace: Workspace, flags: ApplyFla
   }
 
   if (cloned.length === 0) {
-    // The group's copy-links mode lives in the member clones, so with none
-    // there is nowhere to record the mode the next apply must honour, and add
-    // never reuses this folder, so the workspace can never gain a clone.
+    // With no member clone there is nowhere to record the copy-links mode,
+    // and `add` never reuses this folder.
     console.log(`group rules: skipped (workspace ${workspace.name} has no member clone; remove it and run add again)`);
     return;
   }
 
   if (readRules(info.root).length === 0) {
-    // No group-level rules yet: an explicit mode is still recorded, so a
-    // group rule added later is materialized the way the user last asked.
+    // Still record an explicit mode for group rules added later.
     if (flags.copyLinks !== undefined && !flags.dryRun) {
       setGroupWorkspaceCopiesLinks(cloned, flags.copyLinks);
     }
@@ -152,24 +146,14 @@ export function applyCommand(args: string[]): void {
 
   const name = parsed.positionals[0];
   if (!name) {
-    // Bare `apply` inside a managed workspace refreshes the workspace itself
-    // from its immediate parent's rules (nested workspaces refresh from the
-    // enclosing workspace, not the outermost root). A member clone of a group
-    // workspace refreshes from its source repository; the group workspace
-    // directory itself refreshes every member and the group's rules.
+    // Bare `apply` inside a workspace refreshes it from its immediate parent
+    // (a nested workspace from the enclosing workspace, not the root).
     const info = inspectProject(root);
     if (info.gitRepo) {
       const parent = parentProject(root);
       if (parent) {
-        // A member clone of a group workspace changes under the group's locks
-        // (the group's own and every enclosing group's), the ones
-        // `apply <name>/<project>` and `remove <name>` take, so no two
-        // group-level commands touch the clone at once. Its rules and copied
-        // files come from the source repository, so that is locked too, as
-        // an ordinary workspace's apply locks the repository it refreshes
-        // from: a `sync` inside the source cannot then rewrite a file while
-        // it is being copied. A workspace nested inside a member clone
-        // changes under that clone's locks, which include the group's.
+        // A member clone takes the group's locks, as `apply <name>/<project>` and `remove` do, plus the
+        // source's, so a `sync` there cannot rewrite a file while it is copied.
         const lockRoots = info.memberOf
           ? mergeLockRoots(lockRootsOf(inspectProject(info.memberOf.group)), lockRootsOf(inspectProject(parent)))
           : lockRootsOf(inspectProject(parent));
@@ -180,11 +164,8 @@ export function applyCommand(args: string[]): void {
         return;
       }
       if (info.memberOf) {
-        // A member whose source is no longer a usable repository: missing,
-        // not a repository, or behind a symbolic link (resolveParent then
-        // leaves parent unset). Refreshing from whatever now sits at the
-        // source path would apply a stranger's rules and copy its files into
-        // the clone, so refuse, exactly as `apply <name>/<project>` does.
+        // The source is missing, not a repository, or behind a symlink.
+        // Refuse rather than apply whatever rules now sit at that path.
         const { group, project } = info.memberOf;
         const unusable = sourceBrokenReason(group, project) ?? 'not a usable repository';
         throw new Error(`source ${MAIN_WORKSPACE_NAME}/${project} is ${unusable}: ${memberPath(group, project)}`);

@@ -1,7 +1,4 @@
 'use strict';
-// Shared fixtures for the node:test suite. Tests exercise the compiled
-// output (dist/), which is what package consumers get; `npm test` builds
-// first.
 
 const { execFileSync, spawnSync } = require('node:child_process');
 const fs = require('node:fs');
@@ -13,10 +10,8 @@ const CLI = path.join(DIST, 'cli.js');
 const api = require(path.join(DIST, 'index.js'));
 
 function makeTempDir(t, prefix = 'workler-test-') {
-  // Keep the OS-provided spelling on Windows. realpathSync can turn
-  // C:\\Users\\runneradmin into its 8.3 alias C:\\Users\\RUNNER~1; child
-  // processes then report the long form again, making path.relative and Git's
-  // working-tree checks disagree about otherwise identical paths.
+  // No realpath here: on Windows it can turn C:\\Users\\runneradmin into the 8.3 alias
+  // RUNNER~1 while child processes report the long form, so path comparisons with Git disagree.
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   return dir;
@@ -26,16 +21,13 @@ function git(cwd, ...args) {
   return execFileSync('git', args, { cwd, encoding: 'utf8' }).trim();
 }
 
-// A git repo on branch `main` with one commit. `workler` is the committed
-// .workler content (pass '' for an empty file); set includeWorkler to false
-// to model a repository that has never had the optional file. Untracked extras
-// (.env, node_modules/) are only created when the rules reference them.
+// A repo on branch `main` with `workler` committed as .workler (no file with
+// includeWorkler: false). Untracked .env and node_modules/ exist only if `workler` names them.
 function makeRepo(t, { workler = '', includeWorkler = true } = {}) {
   const candidate = path.join(makeTempDir(t), 'proj');
   fs.mkdirSync(candidate);
-  // Canonicalize only after the path exists: this expands Windows 8.3 aliases
-  // and macOS's /var -> /private/var alias, keeping Git, process.cwd(), and
-  // API return values on one spelling.
+  // Expands Windows 8.3 aliases and macOS's /var -> /private/var, so Git, process.cwd()
+  // and API results use one spelling. It needs the path to exist.
   const root = fs.realpathSync.native(candidate);
   git(root, 'init', '-q', '-b', 'main');
   git(root, 'config', 'user.email', 'test@example.invalid');
@@ -63,8 +55,7 @@ function makeProject(t, opts) {
   return root;
 }
 
-// Gives `root` a real upstream: a bare repo added as `origin`, with the
-// current branch pushed and tracking it. Returns the bare repo's path.
+// A bare repo as `origin`, with the current branch pushed and tracking it; returns its path.
 function addOrigin(t, root) {
   const remote = path.join(makeTempDir(t, 'workler-remote-'), 'origin.git');
   git(path.dirname(remote), 'init', '-q', '--bare', '-b', 'main', remote);
@@ -73,7 +64,6 @@ function addOrigin(t, root) {
   return remote;
 }
 
-// The remotes configured in a repo, as { name: url }.
 function remotes(repo) {
   const output = git(repo, 'remote', '-v');
   const result = {};
@@ -89,13 +79,11 @@ function runCli(cwd, ...args) {
   return { status: result.status, stdout: result.stdout, stderr: result.stderr };
 }
 
-// The paths in a setup record, without the entry identity Workler keeps
-// in front of each (`<dev>:<ino>:<birth> <path>`).
+// Strips the `<dev>:<ino>:<birth> ` identity Workler keeps in front of each recorded path.
 function recordedPaths(values) {
   return values.map((value) => value.replace(/^\d+:\d+:\d+ /, ''));
 }
 
-// A pid that is guaranteed dead: spawn a no-op node process and wait for it.
 function deadPid() {
   const result = spawnSync(process.execPath, ['-e', ''], { encoding: 'utf8' });
   return result.pid;

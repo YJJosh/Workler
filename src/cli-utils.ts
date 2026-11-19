@@ -8,8 +8,7 @@ export function requireValue(args: string[], index: number, option: string): str
   return value;
 }
 
-// Returns true when help was printed so simple no-argument commands can stop
-// before doing any discovery or mutation.
+/** Returns true when help was printed, so the caller stops before any discovery. */
 export function assertNoArgs(args: string[], command: string): boolean {
   if (args.length === 1 && (args[0] === '-h' || args[0] === '--help')) {
     console.log(`usage: ${PACKAGE_NAME} ${command}`);
@@ -36,10 +35,7 @@ export interface ParsedCommandArgs {
   help: boolean;
 }
 
-// Shared flag/positional parsing for the workspace commands. Does not print
-// or exit: on -h/--help it returns early with help=true (skipping arity
-// checks, since -h anywhere must win) and leaves usage output to the caller;
-// all other failures throw and flow through cli.ts's single error handler.
+/** Never prints or exits: -h/--help anywhere returns `help: true` before the arity check; other failures throw. */
 export function parseCommandArgs(args: string[], spec: CommandArgsSpec): ParsedCommandArgs {
   const flags: Record<string, string | boolean> = {};
   const positionals: string[] = [];

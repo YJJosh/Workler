@@ -18,32 +18,27 @@ import { requireProject } from './project';
 import type { ProjectInfo } from './project';
 
 export interface WorkspaceSetupOptions extends SetupOptions {
-  // Project group only. Called before a member's commands run, with how
-  // many its source .workler declares, or with the reason the member is
-  // skipped (not a usable clone, source not a usable repository).
+  /** Project group only: called before a member's commands run, with its source's command count or why it is skipped. */
   onProjectSetup?: (project: string, commandCount: number, skipped?: string) => void;
-  // Project group only. Called before the group's own commands run.
+  /** Project group only. Called before the group's own commands run. */
   onGroupSetup?: (commandCount: number) => void;
 }
 
 export interface MemberSetupResult {
   project: string;
-  // The source repository whose .workler supplied the commands.
+  /** The source repository whose .workler supplied the commands. */
   root: string;
-  // The member clone the commands ran in.
+  /** The member clone the commands ran in. */
   path: string;
-  // Why nothing ran: the member is not a usable clone, or its source is not
-  // a usable repository. `setup` is absent then.
+  /** Why nothing ran; `setup` is then absent. */
   skipped?: string;
   setup?: SetupOutcome;
 }
 
 export interface WorkspaceSetupOutcome {
-  // The commands of the workspace's own project. For a group workspace:
-  // the group's own commands, run in the workspace folder after every
-  // member's.
+  /** For a group workspace: the group's own commands, run after every member's. */
   setup: SetupOutcome;
-  // Project group only: one entry per declared project, in file order.
+  /** Project group only: one entry per declared project, in file order. */
   projects?: MemberSetupResult[];
 }
 
@@ -51,8 +46,7 @@ export interface SetupWorkspaceResult extends WorkspaceSetupOutcome {
   name: string;
   path: string;
   root: string;
-  // Set when one member of a group workspace was addressed
-  // (`feat/projects/api`): `path` is then the clone and `root` its source.
+  /** Set when one member was addressed (`feat/projects/api`); `path` is the clone, `root` its source. */
   project?: string;
 }
 
@@ -65,15 +59,11 @@ export function validateWorkspaceSetupOptions(options: WorkspaceSetupOptions): v
   }
 }
 
-// Commands declared across a whole outcome: the workspace's (or group's)
-// own plus every member's.
 export function setupCommandCount(outcome: WorkspaceSetupOutcome): number {
   return outcome.setup.commandCount + (outcome.projects ?? []).reduce((sum, member) => sum + (member.setup?.commandCount ?? 0), 0);
 }
 
-// How many setup commands `add` would run for a new workspace of the project:
-// the project's own, or for a group every usable source's plus the group's.
-// What `add --no-setup` reports as skipped.
+// What `add --no-setup` reports as skipped. Broken sources are not counted.
 export function declaredSetupCommandCount(info: ProjectInfo): number {
   let count = readSetupCommands(info.root).length;
   if (info.isGroup) {
@@ -86,9 +76,7 @@ export function declaredSetupCommandCount(info: ProjectInfo): number {
   return count;
 }
 
-// Why a member of a group workspace gets no setup run: it is not the usable
-// clone Workler made (nothing is followed or guessed at), or its source is
-// not a usable repository, so there is no trustworthy .workler to read.
+// Nothing is followed or guessed: a broken source has no trustworthy .workler.
 function memberSkipReason(groupRoot: string, workspacePath: string, project: string): { reason: string; sourceBroken: boolean } | undefined {
   const check = inspectMember(workspacePath, project);
   if (check.state !== 'clone') {
@@ -101,13 +89,10 @@ function memberSkipReason(groupRoot: string, workspacePath: string, project: str
   return undefined;
 }
 
-// Runs the setup commands for one finished workspace of `info`: a
-// repository's commands inside its clone; for a project group every cloned
-// member's commands from its source repository, in file order, then the
-// group's own commands in the workspace folder. The first failure stops
-// everything (SETUP_COMMAND_FAILED, prefixed with the member's project path).
-// Deliberately unlocked: the commands can take minutes and only touch the
-// one workspace, so they must not block `add`/`remove` of its siblings.
+/**
+ * For a group: every cloned member's commands in file order, then the group's; the first failure throws
+ * SETUP_COMMAND_FAILED. Takes no lock: commands can run for minutes and must not block siblings.
+ */
 export function runWorkspaceSetup(info: ProjectInfo, workspace: Workspace, options: WorkspaceSetupOptions = {}): WorkspaceSetupOutcome {
   if (!info.isGroup) {
     return { setup: runSetupCommands({ root: info.root, path: workspace.path, name: workspace.name }, options) };
@@ -115,8 +100,7 @@ export function runWorkspaceSetup(info: ProjectInfo, workspace: Workspace, optio
 
   const group = { root: info.root, workspacePath: workspace.path };
   const projects: MemberSetupResult[] = [];
-  // A guard is judged once every line has run: the group's own lines run
-  // after its members' and may create a member's guard path.
+  // Guards are judged at the end: a group line may create a member's guard path.
   const pending: PendingGuard[] = [];
   for (const project of info.projects) {
     const source = memberPath(info.root, project);
@@ -140,10 +124,7 @@ export function runWorkspaceSetup(info: ProjectInfo, workspace: Workspace, optio
   return { setup, projects };
 }
 
-// Re-runs the project's `setup` commands in an existing workspace (what
-// `workler setup <name>` does, and what `createWorkspace` does at the end of
-// `add`). Under a project group, `<name>/<project path>` addresses one
-// member clone, which then runs its source repository's commands only.
+/** Re-runs the `setup` commands in an existing workspace; under a group, `<name>/<project path>` runs one member's only. */
 export function setupWorkspace(rootInput: string, name: string, options: WorkspaceSetupOptions = {}): SetupWorkspaceResult {
   if (typeof name !== 'string') {
     throw new WorklerError('INVALID_NAME', 'workspace name must be a string');

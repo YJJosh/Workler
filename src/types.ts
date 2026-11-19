@@ -6,21 +6,18 @@ export interface WorklerRule {
   raw: string;
 }
 
-// One `project <path>` line: a Git repository below a project group root,
-// identified by its portable (forward-slash) path relative to that root.
+/** A `project <path>` line: a Git repository below a project group root. */
 export interface ProjectEntry {
+  /** Forward-slash path relative to the group root. */
   path: string;
   raw: string;
 }
 
-// A `setup [--if-missing <path>] <command>` line: a shell command run in a
-// new workspace after the copy/link rules (and again by `workler setup`).
+/** A `setup [--if-missing <path>] <command>` line: shell command run after the rules in a new workspace and by `workler setup`. */
 export interface SetupCommand {
-  // The command exactly as written, surrounding whitespace trimmed.
+  /** Trimmed of surrounding whitespace. */
   command: string;
-  // With `--if-missing <path>`: the command only runs while nothing exists
-  // at this path, relative to the directory the command runs in (portable
-  // forward-slash spelling, validated like a rule path).
+  /** Run only while nothing exists at this forward-slash path, relative to the command's directory. */
   ifMissing?: string;
   raw: string;
 }

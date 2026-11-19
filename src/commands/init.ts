@@ -11,9 +11,8 @@ export function initCommand(args: string[]): void {
   if (assertNoArgs(args, 'init')) return;
 
   const cwd = process.cwd();
-  // Inside a repository, init the repository. A plain folder that holds
-  // repositories (or already declares them) is a project group of its own,
-  // even when some unrelated outer repository encloses it.
+  // A plain folder that holds or declares repositories is a group, even
+  // inside an unrelated outer repository.
   const gitRoot = findGitTopLevel(cwd);
   const groupFolder = Boolean(gitRoot) && !isGitTopLevel(cwd) && (declaresProjects(cwd) || discoverProjects(cwd).length > 0);
   const root = gitRoot && !groupFolder ? gitRoot : cwd;
@@ -56,9 +55,7 @@ export function initCommand(args: string[]): void {
   }
 }
 
-// Whether an existing .workler declares projects. One that does not parse is
-// not a declaration: `initProject` leaves it alone and reports why, as it
-// always has, instead of this lookup failing before any setup happens.
+// A .workler that does not parse declares nothing; `initProject` reports it.
 function declaresProjects(dir: string): boolean {
   try {
     return hasGroupConfig(dir);

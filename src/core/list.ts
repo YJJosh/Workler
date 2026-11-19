@@ -13,10 +13,9 @@ import { WorklerError } from '../errors';
 import { memberManagedPaths } from './remove';
 import { targetHistory, type HistoryAssessment } from '../history';
 
-// One member clone of a group workspace (or one source repository of the
-// group itself, for the "main" entry).
+/** A member clone of a group workspace, or a source repository for "main". */
 export interface MemberInfo {
-  // The declared project path (`projects/api`).
+  /** The declared project path (`projects/api`). */
   project: string;
   path: string;
   isClone: boolean;
@@ -26,50 +25,42 @@ export interface MemberInfo {
   shortHead?: string;
   detached: boolean;
   clean?: boolean;
-  // Absent on main and un-cloned members; separate from file cleanliness.
+  /** Absent on main and un-cloned members; separate from `clean`. */
   history?: HistoryAssessment;
 }
 
 export interface WorkspaceInfo {
   name: string;
   path: string;
-  // The main project itself (always the first entry).
+  /** The main project itself, always the first entry. */
   isMain: boolean;
-  // The directory has a .git entry (false for leftovers under .worktrees/
-  // that are not clones at all). For a group workspace: the directory is
-  // recognized as one (its copied .workler or any cloned member), even while
-  // every member is still missing.
+  /** The directory has a .git entry; a group workspace counts once recognized (copied .workler or a cloned member). */
   isClone: boolean;
-  // Set when the directory is not a usable clone; human-readable reason. For
-  // a group workspace: the reasons of every broken or missing member.
+  /** Why the directory is not a usable clone; for a group, every broken member's reason. */
   broken?: string;
-  // Current branch; undefined when detached, unborn, or broken. For a group
-  // workspace: set only when every member is on that same branch.
+  /** Undefined when detached, unborn or broken; for a group, set only when all members agree. */
   branch?: string;
-  // Full and abbreviated HEAD commit sha; undefined when unborn or broken,
-  // and for group workspaces (see `projects`).
+  /** Undefined when unborn or broken, and for group workspaces (see `projects`). */
   head?: string;
   shortHead?: string;
   detached: boolean;
-  // No local changes: nothing modified, staged, untracked or ignored beyond
-  // what the project's .workler rules produce (copy/link destinations,
-  // `setup --if-missing` paths) and an empty .worktrees/. This is ONLY file
-  // safety: remove also requires history.state === 'safe' (all members for
-  // groups). Undefined when broken.
+  /**
+   * Nothing modified, staged, untracked or ignored beyond what .workler rules and `setup --if-missing`
+   * produce. File safety only: remove also needs `history.state === 'safe'`. Undefined when broken.
+   */
   clean?: boolean;
-  // Absent on main and group folders (see projects[].history).
+  /** Absent on main and group folders (see `projects[].history`). */
   history?: HistoryAssessment;
-  // Per-member details; only present under a project group root.
+  /** Only under a project group root. */
   projects?: MemberInfo[];
 }
 
 export interface ListWorkspacesOptions {
-  // Opt in to expensive read-only history proofs. File/branch listings stay lightweight by default.
+  /** Run the read-only history proofs, which can be slow. Default false. */
   history?: boolean;
 }
 
-// Structured listing for the API: the main project, every workspace, and
-// broken entries under .worktrees/ (flagged, not hidden).
+/** The main project, every workspace, and broken entries (flagged, not hidden). */
 export function listWorkspaceInfos(rootInput: string, options: ListWorkspacesOptions = {}): WorkspaceInfo[] {
   if (!options || typeof options !== 'object' || (options.history !== undefined && typeof options.history !== 'boolean')) {
     throw new WorklerError('INVALID_OPTIONS', 'listWorkspaces options must be an object with an optional boolean history');
@@ -88,9 +79,7 @@ export function listWorkspaceInfos(rootInput: string, options: ListWorkspacesOpt
     });
   }
 
-  // Under a group root every target is one member of one workspace; fold the
-  // members back into one entry per workspace, in the order they were listed
-  // (main first, then workspaces by name).
+  // Under a group root each target is one member; fold them per workspace.
   const byName = new Map<string, SyncTarget[]>();
   for (const target of targets) {
     const members = byName.get(target.name) ?? [];
@@ -103,8 +92,6 @@ export function listWorkspaceInfos(rootInput: string, options: ListWorkspacesOpt
     const workspacePath = isMain ? info.root : path.join(info.root, WORKSPACES_DIR, name);
     const projects: MemberInfo[] = [];
     const brokenReasons: string[] = [];
-    // What the group's own .workler produces in this folder; a guard path of
-    // its that lies inside a member counts for that member as well.
     const groupManaged = isMain ? [] : managedWorkspacePaths(info.root, workspacePath, recordedSetupOutputs(workspacePath, 'folder'));
     for (const member of members) {
       if (member.project === undefined) {
@@ -113,9 +100,8 @@ export function listWorkspaceInfos(rootInput: string, options: ListWorkspacesOpt
         continue;
       }
       const details = inspectTarget(member, false, isMain ? [] : memberManagedPaths(info.root, member.project, member.path, groupManaged));
-      // A member is a clone only when it is the member's usable clone: a
-      // repository that is not the recorded one, or a .git reached through a
-      // link, is local data (see broken), not the member.
+      // A foreign repository or a .git reached through a link is local data,
+      // not the member clone.
       const history = options.history === true ? targetHistory(info.root, member) : undefined;
       const memberInfo: MemberInfo = { project: member.project, ...details, isClone: details.isClone && details.broken === undefined,
         ...(history === undefined ? {} : { history }) };
@@ -135,10 +121,8 @@ export function listWorkspaceInfos(rootInput: string, options: ListWorkspacesOpt
       name,
       path: workspacePath,
       isMain,
-      // A recognized group workspace is listed even when no member has been
-      // cloned yet (creation failed during the first clone): it still holds
-      // the copied .workler, and `list` shows it as incomplete. Only entries
-      // under .worktrees/ that are no group workspace at all are hidden.
+      // Listed even with no member cloned (the first clone failed), so `list`
+      // shows it as incomplete.
       isClone: isMain || strayClone || projects.length > 0,
       broken: brokenReasons.length > 0 ? brokenReasons.join('; ') : undefined,
       branch: sameBranch ? projects[0].branch : undefined,
@@ -171,9 +155,7 @@ function inspectTarget(target: SyncTarget, isMain: boolean, managedPaths: readon
   };
 }
 
-// Absolute path of a workspace by name; "main" resolves to the root itself.
-// Under a project group, `<name>/<project path>` resolves to one member of
-// the workspace (`main/projects/api` is the source repository).
+/** "main" resolves to the root; under a group, `<name>/<project path>` is one member (`main/projects/api` is the source). */
 export function resolveWorkspacePath(rootInput: string, name: string): string {
   const info = requireProject(rootInput);
   const address = info.isGroup ? splitWorkspaceAddress(name) : { workspace: name, project: undefined };

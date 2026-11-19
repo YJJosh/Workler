@@ -10,8 +10,6 @@ const EXPECTED_SYNTAX =
 const SETUP_ACTION = 'setup';
 const IF_MISSING_OPTION = '--if-missing';
 
-// Throws with .workler:<line>:<column>, the offending line, and what was
-// expected, so config mistakes are easy to locate and fix.
 function parseError(lineNumber: number, column: number, rawLine: string, message: string, expected: string): never {
   throw new WorklerError(
     'CONFIG_INVALID',
@@ -22,9 +20,8 @@ function parseError(lineNumber: number, column: number, rawLine: string, message
   );
 }
 
-// Removes an inline comment: a "#" outside quotes that is either the first
-// character or preceded by whitespace. A "#" inside a quoted path (or glued
-// to a word, like file#1.txt) is kept.
+// A "#" starts a comment only outside quotes and at the start or after
+// whitespace, so file#1.txt keeps its "#".
 function stripInlineComment(line: string): string {
   let quote: string | null = null;
   for (let index = 0; index < line.length; index++) {
@@ -42,10 +39,7 @@ function stripInlineComment(line: string): string {
   return line;
 }
 
-// Parses the path portion of a rule line. `line` is the comment-stripped
-// line and `start` is the 0-based index where the path begins. Supports
-// double- or single-quoted paths for spaces and "#", or a bare path that
-// runs to the end of the line.
+// `line` is comment-stripped; `start` is the 0-based index of the path.
 function parseRulePath(line: string, start: number, lineNumber: number, rawLine: string): string {
   const quote = line[start];
   if (quote === '"' || quote === "'") {
@@ -63,22 +57,17 @@ function parseRulePath(line: string, start: number, lineNumber: number, rawLine:
   return line.slice(start).trim();
 }
 
-// A setup line is a shell command, taken verbatim: Workler must not strip a
-// "#" the shell would treat as part of the command (cmd.exe has no "#"
-// comments at all, and sh only sees one where the shell says so). Only
-// full-line comments apply, so this works on the raw line. The one thing
-// parsed before the command is an optional `--if-missing <path>` guard; its
-// path follows the rule-path syntax (quoted when it holds a space or "#").
 interface ParsedSetupLine {
   setup: SetupCommand;
-  // 1-based column of the `--if-missing` path, for the reservation error below.
+  // 1-based column of the `--if-missing` path, for error messages.
   guardColumn?: number;
 }
 
+// The command is taken verbatim from the raw line, with no inline comments:
+// cmd.exe has no "#" comments, and in sh only the shell decides what one is.
 function parseSetupLine(rawLine: string, actionStart: number, lineNumber: number): ParsedSetupLine {
   let cursor = actionStart + SETUP_ACTION.length;
-  // Column (1-based) right after the last thing parsed, for "missing ..."
-  // errors that point at where the command should have started.
+  // 1-based column after the last thing parsed, for "missing ..." errors.
   let afterLast = cursor + 1;
   const skipWhitespace = (): void => {
     while (cursor < rawLine.length && /\s/.test(rawLine[cursor])) {
@@ -135,20 +124,18 @@ function parseSetupLine(rawLine: string, actionStart: number, lineNumber: number
   return ifMissing === undefined ? { setup: { command, raw: rawLine.trim() } } : { setup: { command, ifMissing, raw: rawLine.trim() }, guardColumn };
 }
 
-// The files Workler itself writes into a group workspace folder; a group's
-// own rules may not manage them, and its setup guards may not name them.
+// Workler writes these into a group workspace folder, so group rules and
+// guards may not name them.
 const GROUP_WORKSPACE_FILES = [CONFIG_FILE, SETUP_RECORD_FILE];
 
-// The reserved file a group-level path would manage or guard on: the file
-// itself or anything below it (`.workler-setup.json/stamp` makes the command
-// put a folder where the record goes).
+// Anything below the file counts: a guard at `.workler-setup.json/stamp`
+// would put a folder where the record goes.
 function reservedGroupFile(targetPath: string): string | undefined {
   const first = targetPath.split('/')[0].toLowerCase();
   return GROUP_WORKSPACE_FILES.find((file) => first === file.toLowerCase());
 }
 
-// A group-level line that names one of GROUP_WORKSPACE_FILES, remembered
-// until the file turns out to declare projects.
+// Remembered until the file turns out to declare projects.
 interface ReservedUse {
   lineNumber: number;
   column: number;
@@ -157,35 +144,24 @@ interface ReservedUse {
   use: 'rule' | 'guard';
 }
 
-// Every path-bearing line in the file, in order, for the overlap check.
 interface ConfigEntry {
   kind: 'rule' | 'project';
   path: string;
 }
 
-// The copy/link rules of a project. `project` and `setup` lines are parsed
-// and validated too (so a broken file fails everywhere), but only readConfig
-// exposes them.
+// The whole file is still validated, so a broken file fails everywhere.
 export function readRules(root: string): WorklerRule[] {
   return readConfig(root).rules;
 }
 
-// The `setup` commands of a project, in file order.
 export function readSetupCommands(root: string): SetupCommand[] {
   return readConfig(root).setup;
 }
 
-// The paths a project's .workler produces inside `workspace`, in the file's
-// portable spelling and relative to the workspace: the copy and link
-// destinations that are what apply makes of their sources (see
-// ruleOutputInPlace), and the `setup --if-missing` guard paths among
-// `produced`, what `setup` recorded as created by a guarded command in that
-// workspace (see recordedSetupOutputs in setup.ts). Removing them loses
-// nothing `apply` and `setup` cannot make again, so `remove` and the
-// listing's `clean` do not count them as local data; a guard path on no
-// record, or a destination apply would skip or refuse to replace, is data
-// like any other file. A file that cannot be parsed produces nothing here;
-// the operations that need it fail on the parse error themselves.
+/**
+ * Paths `remove` and `clean` do not count as local data, because apply and setup recreate them: rule
+ * outputs that match their source and guard paths in `produced`. A .workler that does not parse yields none.
+ */
 export function managedWorkspacePaths(root: string, workspace: string, produced: readonly string[]): string[] {
   let config: WorklerConfig;
   try {
@@ -210,18 +186,8 @@ export function managedWorkspacePaths(root: string, workspace: string, produced:
   return [...paths];
 }
 
-// Whether a rule's destination is what apply makes of its source, so apply
-// would leave it as it is. The source passes apply's checks: it exists, and
-// no directory on the way to it is a symbolic link (apply skips an absent
-// source and refuses one behind a link). No directory on the way to the
-// destination is one either. And the destination is a link that resolves to
-// the source, or a copy with the source's content (for a link rule after
-// `apply --copy-links`, the content the source resolves to). Anything else
-// there is something apply refuses to replace without --force, and so is
-// data: a user's own .env that predates a `copy .env` rule, or a copied
-// .env edited since. One that matches loses nothing when removed, since the
-// main project still has it. Whatever cannot be inspected counts as data,
-// the safe side.
+// True only when apply would leave the destination as it is (passes its symlink checks, matches the source).
+// An edited copy of .env is data, and so is whatever cannot be inspected.
 function ruleOutputInPlace(root: string, workspace: string, rule: WorklerRule): boolean {
   const source = path.join(root, rule.targetPath);
   const destination = path.join(workspace, rule.targetPath);
@@ -265,8 +231,7 @@ export function readConfig(root: string): WorklerConfig {
       continue;
     }
 
-    // Decide on the raw line whether this is a setup line, so the
-    // inline-comment stripping below never touches a command.
+    // Decided on the raw line, so comment stripping never touches a command.
     const rawActionStart = rawLine.length - rawLine.trimStart().length;
     const rawAction = rawLine.slice(rawActionStart).match(/^\S+/)?.[0] ?? '';
     if (rawAction === SETUP_ACTION) {
@@ -275,10 +240,7 @@ export function readConfig(root: string): WorklerConfig {
       if (parsed.setup.ifMissing !== undefined && parsed.guardColumn !== undefined) {
         guards.push({ path: parsed.setup.ifMissing, lineNumber, column: parsed.guardColumn, rawLine });
       }
-      // A guard at `.workler-setup.json` (or below it) would have the command
-      // create what `setup` then renames its record over, and one at
-      // `.workler` can never be missing in a group workspace. Rejected below
-      // once the file turns out to declare projects, like a rule for them.
+      // A guard there would collide with the setup record, or never be missing.
       const reserved = parsed.setup.ifMissing === undefined ? undefined : reservedGroupFile(parsed.setup.ifMissing);
       if (reserved !== undefined && parsed.guardColumn !== undefined && !reservedUse) {
         reservedUse = { lineNumber, column: parsed.guardColumn, rawLine, file: reserved, use: 'guard' };
@@ -308,23 +270,14 @@ export function readConfig(root: string): WorklerConfig {
     const targetPath = validateRulePath(parsedPath, lineNumber, pathStart + 1, rawLine);
     const entry: ConfigEntry = { kind: action === 'project' ? 'project' : 'rule', path: targetPath };
 
-    // Workler writes its own copy of this file into every group workspace,
-    // and its record of the group's setup outputs next to it, so a
-    // group-level rule for either could only ever conflict with Workler's
-    // file (or, with --force, replace it by a link that `remove` then
-    // protects as local data). Remember the first such rule; it is rejected
-    // below once the file turns out to declare projects.
+    // A group rule for these could only conflict with Workler's own file.
     const reserved = reservedGroupFile(targetPath);
     if (entry.kind === 'rule' && !reservedUse && reserved !== undefined) {
       reservedUse = { lineNumber, column: pathStart + 1, rawLine, file: reserved, use: 'rule' };
     }
 
-    // Parent/child entries are not independent: a link at `cache` would make
-    // a later rule for `cache/file` traverse that link, two rules for the same
-    // path necessarily conflict, and a rule that reaches into a project (or a
-    // project nested in another) would make two owners manage one tree.
-    // Reject the ambiguous configuration instead of making behavior (and
-    // safety) depend on line order.
+    // Overlapping entries would make behaviour and safety depend on line
+    // order: a rule for `cache/file` would traverse a link at `cache`.
     for (const existing of entries) {
       if (pathsOverlap(targetPath, existing.path)) {
         parseError(lineNumber, pathStart + 1, rawLine, overlapMessage(entry, existing, targetPath), overlapExpectation(entry, existing));
@@ -350,12 +303,8 @@ export function readConfig(root: string): WorklerConfig {
     );
   }
 
-  // A guard may point into a project; `list` and `remove` then credit that
-  // part of the path to the member (pathBelow). pathsOverlap ignores case
-  // because a case-insensitive file system would, but a case-sensitive one
-  // would have the command create `PROJECTS/API/generated` outside the
-  // member while the member's check exempted its own `api/generated`.
-  // Insist on the project line's spelling, so both agree on what is named.
+  // A guard into a project must use its spelling: on a case-sensitive file system
+  // `PROJECTS/API/generated` lies outside the member that `list` and `remove` credit it to.
   for (const guard of guards) {
     for (const project of projects) {
       if (pathsOverlap(guard.path, project.path) && !spelledLike(guard.path, project.path)) {
@@ -373,11 +322,7 @@ export function readConfig(root: string): WorklerConfig {
   return { rules, projects, setup };
 }
 
-// Whether two validated paths are the same entry or a parent and its child,
-// compared the way the parser compares them: component by component and
-// case-insensitively (on a case-insensitive file system `API` and `api` are
-// one folder, so the file cannot tell them apart). Exported so `init` can
-// leave out a discovered path that the file would reject.
+/** Same entry, or parent and child. Case-insensitive: `API` and `api` are one folder on a case-insensitive file system. */
 export function pathsOverlap(first: string, second: string): boolean {
   const firstParts = first.split('/').map((part) => part.toLowerCase());
   const secondParts = second.split('/').map((part) => part.toLowerCase());
@@ -386,14 +331,7 @@ export function pathsOverlap(first: string, second: string): boolean {
   return samePrefix && (firstParts.length === shared || secondParts.length === shared);
 }
 
-// The part of `child` below `parent` when it lies strictly inside it
-// (`generated` for `projects/api/generated` under `projects/api`); undefined
-// when it does not. A group's `setup --if-missing` guard may point into a
-// member clone (the group's rules may not), and the member's cleanliness
-// check needs that part relative to the clone. Unlike pathsOverlap this
-// compares case and all: on a case-sensitive file system `PROJECTS/API` is
-// another tree than `projects/api`, and readConfig rejects a guard spelled
-// that way, so a path below a project is in the project's own spelling here.
+/** The part of `child` strictly inside `parent`, else undefined. Case-sensitive: readConfig makes guards use the project's spelling. */
 export function pathBelow(child: string, parent: string): string | undefined {
   const childParts = child.split('/');
   const parentParts = parent.split('/');
@@ -404,8 +342,7 @@ export function pathBelow(child: string, parent: string): string | undefined {
   return inside ? childParts.slice(parentParts.length).join('/') : undefined;
 }
 
-// Whether two paths spell their shared leading segments the same, case
-// included (`PROJECTS/API/generated` is not spelled like `projects/api`).
+// Compares the shared leading segments, case included.
 function spelledLike(first: string, second: string): boolean {
   const firstParts = first.split('/');
   const secondParts = second.split('/');
@@ -443,9 +380,8 @@ function validateRulePath(targetPath: string, lineNumber: number, column: number
   if (targetPath.includes('\0')) {
     parseError(lineNumber, column, rawLine, 'paths cannot contain a NUL character', 'a filesystem path without NUL characters');
   }
-  // Check both syntaxes regardless of the host running Workler. A committed
-  // `C:\\...` or UNC rule must not become a harmless-looking relative filename
-  // when the same project is used on POSIX.
+  // Both syntaxes on every host: a committed `C:\\...` or UNC rule must not
+  // pass as a relative filename on POSIX.
   if (path.posix.isAbsolute(targetPath) || path.win32.isAbsolute(targetPath)) {
     parseError(lineNumber, column, rawLine, `absolute paths are not allowed: "${targetPath}"`, 'a path relative to the project root');
   }
@@ -455,10 +391,8 @@ function validateRulePath(targetPath: string, lineNumber: number, column: number
     parseError(lineNumber, column, rawLine, `paths with ".." are not allowed: "${targetPath}"`, 'a path that stays inside the project root');
   }
 
-  // Leading `./` components used to bypass the protected-path checks, and a
-  // rule consisting only of `.` resolved to the workspace root itself. With
-  // --force, `link .` could therefore delete the clone and replace it with a
-  // symlink. Canonicalize harmless dot components before all checks.
+  // Drop `.` components before the protected-path checks, so `./.git` is
+  // caught and `link .` with --force cannot replace the clone with a symlink.
   const parts = rawParts.filter((part) => part !== '.');
   if (parts.length === 0) {
     parseError(lineNumber, column, rawLine, 'managing the project/workspace root is not allowed', 'a path below the project root');
@@ -472,22 +406,16 @@ function validateRulePath(targetPath: string, lineNumber: number, column: number
     parseError(lineNumber, column, rawLine, `managing ${WORKSPACES_DIR} is not allowed`, `a path outside ${WORKSPACES_DIR}`);
   }
 
-  // Store one portable spelling so `a\\b` does not mean a single filename on
-  // POSIX and a nested path on Windows, and so overlap checks are reliable.
+  // One spelling, so `a\\b` means the same nested path on POSIX and Windows.
   return parts.join('/');
 }
 
-// The parser knows no escapes: a path is written bare, or inside whichever
-// kind of quote it lacks. One holding both kinds, or a line break, cannot be
-// written at all. Neither can one holding a backslash: the parser reads it as
-// a separator (see validateRulePath), so `foo\bar` would name `foo/bar`.
+/** False when the parser, which has no escapes, cannot read the path back: line breaks, backslashes, both quote kinds. */
 export function canWriteConfigPath(value: string): boolean {
   return !/[\r\n\\]/.test(value) && !(value.includes('"') && value.includes("'"));
 }
 
-// Formats a path for a config line, and for any line shown to be pasted into
-// one: whitespace, "#" or a quote need quotes to survive the parser, using
-// whichever quote the path lacks (see canWriteConfigPath).
+/** Quotes with whichever quote the path lacks, when it needs quoting. */
 export function quoteConfigPath(value: string): string {
   if (!/[\s#"']/.test(value)) {
     return value;

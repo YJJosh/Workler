@@ -248,35 +248,27 @@ test('remove does not count what the rules produce, ignored or not, but everythi
   const workspace = api.createWorkspace(root, { name: 'feat' });
   const clean = () => api.listWorkspaces(root).find((entry) => entry.name === 'feat').clean;
 
-  // The copied (ignored) .env, the linked (ignored) node_modules and the
-  // untracked out/stamp.txt the guarded command made are all rule outputs.
   for (const output of ['.env', 'node_modules', path.join('out', 'stamp.txt')]) {
     assert.ok(fs.existsSync(path.join(workspace.path, output)), output);
   }
   assert.strictEqual(clean(), true, 'rule outputs are not local data');
-  // Editing a copied file makes it data: apply refuses to replace a copy that
-  // differs from its source without --force, so removing it would lose the
-  // edit. Back in line with the source, it is output again.
   fs.appendFileSync(path.join(workspace.path, '.env'), 'MORE=1\n');
   assert.strictEqual(clean(), false, 'an edited copy is data');
   assert.throws(() => api.removeWorkspace(root, 'feat'), (error) => error.code === 'WORKSPACE_DIRTY');
   fs.writeFileSync(path.join(workspace.path, '.env'), 'SECRET=1\n');
   assert.strictEqual(clean(), true);
 
-  // An ignored file no rule produced is data, as before.
   fs.writeFileSync(path.join(workspace.path, 'local.db'), 'rows\n');
   assert.strictEqual(clean(), false, 'the listing must agree with remove');
   assert.throws(() => api.removeWorkspace(root, 'feat'), (error) => error.code === 'WORKSPACE_DIRTY');
   fs.rmSync(path.join(workspace.path, 'local.db'));
 
-  // So is an untracked file next to a rule output inside the folder git
-  // reports as one entry.
+  // Git reports out/ as one untracked entry; a file beside the rule output in it still counts.
   fs.writeFileSync(path.join(workspace.path, 'out', 'notes.txt'), 'wip\n');
   assert.throws(() => api.removeWorkspace(root, 'feat'), (error) => error.code === 'WORKSPACE_DIRTY');
   fs.rmSync(path.join(workspace.path, 'out', 'notes.txt'));
 
-  // And a nested workspace, until it is removed itself (the empty .worktrees/
-  // its lock leaves behind does not count).
+  // A nested workspace counts until it is removed; the empty .worktrees/ its lock leaves does not.
   api.createWorkspace(workspace.path, { name: 'inner', setup: false });
   assert.strictEqual(clean(), false);
   assert.throws(() => api.removeWorkspace(root, 'feat'), (error) => error.code === 'WORKSPACE_DIRTY');
@@ -287,14 +279,11 @@ test('remove does not count what the rules produce, ignored or not, but everythi
   const removed = runCli(root, 'remove', 'feat');
   assert.strictEqual(removed.status, 0, removed.stderr);
   assert.ok(!fs.existsSync(workspace.path));
-  // The sources behind the copy and the link are untouched.
   assert.strictEqual(fs.readFileSync(path.join(root, '.env'), 'utf8'), 'SECRET=1\n');
   assert.ok(fs.existsSync(path.join(root, 'node_modules', 'marker.txt')));
 });
 
 test('a rule destination whose source is missing in the main project is data, not output', (t) => {
-  // `copy .env` is committed but the main project has no .env: apply skips the
-  // rule, so nothing regenerates a .env a user then makes in the workspace.
   const root = makeProject(t, { workler: 'copy .env\n' });
   fs.rmSync(path.join(root, '.env'), { force: true });
   assert.ok(!fs.existsSync(path.join(root, '.env')));
@@ -310,8 +299,6 @@ test('a rule destination whose source is missing in the main project is data, no
   assert.throws(() => api.removeWorkspace(root, 'feat'), (error) => error.code === 'WORKSPACE_DIRTY');
   assert.strictEqual(fs.readFileSync(path.join(workspace.path, '.env'), 'utf8'), 'SECRET=mine\n');
 
-  // Once the main project has a source, the hand-made .env still differs from
-  // it, so apply refuses it and it stays data until apply --force replaces it.
   fs.writeFileSync(path.join(root, '.env'), 'SECRET=1\n');
   assert.strictEqual(clean(), false, 'a source appearing later does not claim what is there');
   assert.strictEqual(runCli(root, 'apply', 'feat').status, 1);
@@ -324,10 +311,6 @@ test('a rule destination whose source is missing in the main project is data, no
 });
 
 test('a rule added after a workspace has its own file there does not claim it', (t) => {
-  // A workspace made before `copy .env` and `link node_modules` existed has
-  // its own .env and its own installed node_modules. Adding the rules later
-  // must not make them output: apply refuses to replace either without
-  // --force, so remove must not delete them without it.
   const root = makeProject(t);
   fs.writeFileSync(path.join(root, '.gitignore'), '.env\nnode_modules\n');
   git(root, 'add', '.gitignore');
@@ -348,13 +331,10 @@ test('a rule added after a workspace has its own file there does not claim it', 
   assert.strictEqual(runCli(root, 'apply', 'old').status, 1, 'apply refuses them too');
   assert.strictEqual(fs.readFileSync(path.join(workspace.path, '.env'), 'utf8'), 'SECRET=mine\n');
 
-  // The .env alone matching its source is not enough while the directory
-  // where the link belongs holds its own install.
+  // A matching .env is not enough while node_modules holds its own install.
   fs.writeFileSync(path.join(workspace.path, '.env'), 'SECRET=1\n');
   assert.strictEqual(clean(), false);
 
-  // A link that resolves to the source is output, and so is the copy
-  // `apply --copy-links` makes of it, while it matches.
   fs.rmSync(path.join(workspace.path, 'node_modules'), { recursive: true });
   const linked = runCli(root, 'apply', 'old');
   assert.strictEqual(linked.status, 0, linked.stderr);
@@ -381,8 +361,6 @@ test('a recorded guard path keeps the whitespace it is spelled with', (t) => {
 });
 
 test("the main checkout's rule sources are local data, not rule outputs", (t) => {
-  // In the main checkout .env is the source of `copy .env`, not something
-  // apply regenerates, so the listing's `clean` for main has to count it.
   const root = makeProject(t, { workler: 'copy .env\n' });
   fs.rmSync(path.join(root, 'node_modules'), { recursive: true, force: true });
   fs.writeFileSync(path.join(root, '.gitignore'), '.env\n');
@@ -390,14 +368,12 @@ test("the main checkout's rule sources are local data, not rule outputs", (t) =>
   git(root, 'commit', '-qm', 'ignore local env');
   const mainClean = () => api.listWorkspaces(root).find((entry) => entry.isMain).clean;
   assert.strictEqual(mainClean(), false, 'the ignored .env in main is data');
-  // Nothing else in main counts: with the .env gone, main is clean.
-  // Remove it (a rename inside the repo would itself be an untracked file).
+  // Delete it: a rename inside the repo would itself be an untracked file.
   fs.rmSync(path.join(root, '.env'));
   assert.strictEqual(mainClean(), true);
   fs.writeFileSync(path.join(root, '.env'), 'SECRET=1\n');
   assert.strictEqual(mainClean(), false);
 
-  // The copy of it in a workspace is output, as before.
   api.createWorkspace(root, { name: 'feat' });
   assert.strictEqual(api.listWorkspaces(root).find((entry) => entry.name === 'feat').clean, true);
 });
@@ -422,24 +398,19 @@ test('a guard path is rule output only once its guarded command made it', (t) =>
   fs.writeFileSync(path.join(workspace.path, 'out', 'stamp.txt'), 'mine\n');
   assert.strictEqual(clean(), false, 'a hand-made file at the guard path is data');
   assert.throws(() => api.removeWorkspace(root, 'feat'), (error) => error.code === 'WORKSPACE_DIRTY');
-  // Running setup now skips the command (the path exists), which proves
-  // nothing about who made the path: still data.
   assert.strictEqual(api.setupWorkspace(root, 'feat').setup.results[0].status, 'skipped');
   assert.strictEqual(recorded(), '');
   assert.strictEqual(clean(), false);
   assert.strictEqual(fs.readFileSync(path.join(workspace.path, 'out', 'stamp.txt'), 'utf8'), 'mine\n');
 
-  // Once the command itself has made the path, it is on record and exempt.
   fs.rmSync(path.join(workspace.path, 'out'), { recursive: true });
   assert.strictEqual(api.setupWorkspace(root, 'feat').setup.results[0].status, 'ok');
   assert.strictEqual(recorded(), 'out/stamp.txt');
   assert.strictEqual(clean(), true, 'what the command made is output');
-  // A re-run that skips the command keeps the record as it is.
   assert.strictEqual(api.setupWorkspace(root, 'feat').setup.results[0].status, 'skipped');
   assert.strictEqual(recorded(), 'out/stamp.txt');
   assert.strictEqual(clean(), true);
 
-  // The record only means something for a guard line the project still has.
   fs.writeFileSync(path.join(root, '.workler'), '');
   assert.strictEqual(clean(), false, 'no guard line, no output');
   fs.writeFileSync(path.join(root, '.workler'), `setup --if-missing out/stamp.txt ${stamp}\n`);
@@ -457,18 +428,15 @@ test('a recorded guard path stops counting as output once something else takes i
   assert.strictEqual(fs.readFileSync(file, 'utf8'), 'x');
   assert.strictEqual(clean(), true, 'what the command made is output');
 
-  // The output is deleted and a file of the user's put at the path before
-  // setup runs again: the record still names the path, but not this entry.
+  // The record still names the path, but not this entry.
   fs.rmSync(file);
   fs.writeFileSync(file, 'mine\n');
   assert.strictEqual(clean(), false, 'a file in place of the recorded entry is data');
   assert.throws(() => api.removeWorkspace(root, 'feat'), (error) => error.code === 'WORKSPACE_DIRTY');
-  // setup skips the command (the path exists) and does not adopt the file.
   assert.strictEqual(api.setupWorkspace(root, 'feat').setup.results[0].status, 'skipped');
   assert.strictEqual(clean(), false);
   assert.strictEqual(fs.readFileSync(file, 'utf8'), 'mine\n');
 
-  // Gone again, the command runs, and the entry it makes is on record.
   fs.rmSync(file);
   assert.strictEqual(api.setupWorkspace(root, 'feat').setup.results[0].status, 'ok');
   assert.strictEqual(clean(), true);
@@ -494,9 +462,7 @@ test('a guarded command that runs again starts without its earlier record', (t) 
   assert.deepStrictEqual(recorded(), ['other.txt', 'out/stamp.txt']);
   assert.strictEqual(clean(), true);
 
-  // The output is gone, and the command (now broken) dies after re-creating
-  // the path. The failure names the leftover; the record must not still call
-  // it output, or `remove` would delete the half-made thing without --force.
+  // The command dies after re-creating the path; `remove` must not take the half-made file for output.
   fs.rmSync(path.join(workspace.path, 'out'), { recursive: true });
   fs.writeFileSync(path.join(root, '.workler'), config(makeAndDie));
   assert.throws(
@@ -508,7 +474,6 @@ test('a guarded command that runs again starts without its earlier record', (t) 
   assert.strictEqual(clean(), false);
   assert.throws(() => api.removeWorkspace(root, 'feat'), (error) => error.code === 'WORKSPACE_DIRTY');
 
-  // Clearing the leftover and fixing the command puts the path back on record.
   fs.rmSync(path.join(workspace.path, 'out'), { recursive: true });
   fs.writeFileSync(path.join(root, '.workler'), config(make));
   assert.strictEqual(api.setupWorkspace(root, 'feat').setup.results[1].status, 'ok');
@@ -519,10 +484,6 @@ test('a guarded command that runs again starts without its earlier record', (t) 
 });
 
 test('a rule whose source sits behind a symlinked parent is not output', (t) => {
-  // `copy secrets/.env` with nothing at secrets/ in the main project: apply
-  // skips the rule, so a .env the user makes there is data. Once main gets
-  // `secrets` as a link to a folder holding a .env, apply refuses to follow
-  // it, so still nothing regenerates the workspace's file.
   const root = makeProject(t, { workler: 'copy secrets/.env\n' });
   const workspace = api.createWorkspace(root, { name: 'feat' });
   const clean = () => api.listWorkspaces(root).find((entry) => entry.name === 'feat').clean;
@@ -547,8 +508,7 @@ test('a rule whose source sits behind a symlinked parent is not output', (t) => 
   assert.throws(() => api.removeWorkspace(root, 'feat'), (error) => error.code === 'WORKSPACE_DIRTY');
   assert.strictEqual(fs.readFileSync(path.join(workspace.path, 'secrets', '.env'), 'utf8'), 'SECRET=mine\n');
 
-  // A real folder in its place lets apply read the source; the user's file
-  // still differs from it, so it is data until apply --force replaces it.
+  // A real folder lets apply read the source, but the differing file stays data until --force.
   fs.unlinkSync(path.join(root, 'secrets'));
   fs.mkdirSync(path.join(root, 'secrets'));
   fs.writeFileSync(path.join(root, 'secrets', '.env'), 'SECRET=1\n');

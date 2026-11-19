@@ -6,26 +6,19 @@ import { groupProjects, isGroupWorkspaceDirectory, memberBrokenReason, memberPat
 import { listWorkspaces } from './workspaces';
 import type { Workspace } from './types';
 
-// Shared plumbing for the multi-workspace commands (status/fetch/sync/
-// branch-sync). Kept out of git.ts so single-repo helpers stay small.
-
 export interface SyncTarget extends Workspace {
-  // Set when the directory under .worktrees/ is not a usable git repository;
-  // the value is a human-readable reason.
+  /** Why the directory is not a usable git repository, for display. */
   broken?: string;
-  // Under a project group root: the declared project this repository is
-  // (`name` is then the workspace, "main" for the source repositories).
+  /** Under a group root: the declared project; `name` is the workspace or "main". */
   project?: string;
 }
 
-// `<workspace>/<project>` under a group root, plain workspace name otherwise.
 export function targetLabel(target: SyncTarget): string {
   return target.project === undefined ? target.name : `${target.name}/${target.project}`;
 }
 
-// listWorkspaces() silently ignores directories under .worktrees/ that are
-// not git clones; the multi-workspace commands must FLAG those instead so a
-// half-deleted or corrupted workspace does not vanish from `status`.
+// Unlike listWorkspaces(), flags directories that are not clones, so a broken
+// workspace does not vanish from `status`.
 export function listSyncTargets(root: string): SyncTarget[] {
   const projects = groupProjects(root);
   const targets = projects.length > 0 ? listGroupSyncTargets(root, projects) : listRepositorySyncTargets(root);
@@ -52,8 +45,7 @@ function listRepositorySyncTargets(root: string): SyncTarget[] {
       const workspacePath = path.join(workspacesPath, entry.name);
       if (!known.has(workspacePath)) {
         try {
-          // A linked `git worktree` has a .git file. It is a separate Git
-          // checkout, not a broken Workler clone, so ignore it entirely.
+          // A linked `git worktree` has a .git file; it is not a Workler clone.
           if (!fs.lstatSync(path.join(workspacePath, '.git')).isDirectory()) {
             continue;
           }
@@ -71,10 +63,8 @@ function listRepositorySyncTargets(root: string): SyncTarget[] {
   return main ? [main, ...rest] : rest;
 }
 
-// One target per declared project: the source repositories as "main", then
-// every member of every group workspace (declared order within a workspace,
-// workspaces by name). A member that was never cloned, or a directory under
-// .worktrees/ that is not a group workspace, is flagged rather than hidden.
+// The sources as "main", then every member of every group workspace. Missing
+// members and stray directories are flagged, not hidden.
 function listGroupSyncTargets(root: string, projects: string[]): SyncTarget[] {
   const targets: SyncTarget[] = [];
   for (const project of projects) {
@@ -115,7 +105,7 @@ function listGroupSyncTargets(root: string, projects: string[]): SyncTarget[] {
 
 export interface BranchInfo {
   detached: boolean;
-  // Branch name, or the short commit SHA when detached.
+  /** Branch name, or the short commit SHA when detached. */
   branch: string;
 }
 
@@ -132,8 +122,7 @@ export interface AheadBehind {
   behind: number;
 }
 
-// Compares HEAD to its upstream; undefined when the current branch has no
-// upstream (or HEAD is detached/unborn).
+/** Undefined when there is no upstream, or HEAD is detached or unborn. */
 export function aheadBehindUpstream(repo: string): AheadBehind | undefined {
   const counts = gitMaybe(repo, ['rev-list', '--left-right', '--count', 'HEAD...@{upstream}']);
   if (counts === undefined) {
@@ -157,12 +146,7 @@ export function describeAheadBehind(counts: AheadBehind): string {
   return parts.join(', ');
 }
 
-// Copy rules (e.g. `copy .env`) create untracked files in every workspace by
-// design, so plain `status --porcelain` would flag every workspace dirty
-// forever. Only changes to tracked files count here; that stays safe because
-// a fast-forward merge never overwrites untracked files (git refuses).
-// Undefined means Git failed; callers can report that explicitly rather than
-// silently presenting an unreadable repository as merely "dirty".
+/** Tracked files only: copy rules create untracked files and a fast-forward never overwrites those. Undefined when Git fails. */
 export function trackedChanges(repo: string): boolean | undefined {
   const status = gitMaybe(repo, ['status', '--porcelain', '--untracked-files=no']);
   return status === undefined ? undefined : status !== '';
@@ -170,15 +154,11 @@ export function trackedChanges(repo: string): boolean | undefined {
 
 export interface FetchResult {
   line: string;
-  // True only when a fetch was attempted and failed. "skipped (no origin
-  // remote)" is not a failure: there was no fetch to fail, and the target's
-  // local state is as trustworthy as it ever gets.
+  /** True only when a fetch was attempted and failed; no origin is not a failure. */
   failed: boolean;
 }
 
-// Runs `git fetch --prune origin` and returns a one-line result for the
-// per-workspace report. Never throws: a bad remote in one workspace must not
-// stop the loop over the others.
+/** Never throws, so one bad remote does not stop the loop over the others. */
 export function fetchOrigin(repo: string): FetchResult {
   const remotes = gitMaybe(repo, ['remote']);
   if (remotes === undefined) {
@@ -188,9 +168,8 @@ export function fetchOrigin(repo: string): FetchResult {
     return { line: 'skipped (no origin remote)', failed: false };
   }
   try {
-    // Let fetch diagnose an origin that exists but has no/malformed URL. Using
-    // `remote get-url` as the existence check would silently call that case
-    // "no origin" and return success.
+    // Let fetch report an origin with a missing or bad URL; `remote get-url`
+    // would make that look like no origin.
     git(repo, ['fetch', '--prune', 'origin']);
     return { line: 'fetched origin', failed: false };
   } catch (error) {

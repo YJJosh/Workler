@@ -6,15 +6,12 @@ import { pathsReferToSameLocation } from './fs-utils';
 import { WORKSPACES_DIR } from './constants';
 
 function runGit(repo: string | null, args: string[], stdio: 'pipe' | 'quiet' | 'inherit'): SpawnSyncReturns<string> {
-  // Use the subprocess cwd instead of `git -C <repo>`. Besides producing
-  // simpler diagnostics, this avoids Git-for-Windows treating an 8.3 short
-  // path and the process's long-form cwd as different working trees.
+  // cwd, not `git -C`: Git for Windows can treat an 8.3 short path and the
+  // long-form cwd as different working trees.
   return spawnSync('git', args, {
     cwd: repo ?? undefined,
     encoding: 'utf8',
-    // Large repositories can easily exceed Node's small default subprocess
-    // buffer with status/ref output. A hard limit still prevents unbounded
-    // memory use; callers treat ENOBUFS as a Git failure, never as success.
+    // Node's default is too small for large repositories; ENOBUFS is a failure.
     maxBuffer: 64 * 1024 * 1024,
     stdio: stdio === 'pipe' ? ['ignore', 'pipe', 'pipe'] : stdio === 'quiet' ? ['ignore', 'pipe', 'ignore'] : 'inherit',
   });
@@ -44,9 +41,7 @@ export function git(repo: string | null, args: string[]): string {
   return result.stdout?.trim() ?? '';
 }
 
-// Returns undefined only when git fails; a successful command with empty
-// output returns '' so callers can tell "failed" from "empty" (see
-// isGitWorkTreeClean and localBranchExists).
+/** Undefined only when git fails; empty output is ''. */
 export function gitMaybe(repo: string | null, args: string[]): string | undefined {
   const result = runGit(repo, args, 'quiet');
   if (result.status !== 0) {
@@ -55,9 +50,7 @@ export function gitMaybe(repo: string | null, args: string[]): string | undefine
   return result.stdout?.trim() ?? '';
 }
 
-// gitMaybe without the trim, for NUL-delimited output (`-z`), where
-// whitespace at either end belongs to a value: a guard path can be spelled
-// `" leading.txt"`.
+/** For `-z` output, where edge whitespace belongs to a value (`" leading.txt"`). */
 export function gitMaybeUntrimmed(repo: string | null, args: string[]): string | undefined {
   const result = runGit(repo, args, 'quiet');
   if (result.status !== 0) {
@@ -66,9 +59,8 @@ export function gitMaybeUntrimmed(repo: string | null, args: string[]): string |
   return result.stdout ?? '';
 }
 
-// `git config --unset-all` exits 5 when the key is already absent, which is
-// the desired state. Every other failure (a stale config.lock, a read-only
-// config) must surface: the caller is about to act on the key being gone.
+// `git config --unset-all` exits 5 when the key is already absent. Any other
+// failure (stale config.lock, read-only config) must surface.
 export function gitConfigUnset(repo: string, key: string): void {
   const args = ['config', '--local', '--unset-all', key];
   const result = runGit(repo, args, 'pipe');
@@ -106,11 +98,8 @@ export function isGitRepo(dir: string): boolean {
   const detected = gitMaybe(dir, ['rev-parse', '--is-inside-work-tree']);
   if (detected === 'true') return true;
 
-  // Git for Windows can report the same temp path in long and 8.3 forms and
-  // occasionally reject `rev-parse` during that transition. A .git directory
-  // or file is still a reliable working-tree marker; every mutating path runs
-  // a real Git command immediately afterwards and will surface a genuine
-  // malformed-repository error.
+  // Git for Windows sometimes rejects `rev-parse` when a path has long and 8.3
+  // forms. Mutating paths run a real Git command next, which reports a broken repo.
   return fs.existsSync(path.join(dir, '.git'));
 }
 
@@ -130,10 +119,7 @@ export function isGitTopLevel(dir: string): boolean {
   return topLevel !== undefined && pathsReferToSameLocation(topLevel, dir);
 }
 
-// Workler creates independent clones whose .git is a directory. A linked
-// `git worktree` uses a .git file and is never one of Workler's own clones.
-// This is a pure filesystem check: `git rev-parse` would walk up from a plain
-// directory and answer for the enclosing repository instead.
+/** A .git directory, not a linked `git worktree`'s file. Filesystem only: `git rev-parse` would answer for an enclosing repo. */
 export function hasIndependentGitDirectory(repo: string): boolean {
   try {
     return fs.lstatSync(path.join(repo, '.git')).isDirectory();
@@ -143,54 +129,28 @@ export function hasIndependentGitDirectory(repo: string): boolean {
 }
 
 export function gitInfoExcludePath(repo: string): string {
-  // --git-path output is relative to the git process cwd (repo, via -C), so
-  // resolve it against repo rather than our own cwd.
+  // --git-path output is relative to git's cwd, which is `repo`.
   return path.resolve(repo, git(repo, ['rev-parse', '--git-path', 'info/exclude']));
 }
 
 export function isGitWorkTreeClean(repo: string): boolean {
-  // Used for add's "uncommitted changes do not clone" warning. Ordinary
-  // porcelain includes tracked and untracked (but not ignored) entries.
-  // The lock directory is Workler's own, not the user's changes: every
-  // locked operation creates .worktrees/ (a group command does so in each
-  // member it locks), and a repository that never ran `init` has no exclude
-  // line for it, so Git lists it as untracked. Nothing in there is cloned
-  // either way. undefined means Git failed and must not read as clean.
-  // `--untracked-files=normal` pins the collapsed form: with
-  // status.showUntrackedFiles=all in the user's config, Git would list
-  // `?? .worktrees/.workler.lock` instead of the directory. The match is by
-  // prefix for the same reason. Tracked files under .worktrees/ use another
-  // status letter and are still reported.
+  // For add's "uncommitted changes" warning. Untracked .worktrees/ is the lock directory, unexcluded before `init`;
+  // --untracked-files=normal and the prefix match cover status.showUntrackedFiles=all. A Git failure is not clean.
   const status = gitMaybe(repo, ['status', '--porcelain', '--untracked-files=normal']);
   return status !== undefined && status.split('\n').every((line) => line === '' || line.startsWith(`?? ${WORKSPACES_DIR}/`));
 }
 
-// One entry that deletion would destroy, in Git's spelling (a folder ends in
-// `/`): a tracked file with uncommitted or staged changes, or an untracked or
-// ignored entry that is not what .workler produces.
+/** An entry deletion would destroy, in Git's spelling (a folder ends in `/`). */
 export interface LocalDataEntry {
   path: string;
   kind: 'uncommitted' | 'untracked' | 'ignored';
 }
 
-// Remove's data-loss guard (the listing's `clean` uses it too). Lists what
-// the working tree holds that deletion would destroy: changes to tracked
-// files, staged changes, and untracked or ignored entries, with two
-// exceptions.
-//  - `managedPaths`: what the project's .workler produces in the workspace
-//    (copy and link destinations, `setup --if-missing` guard paths), in the
-//    rules' portable spelling, relative to `repo`. `workler apply` and
-//    `workler setup` regenerate them, so a copied .env or an installed
-//    node_modules is not local data, ignored or not. Every other ignored
-//    entry still is: an ignored database or a hand-made .env is data that
-//    deletion would destroy, and deletion is forever.
-//  - An EMPTY .worktrees/: Workler's lock lives there, so any locked
-//    operation leaves it behind (a nested workspace since removed, a group
-//    command that locked this repository as one of its sources). A non-empty
-//    one holds nested workspaces and counts. Git lists the excluded directory
-//    itself without looking inside, so check.
-// Stops after `limit` entries. undefined means Git failed, which must never
-// read as clean.
+/**
+ * Remove's data-loss guard: tracked/staged changes and untracked or ignored entries (a hand-made .env counts),
+ * except `managedPaths` (forward-slash, relative to `repo`) and an empty .worktrees/ left by the lock.
+ * Stops after `limit` entries. Undefined when Git fails, which must never read as clean.
+ */
 export function gitWorkTreeLocalData(repo: string, managedPaths: readonly string[] = [], limit = Infinity): LocalDataEntry[] | undefined {
   // -z: one NUL-terminated record per path, never quoted, whatever the name.
   const result = runGit(repo, ['status', '--porcelain', '-z', '--ignored=matching'], 'quiet');
@@ -217,6 +177,7 @@ export function gitWorkTreeLocalData(repo: string, managedPaths: readonly string
     const isDirectory = record.endsWith('/');
     const entryPath = isDirectory ? record.slice(3, -1) : record.slice(3);
     if (entryPath === WORKSPACES_DIR) {
+      // Git lists an excluded directory without looking inside.
       if (!isEmptyDirectory(path.join(repo, WORKSPACES_DIR))) {
         entries.push({ path: record.slice(3), kind });
       }
@@ -234,9 +195,7 @@ export function isGitWorkTreeFreeOfLocalData(repo: string, managedPaths: readonl
   return entries !== undefined && entries.length === 0;
 }
 
-// What a refusal shows of gitWorkTreeLocalData's answer, one line each,
-// fetched with LOCAL_DATA_SHOWN + 1 so that "more" is known without walking
-// everything.
+/** Entries a refusal lists. Fetch one more to know whether there are more. */
 export const LOCAL_DATA_SHOWN = 10;
 
 export function describeLocalData(entries: readonly LocalDataEntry[] | undefined): string[] {
@@ -250,13 +209,8 @@ export function describeLocalData(entries: readonly LocalDataEntry[] | undefined
   return lines;
 }
 
-// A file name as it can be printed on one line of a message. git status -z and
-// readdir hand back names verbatim, so a newline or an escape sequence in a
-// name could add lines to the message or reach the terminal, and a bidi
-// control could reorder the text around it. A name with none of the characters
-// below (control characters, every Unicode Bidi_Control, the line and
-// paragraph separators, a quote or a backslash) prints as it is; any other is
-// quoted with C-style escapes, the way git quotes paths.
+// git status -z and readdir return names verbatim: a newline, terminal escape or bidi control could forge or
+// reorder message text, so such names get C-style escapes, the way git quotes paths.
 const UNSAFE_IN_DISPLAY = /[\p{Cc}\p{Bidi_Control}\p{Zl}\p{Zp}"\\]/u;
 
 export function displayPath(path: string): string {
@@ -287,10 +241,8 @@ function isUnderManagedPath(entryPath: string, managedPaths: readonly string[]):
   return managedPaths.some((managed) => entryPath === managed || entryPath.startsWith(`${managed}/`));
 }
 
-// An untracked or ignored entry is managed when it is a managed path or sits
-// below one. Git folds an untracked directory into one record, so a folder on
-// the way to a managed path (an untracked `config/` holding the copied
-// `config/local.json`) is managed only when everything inside it is.
+// Git folds an untracked directory into one record, so a folder above a managed path
+// (`config/` holding `config/local.json`) is managed only when everything inside it is.
 function isManagedEntry(repo: string, entryPath: string, isDirectory: boolean, managedPaths: readonly string[]): boolean {
   if (isUnderManagedPath(entryPath, managedPaths)) {
     return true;

@@ -8,17 +8,10 @@ import { canonicalPath, pathsReferToSameLocation } from './fs-utils';
 import { gitMaybe, hasIndependentGitDirectory, isGitTopLevel } from './git';
 import { readSetupRecordFile } from './setup';
 
-// A project group is a plain folder (not a Git repository) whose .workler
-// lists the repositories below it with `project <path>` lines. `add` run
-// there clones every listed repository into .worktrees/<name>/<path>, in the
-// same layout as the group root, so relative paths between the projects keep
-// working. Each clone is an ordinary Workler workspace of its source
-// repository (rules, link targets and branch-sync come from there); the
-// group only decides where the clones live and manages them as one unit.
+// A group workspace clones every declared repository into .worktrees/<name>/<path>, keeping the layout
+// so relative paths between projects still work. Each clone takes its rules from its own source.
 
-// The declared project paths of a group root, in file order. A Git repository
-// is never a group, whatever its .workler says; `add` rejects that mix with a
-// clear message instead of silently ignoring the lines.
+// A Git repository is never a group, whatever its .workler says.
 export function groupProjects(root: string): string[] {
   if (!fs.existsSync(path.join(root, CONFIG_FILE)) || isGitTopLevel(root)) {
     return [];
@@ -30,15 +23,11 @@ export function hasGroupConfig(dir: string): boolean {
   return groupProjects(dir).length > 0;
 }
 
-// Absolute location of a declared project below a group root or below one
-// of its workspaces. Project paths are stored with forward slashes.
 export function memberPath(base: string, project: string): string {
   return path.join(base, ...project.split('/'));
 }
 
-// A group workspace is a plain directory under .worktrees/ (never itself a
-// clone). It is recognized by the .workler copy `add` places there or, when
-// that copy is missing, by any declared project that has been cloned into it.
+// Recognized by the .workler copy `add` places there, or by any cloned member.
 export function isGroupWorkspaceDirectory(dir: string, projects: string[]): boolean {
   if (hasIndependentGitDirectory(dir)) {
     return false;
@@ -51,12 +40,11 @@ export function isGroupWorkspaceDirectory(dir: string, projects: string[]): bool
 
 export interface WorkspaceAddress {
   workspace: string;
-  // A declared project path inside the workspace (`feat/projects/api`).
+  /** A declared project path inside the workspace (`projects/api` in `feat/projects/api`). */
   project?: string;
 }
 
-// Workspace names never contain a path separator (validateWorkspaceName), so
-// the first slash unambiguously splits `<workspace>/<project path>`.
+// Workspace names never contain a separator, so the first slash splits.
 export function splitWorkspaceAddress(address: string): WorkspaceAddress {
   const normalized = address.replace(/\\/g, '/');
   const separator = normalized.indexOf('/');
@@ -84,10 +72,8 @@ export function requireDeclaredProject(projects: string[], project: string): str
   return found;
 }
 
-// What lstat finds on the way from `base` to the declared `project`, never
-// following a link: the first entry that is not a real directory decides.
-// `ancestor` names that entry (relative to the base) when it was not the
-// member itself.
+// lstat each component, never following a link; the first entry that is not
+// a real directory decides. `ancestor` names it when it is not the member.
 interface MemberWalk {
   kind: 'missing' | 'link' | 'file' | 'directory';
   ancestor?: string;
@@ -115,19 +101,15 @@ function walkToMember(base: string, project: string): MemberWalk {
   return { kind: 'directory' };
 }
 
-// What sits at a declared member path below a workspace folder. Only a real
-// directory with its own .git directory, reached through real directories, is
-// a clone. A symbolic link (whatever it points at, even the source
-// repository) or a file, at the member's path or at any folder on the way to
-// it (`projects` for `projects/api`), is never something Workler put there:
-// it is local data, and following the link would inspect the wrong
-// directory. So every component is checked with lstat and none is followed.
+/**
+ * Only a real directory with its own .git directory, reached through real directories, is a clone.
+ * A symlink or file on the way is local data and is never followed, even when it points at the source.
+ */
 export type MemberState = 'missing' | 'clone' | 'link' | 'not-a-clone' | 'foreign';
 
 export interface MemberCheck {
   state: MemberState;
-  // For 'link' and 'not-a-clone': the folder on the way to the member that
-  // decided the state (relative to the base), when it was not the member.
+  /** For 'link' and 'not-a-clone': the folder on the way that decided, if not the member. */
   ancestor?: string;
 }
 
@@ -152,20 +134,9 @@ export function inspectMember(base: string, project: string): MemberCheck {
   }
 }
 
-// Whether the repository at a member path is the clone Workler made there,
-// judged by the identity `add` records in its git config and not by the mere
-// presence of a .git directory. An unrelated repository dropped at the path
-// must count as local data: not something remove may delete without --force,
-// nor something apply, sync and branch-sync may write into.
-//
-// `add` records a member over several git commands (clone; workler.root and
-// workler.name; the remotes; workler.group; workler.groupProject), so an
-// interrupted run can leave any prefix of that sequence behind. Every mark
-// that is present must match this slot, and the clone must be anchored to
-// the source: by workler.root or, before that is written, by the origin
-// remote `git clone --local <source>` leaves (or the workler-root remote that
-// replaces it). A clone recorded for another source, workspace or group is
-// not this member, however well it fits the slot.
+// Judged by the identity `add` records in git config, not by a .git directory: an unrelated repository there is
+// local data remove, apply and sync must not touch. An interrupted `add` can leave any prefix of its marks, so
+// every mark present must match, and workler.root or (before that is written) a remote URL ties clone to source.
 function isRecordedMember(base: string, project: string, member: string): boolean {
   const group = path.dirname(path.dirname(base));
   const source = memberPath(group, project);
@@ -192,8 +163,7 @@ function isRecordedMember(base: string, project: string, member: string): boolea
   return remoteUrls.some((url) => pathsReferToSameLocation(url, source));
 }
 
-// The repository's local git config as key -> values. Git lowercases the
-// section and variable names in --list output, so look keys up lowercased.
+// Git lowercases section and variable names in --list output.
 function localGitConfig(repo: string): Map<string, string[]> {
   const values = new Map<string, string[]>();
   const listed = gitMaybe(repo, ['config', '--local', '-z', '--list']);
@@ -212,7 +182,6 @@ function localGitConfig(repo: string): Map<string, string[]> {
   return values;
 }
 
-// Why a repository at a member path is not treated as the member's clone.
 export function foreignMemberReason(project: string): string {
   return `not the recorded clone of ${project}: unrelated, or made for another location`;
 }
@@ -221,8 +190,7 @@ export function memberState(base: string, project: string): MemberState {
   return inspectMember(base, project).state;
 }
 
-// The reason when a folder on the way to the member decided its state, or
-// undefined when the member itself did (callers word that case themselves).
+/** Undefined when the member itself decided the state; callers word that case. */
 export function ancestorReason(check: MemberCheck): string | undefined {
   if (check.ancestor === undefined) {
     return undefined;
@@ -232,7 +200,6 @@ export function ancestorReason(check: MemberCheck): string | undefined {
     : `behind a file at ${check.ancestor}, not a clone`;
 }
 
-// Why a declared member is not a usable clone, or undefined when it is one.
 export function memberBrokenReason(base: string, project: string): string | undefined {
   const check = inspectMember(base, project);
   switch (check.state) {
@@ -249,12 +216,7 @@ export function memberBrokenReason(base: string, project: string): string | unde
   }
 }
 
-// Why a declared source repository (a `project` path below the group root)
-// cannot be used, or undefined when it can. Same walk as for members: a
-// symbolic link anywhere on the way is refused, never followed, so a group
-// only ever reaches repositories that physically live below its root. Used
-// before `add` clones from a source and by the target lister behind status,
-// sync, branch-sync and apply.
+/** Undefined when usable. A symlink on the way is refused, not followed, so a group only reaches repositories physically below it. */
 export function sourceBrokenReason(groupRoot: string, project: string): string | undefined {
   const walk = walkToMember(groupRoot, project);
   switch (walk.kind) {
@@ -273,14 +235,10 @@ export function sourceBrokenReason(groupRoot: string, project: string): string |
   }
 }
 
-// Entries in a group workspace directory that belong to no declared project:
-// not an unchanged .workler copy, not a project or a directory on the way
-// to one, not one of `managedPaths`, what the group's own rules produce
-// next to the clones (copy and link destinations, `setup --if-missing` guard
-// paths; see managedWorkspacePaths), which `apply` and `setup` regenerate,
-// and not the file in which `setup` records those guard paths.
-// An empty nested .worktrees/ (left behind by a lock) holds nothing and is
-// ignored.
+/**
+ * Entries in a group workspace that removal would lose: all but an unchanged .workler copy, members and folders
+ * leading to them, `managedPaths` (group rule outputs), the setup record and an empty .worktrees/ left by a lock.
+ */
 export function groupWorkspaceExtras(dir: string, groupRoot: string, projects: string[], managedPaths: readonly string[] = []): string[] {
   const extras: string[] = [];
   const visit = (relative: string): void => {
@@ -295,9 +253,7 @@ export function groupWorkspaceExtras(dir: string, groupRoot: string, projects: s
     for (const entry of entries) {
       const entryPath = relative ? `${relative}/${entry.name}` : entry.name;
       if (!relative && entry.name === CONFIG_FILE) {
-        // The generated copy of the group's .workler is ours to delete. Once
-        // it differs (edited for nested group workspaces, or the group's file
-        // changed after creation) it is local data like any other edit.
+        // Once the copy differs from the group's file it is local data.
         if (configCopyMatches(dir, groupRoot)) {
           continue;
         }
@@ -305,15 +261,11 @@ export function groupWorkspaceExtras(dir: string, groupRoot: string, projects: s
         continue;
       }
       if (!relative && entry.name === SETUP_RECORD_FILE && readSetupRecordFile(dir) !== undefined) {
-        // Workler's own record of what the group's guarded setup commands
-        // made (see readSetupRecordFile in setup.ts). Only a file that reads
-        // exactly as Workler writes it is ours to delete; anything else at
-        // that name is the user's.
+        // Only a record that reads exactly as Workler writes it is ours to delete.
         continue;
       }
       if (projects.includes(entryPath)) {
-        // A member is a directory: a clone, or one still to be made. A
-        // symbolic link or a file at a declared path is local data.
+        // A symlink or file at a member path is local data.
         if (entry.isDirectory()) {
           continue;
         }
@@ -321,11 +273,9 @@ export function groupWorkspaceExtras(dir: string, groupRoot: string, projects: s
         continue;
       }
       if (managedPaths.includes(entryPath)) {
-        // A rule's output (whatever is there: `apply` and `setup` own it).
         continue;
       }
       if (entry.isDirectory() && [...projects, ...managedPaths].some((below) => below.startsWith(`${entryPath}/`))) {
-        // A folder on the way to a member or a rule output: look inside.
         visit(entryPath);
         continue;
       }
@@ -341,9 +291,7 @@ export function groupWorkspaceExtras(dir: string, groupRoot: string, projects: s
   return extras;
 }
 
-// The copy counts as generated only while it is a regular file holding the
-// group's exact bytes. A symbolic link in its place is the user's, even when
-// it points at the group's file: nothing follows links, so it is local data.
+// A symlink in its place is the user's, even when it points at the group's file.
 function configCopyMatches(dir: string, groupRoot: string): boolean {
   try {
     const copy = path.join(dir, CONFIG_FILE);
@@ -356,13 +304,10 @@ function configCopyMatches(dir: string, groupRoot: string): boolean {
   }
 }
 
-// Where `branch-sync` run at a group root mirrors a member clone's branches
-// inside its source repository: <GROUP_WORKSPACE_REFS>/<group>/<workspace>/
-// <branch>. A repository can belong to several groups (a group folder inside
-// another group folder), and pruning deletes everything under the namespace
-// that no current workspace of the group owns, so the namespace carries the
-// group itself: its folder name made safe for a ref name, plus a hash of its
-// canonical path so two groups with the same folder name stay apart.
+/**
+ * Where group-root `branch-sync` mirrors members in their sources: refs/workler-group/<group>/<workspace>/<branch>.
+ * Pruning deletes what a group does not own and a repo can be in several, so <group> is the folder name plus a hash of its canonical path.
+ */
 export function groupRefNamespace(groupRoot: string): string {
   const canonical = canonicalPath(groupRoot);
   const hash = crypto.createHash('sha1').update(canonical).digest('hex').slice(0, 12);
@@ -375,8 +320,7 @@ export function groupRefNamespace(groupRoot: string): string {
   return `${GROUP_WORKSPACE_REFS}/${name}-${hash}`;
 }
 
-// Prefixes a member's failure with its project path so the user knows which
-// repository to look at; the code and details are kept for API callers.
+/** Prefixes a WorklerError message with the project path; code and details are kept. */
 export function forProject<T>(project: string, fn: () => T): T {
   try {
     return fn();
@@ -388,9 +332,7 @@ export function forProject<T>(project: string, fn: () => T): T {
   }
 }
 
-// A member that apply and setup must not touch: nothing is there yet, or a
-// symbolic link or file that is not a clone (a link to the source repository
-// would otherwise be followed and the source itself rewritten).
+// Following a link to the source would make apply or setup rewrite the source.
 export function notACloneReason(check: MemberCheck, project: string): string {
   const own = ancestorReason(check);
   if (own !== undefined) {

@@ -1,6 +1,4 @@
 'use strict';
-// `setup <command>` lines in .workler: parsing, running them at the end of
-// `add`, re-running them with `workler setup`, and the failure contract.
 
 const assert = require('node:assert');
 const { spawnSync } = require('node:child_process');
@@ -9,19 +7,16 @@ const path = require('node:path');
 const { test } = require('node:test');
 const { api, CLI, git, makeRepo, makeProject, makeTempDir, recordedPaths, runCli } = require('./helpers');
 
-// Shell commands that work under sh and cmd.exe alike by running node itself.
-// node is quoted because its path may contain spaces (Program Files).
+// node itself works under sh and cmd.exe alike; quoted because its path may contain spaces (Program Files).
 const NODE = `"${process.execPath}"`;
 
-// Appends one line to <cwd>/setup.log: the label, the working directory, and
-// the WORKLER_* variables, so a test can check order, cwd, and environment.
+// Appends `label|cwd|WORKLER_*` as one line to <cwd>/setup.log.
 function logCommand(label) {
   const fields = `['${label}', process.cwd(), process.env.WORKLER_WORKSPACE, process.env.WORKLER_WORKSPACE_PATH, process.env.WORKLER_ROOT]`;
   return `${NODE} -e "require('fs').appendFileSync('setup.log', ${fields}.join('|') + String.fromCharCode(10))"`;
 }
 
-// Like logCommand, but first creates <relPath> (a file, or a directory with
-// kind 'dir') so a guarded command produces the output its guard names.
+// Like logCommand, but first creates <relPath> (a directory with kind 'dir'), as a guarded command would.
 function makingCommand(label, relPath, kind = 'file') {
   const fields = `['${label}', process.cwd(), process.env.WORKLER_WORKSPACE, process.env.WORKLER_WORKSPACE_PATH, process.env.WORKLER_ROOT]`;
   const make = kind === 'dir'
@@ -61,7 +56,6 @@ test('setup lines parse in order, keep the command verbatim, and ignore full-lin
   );
   assert.strictEqual(plan.setup[1].raw, `setup\t${logCommand('two')}`);
 
-  // `add --dry-run` lists the commands after the rules, in file order.
   const dry = runCli(root, 'add', 'feat', '--dry-run');
   assert.strictEqual(dry.status, 0, dry.stderr);
   const lines = dry.stdout.split('\n');
@@ -92,7 +86,6 @@ test('an empty setup command is a config error reported before anything is clone
   assert.match(add.stderr, /^workler: \.workler:2:6: missing command after "setup"$/m);
   assert.match(add.stderr, /^ {2}expected: a shell command, e\.g\. setup pnpm install$/m);
 
-  // Other spellings stay unknown actions rather than becoming setup lines.
   fs.writeFileSync(path.join(root, '.workler'), 'setup#x echo\n');
   assert.throws(
     () => api.planWorkspaceCreation(root, { name: 'feat' }),
@@ -115,13 +108,11 @@ test('add runs the setup commands in order, in the new workspace, with WORKLER_*
   );
   assert.deepStrictEqual(headings, [`1/2 ${logCommand('one')}`, `2/2 ${logCommand('two')}`]);
 
-  // The rules were applied before the first command ran.
   assert.deepStrictEqual(readLog(ws.path), [
     ['one', ws.path, 'feat', ws.path, root],
     ['two', ws.path, 'feat', ws.path, root],
   ]);
   assert.ok(fs.existsSync(path.join(ws.path, '.env')));
-  // Nothing ran in the main project.
   assert.ok(!fs.existsSync(path.join(root, 'setup.log')));
 });
 
@@ -139,8 +130,7 @@ test('add prints a heading per command and keeps its stdout free of command outp
   const done = lines.indexOf('done   feat');
   assert.ok(copied >= 0 && first > copied && second > first && done > second, add.stdout);
   assert.match(add.stdout, /^path {3}.*feat$/m);
-  // The command's own output went to stderr because add's stdout was a pipe
-  // (the heading still names the command, so match the bare output line).
+  // add sends command output to stderr while its stdout is a pipe.
   assert.doesNotMatch(add.stdout, /^polluted$/m);
   assert.match(add.stderr, /^polluted$/m);
 });
@@ -161,10 +151,8 @@ test('a failing setup command keeps the workspace, exits non-zero, and hints at 
   assert.ok(fs.existsSync(path.join(wsPath, '.git')));
   assert.strictEqual(git(wsPath, 'config', '--get', 'workler.name'), 'feat');
   assert.deepStrictEqual(readLog(wsPath).map((fields) => fields[0]), ['one']);
-  // The project lock was released before the commands ran.
   assert.ok(!fs.existsSync(api.projectLockPath(root)));
 
-  // The API reports the same failure with structured details.
   assert.throws(
     () => api.createWorkspace(root, { name: 'feat2' }),
     (error) =>
@@ -180,11 +168,8 @@ test('a failing setup command keeps the workspace, exits non-zero, and hints at 
 });
 
 test('a command that cannot be started reports the results of the commands before it', (t) => {
-  // The workspace is moved away right before the third command, so its shell
-  // cannot start there (spawn fails with ENOENT instead of the command
-  // exiting non-zero). The move happens from the hook, while no command is
-  // running: Windows refuses to rename a folder that is some process's cwd,
-  // and the shell of a running command has the workspace as its cwd.
+  // Moving the workspace away before the third command makes its spawn fail with ENOENT.
+  // The hook runs between commands: Windows refuses to rename a running process's cwd.
   const root = makeProject(t, { workler: `setup ${logCommand('one')}\nsetup ${logCommand('two')}\nsetup ${logCommand('never')}\n` });
   const target = path.join(root, '.worktrees', 'feat');
   assert.throws(
@@ -219,13 +204,11 @@ test('--no-setup / setup: false skip the commands, and add says how many it skip
   assert.ok(skipped >= 0 && skipped < lines.indexOf('done   quiet'), add.stdout);
   assert.ok(!fs.existsSync(path.join(root, '.worktrees', 'quiet', 'setup.log')));
 
-  // The dry run reports the skip the same way instead of listing the plan.
   const dry = runCli(root, 'add', 'dry', '--dry-run', '--no-setup');
   assert.strictEqual(dry.status, 0, dry.stderr);
   assert.match(dry.stdout, /^skip {3}setup \(2 commands, --no-setup\)$/m);
   assert.ok(!dry.stdout.includes('would  setup'));
 
-  // One command is singular; without any command nothing is announced.
   fs.writeFileSync(path.join(root, '.workler'), `setup ${logCommand('one')}\n`);
   assert.match(runCli(root, 'add', 'single', '--no-setup').stdout, /^skip {3}setup \(1 command, --no-setup\)$/m);
   const bare = makeProject(t);
@@ -249,7 +232,6 @@ test('workler setup re-runs the commands for an existing workspace', (t) => {
   assert.match(byName.stdout, /^done {3}feat$/m);
   assert.deepStrictEqual(readLog(ws.path), [['one', ws.path, 'feat', ws.path, root]]);
 
-  // Bare `setup` inside the workspace targets the workspace itself.
   const bare = runCli(ws.path, 'setup');
   assert.strictEqual(bare.status, 0, bare.stderr);
   assert.strictEqual(readLog(ws.path).length, 2);
@@ -262,20 +244,17 @@ test('workler setup re-runs the commands for an existing workspace', (t) => {
   assert.strictEqual(missing.status, 1);
   assert.match(missing.stderr, /^workler: workspace not found: nope$/m);
 
-  // Failures exit non-zero with the same message as add.
   fs.writeFileSync(path.join(root, '.workler'), `setup ${exitCommand(2)}\n`);
   const failed = runCli(root, 'setup', 'feat');
   assert.strictEqual(failed.status, 1);
   assert.match(failed.stderr, /\(exit code 2\)$/m);
   assert.match(failed.stderr, /re-run `workler setup feat`$/m);
 
-  // Without setup lines there is nothing to do.
   fs.writeFileSync(path.join(root, '.workler'), 'copy .env\n');
   const none = runCli(root, 'setup', 'feat');
   assert.strictEqual(none.status, 0, none.stderr);
   assert.strictEqual(none.stdout, 'no setup commands\n');
 
-  // add announces nothing without setup lines: done/path stay the last lines.
   fs.writeFileSync(path.join(root, '.env'), 'A=1\n');
   const plain = runCli(root, 'add', 'plain');
   assert.strictEqual(plain.status, 0, plain.stderr);
@@ -308,17 +287,16 @@ test('setupWorkspace runs the commands via the API and refuses main', (t) => {
 });
 
 test('nested workspaces run the setup commands checked out in their immediate parent', (t) => {
-  // .workler is COMMITTED, so the parent workspace carries the same lines.
+  // .workler is committed, so the parent workspace carries the same lines.
   const root = makeProject(t, { workler: `setup ${logCommand('one')}\n` });
   const featureA = api.createWorkspace(root, { name: 'feature-a', setup: false });
 
   const agent1 = api.createWorkspace(featureA.path, { name: 'agent-1' });
   assert.strictEqual(agent1.setup.commandCount, 1);
-  // WORKLER_ROOT is the immediate parent, not the outermost project.
   assert.deepStrictEqual(readLog(agent1.path), [['one', agent1.path, 'agent-1', agent1.path, featureA.path]]);
 
-  // The parent's CHECKOUT is what counts: an uncommitted edit there changes
-  // what its own nested workspaces run, while the root is unaffected.
+  // The parent's checkout counts: an uncommitted edit there changes what its nested
+  // workspaces run.
   fs.writeFileSync(path.join(featureA.path, '.workler'), `setup ${logCommand('edited')}\n`);
   const agent2 = api.createWorkspace(featureA.path, { name: 'agent-2' });
   assert.deepStrictEqual(readLog(agent2.path).map((fields) => fields[0]), ['edited']);
@@ -374,15 +352,11 @@ test('setup --if-missing <path> runs the command only while the path is absent',
     [['skipped', 'node_modules'], ['ok', undefined], ['ok', undefined]],
   );
   assert.deepStrictEqual(readLog(ws.path).map((fields) => fields[0]), ['quoted', 'always']);
-  // What the guarded command made is on record for remove's guard; what the
-  // link rule put at node_modules is the rule's output, not the command's.
   assert.ok(fs.existsSync(path.join(ws.path, 'with space', 'marker.txt')));
   const record = git(ws.path, 'config', '--get-all', 'workler.setupOutput');
   assert.match(record, /^\d+:\d+:\d+ with space\/marker\.txt$/, 'the path, behind the identity of the entry the command made');
   assert.deepStrictEqual(recordedPaths([record]), ['with space/marker.txt']);
 
-  // Once the guarded path exists the command is skipped on re-runs too; when
-  // it goes away again the command runs.
   const rerun = runCli(root, 'setup', 'feat');
   assert.strictEqual(rerun.status, 0, rerun.stderr);
   assert.match(rerun.stdout, /^skip {3}setup .*install.* \(node_modules exists\)$/m);
@@ -394,12 +368,10 @@ test('setup --if-missing <path> runs the command only while the path is absent',
   const afterRemoval = api.setupWorkspace(root, 'feat');
   assert.strictEqual(afterRemoval.setup.results[0].status, 'ok');
   assert.deepStrictEqual(readLog(ws.path).map((fields) => fields[0]), ['quoted', 'always', 'always', 'install', 'always']);
-  // Now the install made node_modules itself, so it joins the record.
   assert.ok(fs.statSync(path.join(ws.path, 'node_modules')).isDirectory());
   assert.deepStrictEqual(recordedPaths(git(ws.path, 'config', '--get-all', 'workler.setupOutput').split(/\r?\n/)), ['with space/marker.txt', 'node_modules']);
 
-  // A workspace whose link rule found no source (root without node_modules)
-  // runs the install: the guard looks at the workspace, not the root.
+  // Without node_modules in the root the link rule finds no source, so the workspace's guard runs the install.
   fs.rmSync(path.join(root, 'node_modules'), { recursive: true });
   const fresh = api.createWorkspace(root, { name: 'fresh' });
   assert.strictEqual(fresh.setup.results[0].status, 'ok');
@@ -407,9 +379,6 @@ test('setup --if-missing <path> runs the command only while the path is absent',
 });
 
 test('a guarded command that created its path before failing says the re-run would skip it', (t) => {
-  // An install that dies half-way leaves node_modules behind. The guard only
-  // asks whether the path exists, so the re-run the failure recommends would
-  // skip the command and exit 0 as if nothing was wrong. The failure has to say so.
   const halfInstall = `${NODE} -e "require('fs').mkdirSync('node_modules'); process.exit(7)"`;
   const root = makeProject(t, { workler: `setup --if-missing node_modules ${halfInstall}\n` });
 
@@ -420,12 +389,10 @@ test('a guarded command that created its path before failing says the re-run wou
   const ws = path.join(root, '.worktrees', 'feat');
   assert.ok(fs.existsSync(path.join(ws, 'node_modules')));
 
-  // The re-run does skip it, which is exactly why the hint exists.
   const again = runCli(root, 'setup', 'feat');
   assert.strictEqual(again.status, 0, again.stderr);
   assert.match(again.stdout, /^skip   setup .* \(node_modules exists\)$/m);
 
-  // Via the API the details name the leftover path.
   fs.rmSync(path.join(ws, 'node_modules'), { recursive: true });
   assert.throws(
     () => api.setupWorkspace(root, 'feat'),
@@ -434,9 +401,7 @@ test('a guarded command that created its path before failing says the re-run wou
 });
 
 test('a guarded command that exits 0 without creating its path is reported, and nothing is recorded', (t) => {
-  // The guard names another folder than the one the command writes to, the
-  // usual slip in a group's line. The command runs again on every setup and
-  // nothing is on record, so the run has to say so.
+  // The guard names another folder than the one the command writes to, a usual slip.
   const wrongFolder = `${NODE} -e "require('fs').mkdirSync('venv')"`;
   const root = makeProject(t, { workler: `setup --if-missing .venv ${wrongFolder}\n` });
 
@@ -450,14 +415,12 @@ test('a guarded command that exits 0 without creating its path is reported, and 
   assert.ok(fs.existsSync(path.join(ws, 'venv')));
   assert.throws(() => git(ws, 'config', '--get-all', 'workler.setupOutput'), 'nothing on record');
 
-  // Via the API: the callback fires and the result says which guard.
   fs.rmSync(path.join(ws, 'venv'), { recursive: true });
   const seen = [];
   const again = api.setupWorkspace(root, 'feat', { onSetupGuardMissing: (command, index, total) => seen.push(`${index + 1}/${total} ${command.ifMissing}`) });
   assert.deepStrictEqual(seen, ['1/1 .venv']);
   assert.deepStrictEqual(again.setup.results.map((result) => [result.status, result.ifMissing, result.guardMissing]), [['ok', '.venv', true]]);
 
-  // A guard the command does create gets no warning.
   const good = makeProject(t, { workler: `setup --if-missing .venv ${NODE} -e "require('fs').mkdirSync('.venv')"\n` });
   const fine = runCli(good, 'add', 'feat');
   assert.strictEqual(fine.status, 0, fine.stderr);
@@ -466,7 +429,6 @@ test('a guarded command that exits 0 without creating its path is reported, and 
 
 test('a guard is judged once every setup line has run, so a later line that creates the path silences it', (t) => {
   // The first line exits 0 without making `marker`; the second creates it.
-  // From then on both are skipped, so warning after the first would be false.
   const noop = `${NODE} -e "0"`;
   const makeMarker = `${NODE} -e "require('fs').mkdirSync('marker')"`;
   const root = makeProject(t, { workler: `setup --if-missing marker ${noop}\nsetup --if-missing marker ${makeMarker}\n` });
@@ -477,8 +439,7 @@ test('a guard is judged once every setup line has run, so a later line that crea
   assert.strictEqual(again.status, 0, again.stderr);
   assert.strictEqual((again.stdout.match(/^skip   setup /gm) ?? []).length, 2, again.stdout);
 
-  // The other way round: the guarded line creates its path and a later line
-  // removes it, so the guarded line runs again on every setup.
+  // The reverse: a later line removes the guarded path.
   const removeMarker = `${NODE} -e "require('fs').rmSync('marker', { recursive: true })"`;
   const undone = makeProject(t, { workler: `setup --if-missing marker ${makeMarker}\nsetup ${removeMarker}\n` });
   const undoneAdd = runCli(undone, 'add', 'feat');
@@ -489,9 +450,7 @@ test('a guard is judged once every setup line has run, so a later line that crea
   assert.deepStrictEqual(undoneSeen, ['1/2 marker']);
   assert.deepStrictEqual(undoneAgain.setup.results.map((result) => [result.status, result.guardMissing]), [['ok', true], ['ok', undefined]]);
 
-  // In a group the group's own lines run after its members': a member guard
-  // the group's line creates is fine, one nobody creates is reported with
-  // the member it belongs to.
+  // Group lines run after the members', so a member guard that the group's line creates is fine.
   const group = makeGroup(t, {
     rules: { 'projects/api': `setup --if-missing .venv ${noop}\n`, tools: `setup --if-missing .cache ${noop}\n` },
     groupLines: `setup ${NODE} -e "require('fs').mkdirSync('projects/api/.venv')"\n`,
@@ -502,7 +461,6 @@ test('a guard is judged once every setup line has run, so a later line that crea
   assert.deepStrictEqual(warnings.length, 1, groupAdd.stdout);
   assert.match(warnings[0], /^warning: in tools, \.cache is still missing after `.*` succeeded/);
 
-  // Via the API the callback names the member, and only the member left without its path.
   fs.rmSync(path.join(group, '.worktrees', 'feat', 'projects', 'api', '.venv'), { recursive: true });
   const seen = [];
   api.setupWorkspace(group, 'feat', { onSetupGuardMissing: (command, index, total, project) => seen.push(`${project} ${command.ifMissing}`) });
@@ -510,9 +468,8 @@ test('a guard is judged once every setup line has run, so a later line that crea
 });
 
 test('a guard that is a link to a missing target stops the run instead of counting as absent', (t) => {
-  // `link node_modules` made a link while the main project had one; later the
-  // target was deleted. existsSync follows the link and says "absent", but an
-  // install would collide with the stale entry. Stop before running it.
+  // existsSync follows a link to a deleted target and says "absent", but an install
+  // would collide with the stale link.
   const root = makeProject(t, { workler: `link node_modules\nsetup --if-missing node_modules ${logCommand('install')}\n` });
   // makeProject already creates node_modules; give it content so the link has a real target.
   fs.writeFileSync(path.join(root, 'node_modules', 'marker'), 'x');
@@ -559,15 +516,13 @@ test('--if-missing paths are validated like rule paths and the option must be sp
   // Backslashes are separators; `./` is dropped; the path keeps its case.
   fs.writeFileSync(path.join(root, '.workler'), 'setup --if-missing .\\Deps\\cache pnpm install\n');
   assert.deepStrictEqual(api.planWorkspaceCreation(root, { name: 'feat' }).setup[0].ifMissing, 'Deps/cache');
-  // A command that merely contains the option text is left alone.
   fs.writeFileSync(path.join(root, '.workler'), 'setup echo --if-missing\n');
   assert.deepStrictEqual(api.planWorkspaceCreation(root, { name: 'feat' }).setup[0], { command: 'echo --if-missing', raw: 'setup echo --if-missing' });
 });
 
 // --- project groups ------------------------------------------------------
 
-// Like logCommand, plus the group variables, so a member's run can be told
-// from the group's own.
+// Like logCommand, plus the group variables, so a member's run can be told from the group's own.
 function logGroupCommand(label) {
   const fields =
     `['${label}', process.cwd(), process.env.WORKLER_WORKSPACE, process.env.WORKLER_WORKSPACE_PATH, process.env.WORKLER_ROOT, ` +
@@ -589,8 +544,7 @@ function makeRepoAt(dir, workler) {
 
 const GROUP_PROJECTS = ['projects/api', 'projects/web', 'tools'];
 
-// A project group whose members carry the given .workler contents, with
-// optional group-level lines after the `project` lines.
+// A project group whose members carry the given .workler contents, plus group lines after the `project` lines.
 function makeGroup(t, { rules = {}, groupLines = '', declare = true } = {}) {
   const candidate = path.join(makeTempDir(t, 'workler-group-'), 'root');
   fs.mkdirSync(candidate);
@@ -641,9 +595,8 @@ test("add at a group root runs each member's setup commands in its clone, then t
     [1, 0, 2],
   );
 
-  // A member's commands run in its clone with its source as WORKLER_ROOT
-  // and the group variables set; the group's own run in the workspace
-  // folder with the group root as WORKLER_ROOT and no WORKLER_PROJECT.
+  // A member runs in its clone with its source as WORKLER_ROOT; the group's own lines
+  // run in the workspace folder with the group root as WORKLER_ROOT and no WORKLER_PROJECT.
   const apiClone = path.join(feat, 'projects', 'api');
   assert.deepStrictEqual(readLog(apiClone), [
     ['api', apiClone, 'feat', apiClone, path.join(root, 'projects', 'api'), root, feat, 'projects/api'],
@@ -653,8 +606,6 @@ test("add at a group root runs each member's setup commands in its clone, then t
   assert.deepStrictEqual(logLabels(path.join(feat, 'projects', 'web')), []);
   assert.deepStrictEqual(logLabels(root), []);
 
-  // The CLI prints a project heading per member that has commands, then the
-  // group's, after the rule summary.
   const add = runCli(root, 'add', 'feat2');
   assert.strictEqual(add.status, 0, add.stderr);
   const lines = add.stdout.split('\n');
@@ -664,7 +615,6 @@ test("add at a group root runs each member's setup commands in its clone, then t
     ['project projects/api', 'setup', 'project tools', 'setup', 'setup', 'group setup', 'setup', 'done   feat2', `path   ${path.join(root, '.worktrees', 'feat2')}`, ''],
   );
 
-  // --dry-run lists the commands in that order and runs nothing.
   const dry = runCli(root, 'add', 'feat3', '--dry-run');
   assert.strictEqual(dry.status, 0, dry.stderr);
   const dryLines = dry.stdout.split('\n');
@@ -675,15 +625,14 @@ test("add at a group root runs each member's setup commands in its clone, then t
   );
   assert.strictEqual(fs.existsSync(path.join(root, '.worktrees', 'feat3')), false);
 
-  // A nested group workspace (add inside the workspace folder) runs the same
-  // lines from the copied .workler and the member clones' committed files.
+  // A nested group workspace runs the lines from the copied .workler and the clones' committed files.
   const nested = api.createWorkspace(feat, { name: 'agent' });
   assert.strictEqual(nested.setup.commandCount, 1);
   assert.deepStrictEqual(readLog(nested.path)[0].slice(4), [feat, feat, nested.path, '']);
   assert.deepStrictEqual(logLabels(path.join(nested.path, 'projects', 'api')), ['api']);
 });
 
-test('a failing member command stops the whole run and names the project', (t) => {
+test('a failing member command stops the whole run, names the project, and the retry hint keeps the address', (t) => {
   const root = makeGroup(t, {
     rules: { 'projects/api': `setup ${exitCommand(3)}\n`, tools: `setup ${logGroupCommand('tools')}\n` },
     groupLines: `setup ${logGroupCommand('group')}\n`,
@@ -698,9 +647,6 @@ test('a failing member command stops the whole run and names the project', (t) =
   assert.deepStrictEqual(logLabels(path.join(feat, 'tools')), []);
   assert.deepStrictEqual(logLabels(feat), []);
 
-  // The retry hint repeats the address that was run: the whole workspace
-  // after `add` or `setup feat`, the one member when it was addressed
-  // directly, so the retry does not widen into every member's commands.
   const direct = runCli(root, 'setup', 'feat/projects/api');
   assert.strictEqual(direct.status, 1);
   assert.match(direct.stderr, /^the workspace was kept; fix the problem and re-run `workler setup feat\/projects\/api`$/m);
@@ -742,14 +688,11 @@ function withStaleGroupEnv(t) {
 
 test('setup commands never inherit group variables from the process that runs Workler', (t) => {
   withStaleGroupEnv(t);
-  // A plain project: a member's command that runs `workler add` for another
-  // project must not make that workspace look like a group member.
+  // A plain project, as when a member's command runs `workler add` elsewhere: the new workspace is no group member.
   const root = makeProject(t, { workler: `setup ${logGroupCommand('plain')}\n` });
   const ws = api.createWorkspace(root, { name: 'feat' });
   assert.deepStrictEqual(readLog(ws.path), [['plain', ws.path, 'feat', ws.path, root, '', '', '']]);
 
-  // A group: the group's own commands see the group but no WORKLER_PROJECT,
-  // and a member's see its own values, never the caller's.
   const group = makeGroup(t, {
     rules: { tools: `setup ${logGroupCommand('tools')}\n` },
     groupLines: `setup ${logGroupCommand('group')}\n`,
@@ -759,8 +702,7 @@ test('setup commands never inherit group variables from the process that runs Wo
   assert.deepStrictEqual(readLog(path.join(feat, 'tools'))[0].slice(5), [group, feat, 'tools']);
 });
 
-// Sets variables for the rest of the test (and the CLI children it spawns),
-// restoring the previous values afterwards.
+// Sets process.env until the test ends; the API and CLI children see the values.
 function withEnv(t, values) {
   const saved = Object.fromEntries(Object.keys(values).map((name) => [name, process.env[name]]));
   const assign = (name, value) => {
@@ -774,9 +716,8 @@ function withEnv(t, values) {
 }
 
 test("setup commands do not inherit the caller's package-manager variables", (t) => {
-  // `npm run` sets npm_config_* and INIT_CWD for the script it runs; a setup
-  // command that runs an installer must see the workspace, not that script.
-  // The injected variables are lowercase; a user's own uppercase installer settings pass through.
+  // `npm run` sets lowercase npm_config_* and INIT_CWD for its script; an installer in setup must see the
+  // workspace. A user's own uppercase settings (NPM_CONFIG_REGISTRY, PNPM_HOME) pass through.
   withEnv(t, { npm_config_example: 'from-npm', INIT_CWD: '/elsewhere', WORKLER_TEST_UNRELATED: 'kept', NPM_CONFIG_REGISTRY: 'https://registry.example', PNPM_HOME: '/pnpm' });
   const names = ['npm_config_example', 'INIT_CWD', 'WORKLER_TEST_UNRELATED', 'NPM_CONFIG_REGISTRY', 'PNPM_HOME'];
   const fields = `[${names.map((name) => `process.env.${name}`).join(', ')}]`;
@@ -802,16 +743,13 @@ test('WORKLER_NO_SETUP in the environment skips the commands for add, never for 
   const feat = path.join(root, '.worktrees', 'feat');
   assert.ok(!fs.existsSync(path.join(feat, 'setup.log')));
 
-  // The explicit command was asked for: it runs.
   const setup = runCli(root, 'setup', 'feat');
   assert.strictEqual(setup.status, 0, setup.stderr);
   assert.deepStrictEqual(readLog(feat).map((fields) => fields[0]), ['one']);
 
-  // The flag wins the wording when both are given; the dry run agrees.
   assert.match(runCli(root, 'add', 'both', '--no-setup').stdout, /^skip {3}setup \(1 command, --no-setup\)$/m);
   assert.match(runCli(root, 'add', 'dry', '--dry-run').stdout, /^skip {3}setup \(1 command, WORKLER_NO_SETUP\)$/m);
 
-  // "0" and the empty value mean off.
   for (const [value, name] of [['0', 'zero'], ['', 'empty']]) {
     process.env.WORKLER_NO_SETUP = value;
     const run = runCli(root, 'add', name);
@@ -826,7 +764,6 @@ test('WORKLER_NO_SETUP in the environment skips the commands for add, never for 
   assert.strictEqual(ws.setup.commandCount, 1);
   assert.deepStrictEqual(readLog(ws.path).map((fields) => fields[0]), ['one']);
 
-  // In a group the count covers every member's commands and the group's own.
   const group = makeGroup(t, { rules: { tools: 'setup one\n', 'projects/api': 'setup two\n' }, groupLines: 'setup three\n' });
   const groupAdd = runCli(group, 'add', 'feat');
   assert.strictEqual(groupAdd.status, 0, groupAdd.stderr);
@@ -847,12 +784,10 @@ test('setupStdio "pipe" hands the API each command\'s output and keeps the calle
     ['out', 'stdout', noisy, 0],
     ['err', 'stderr', noisy, 0],
   ]);
-  // The output stays on the results too, '' for a stream that was silent.
   assert.deepStrictEqual(ws.setup.results.map((result) => [result.status, result.stdout.trim(), result.stderr.trim()]), [
     ['ok', 'out', 'err'],
     ['ok', '', ''],
   ]);
-  // With inherited streams nothing is captured.
   fs.writeFileSync(path.join(root, '.workler'), `setup ${logCommand('one')}\n`);
   assert.strictEqual('stdout' in api.setupWorkspace(root, 'feat').setup.results[0], false);
   fs.writeFileSync(path.join(root, '.workler'), `setup ${noisy}\nsetup ${logCommand('one')}\n`);
@@ -862,8 +797,7 @@ test('setupStdio "pipe" hands the API each command\'s output and keeps the calle
   }
   assert.throws(() => api.setupWorkspace(root, 'feat', { onSetupOutput: () => {} }), (e) => e.code === 'INVALID_OPTIONS');
 
-  // Nothing reached the consumer's own stdout or stderr: run a consumer in a
-  // child process and look at what came out of it.
+  // A consumer in a child process shows whether anything reached its own stdout or stderr.
   const index = path.join(path.dirname(CLI), 'index.js');
   const script = `require(${JSON.stringify(index)}).createWorkspace(${JSON.stringify(root)}, { name: 'child', setupStdio: 'pipe' }); console.log('consumer done');`;
   const child = spawnSync(process.execPath, ['-e', script], { encoding: 'utf8' });
@@ -888,11 +822,9 @@ test('a failing setup command tells API consumers which workspace was created', 
   assert.strictEqual(created.rules.ruleCount, 1);
   assert.ok(!('setup' in created), 'the setup outcome is in details.results, not on the workspace');
   assert.ok(fs.existsSync(path.join(created.path, '.env')));
-  // The failed result carries what the command wrote.
   assert.strictEqual(error.details.results[0].status, 'failed');
   assert.strictEqual(error.details.results[0].stderr.trim(), 'boom');
 
-  // A group reports every member it cloned, again without setup outcomes.
   const group = makeGroup(t, { rules: { tools: `setup ${exitCommand(2)}\n` } });
   const groupError = caught(() => api.createWorkspace(group, { name: 'feat' }));
   assert.strictEqual(groupError.code, 'SETUP_COMMAND_FAILED');
@@ -901,7 +833,6 @@ test('a failing setup command tells API consumers which workspace was created', 
   assert.deepStrictEqual(groupError.details.workspace.projects.map((member) => member.project), GROUP_PROJECTS);
   assert.ok(groupError.details.workspace.projects.every((member) => !('setup' in member)));
 
-  // The explicit re-run created nothing, so it reports no workspace.
   assert.strictEqual(caught(() => api.setupWorkspace(group, 'feat')).details.workspace, undefined);
 });
 
@@ -938,8 +869,6 @@ test('setup at a group root addresses the whole workspace or one member, like ap
   assert.match(one.stdout, /^done {3}feat\/projects\/api$/m);
   assert.deepStrictEqual(counts(), [2, 1]);
 
-  // Bare setup inside a member runs its source repository's commands only;
-  // inside the workspace folder it runs all of it.
   const inMember = runCli(apiClone, 'setup');
   assert.strictEqual(inMember.status, 0, inMember.stderr);
   assert.deepStrictEqual(counts(), [3, 1]);
@@ -978,7 +907,6 @@ test('setup at a group root addresses the whole workspace or one member, like ap
   assert.deepStrictEqual(memberEvents, [['project', 'projects/api', 1, undefined]]);
   assert.throws(() => api.setupWorkspace(root, 'feat/nope'), (error) => error.code === 'WORKSPACE_NOT_FOUND');
 
-  // A member that was never cloned is skipped, not created.
   fs.rmSync(path.join(feat, 'tools'), { recursive: true });
   const partial = runCli(root, 'setup', 'feat');
   assert.strictEqual(partial.status, 0, partial.stderr);
@@ -992,7 +920,6 @@ test('setup at a group root addresses the whole workspace or one member, like ap
   assert.strictEqual(partialApi.projects[2].setup, undefined);
   assert.throws(() => api.setupWorkspace(root, 'feat/tools'), (error) => error.code === 'WORKSPACE_NOT_FOUND');
 
-  // A source that is gone is refused rather than read from whatever is there.
   fs.rmSync(path.join(root, 'projects', 'api'), { recursive: true });
   const gone = runCli(root, 'setup', 'feat');
   assert.strictEqual(gone.status, 0, gone.stderr);

@@ -1,7 +1,5 @@
-// Structured errors for the programmatic API. The CLI prints `error.message`
-// unchanged, so messages here must stay identical to what the commands
-// printed before the API existed; `code` (and `details`) are the contract
-// programmatic callers should branch on.
+// The CLI prints `error.message` as is. Callers should branch on `code` and
+// `details`, not on the message.
 
 export type WorklerErrorCode =
   | 'ROOT_NOT_FOUND'
@@ -34,7 +32,7 @@ export class WorklerError extends Error {
   }
 }
 
-// Contents of the lock file: who is holding the per-project lock.
+/** Contents of the per-project lock file. */
 export interface LockHolder {
   pid: number;
   hostname: string;
@@ -46,7 +44,7 @@ export interface LockHolder {
 
 export class LockError extends WorklerError {
   readonly lockPath: string;
-  // Undefined when the lock file exists but cannot be read or parsed.
+  /** Undefined when the lock file exists but cannot be read or parsed. */
   readonly holder?: LockHolder;
 
   constructor(lockPath: string, holder: LockHolder | undefined) {

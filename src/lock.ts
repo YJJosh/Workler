@@ -7,16 +7,12 @@ import { LockError } from './errors';
 import type { LockHolder } from './errors';
 import { assertSafeWorkspacesDirectory } from './workspaces';
 
-// Per-project mutual exclusion for mutating API and CLI operations.
-// The lock is a JSON file created with O_EXCL inside <root>/.worktrees/;
-// listWorkspaces only looks at directories there, so the file never shows up
-// as a (broken) workspace. Locking is per project root, which is exactly the
-// scope a mutation touches: nested projects lock their own .worktrees.
+// A JSON file created with O_EXCL in <root>/.worktrees/. listWorkspaces only
+// reads directories, so it never shows up as a workspace.
 
 const LOCK_FILE_NAME = '.workler.lock';
-// A newly-created lock can briefly be empty or partial while its owner writes
-// the JSON payload. Never reclaim malformed content until it has remained
-// unchanged for long enough to rule out that creation window.
+// A new lock is briefly empty or partial while its owner writes it, so
+// malformed content is reclaimed only after this age.
 const MALFORMED_LOCK_STALE_MS = 30_000;
 
 export function projectLockPath(root: string): string {
@@ -46,10 +42,8 @@ function readLockHolder(lockPath: string): LockHolder | undefined {
   return undefined;
 }
 
-// A lock is stale when its owner can be proven dead. A malformed lock may be
-// a process that has created the file but not finished writing it, so reclaim
-// it only after a conservative age threshold. A lock from another host cannot
-// be liveness-checked, so it is NOT stale.
+// Stale only when the owner is provably dead. Another host's lock cannot be
+// checked, so it is never stale.
 function isStale(lockPath: string, holder: LockHolder | undefined): boolean {
   if (!holder) {
     try {
@@ -73,11 +67,8 @@ function isStale(lockPath: string, holder: LockHolder | undefined): boolean {
 
 export function acquireProjectLock(root: string, operation: string): ProjectLock {
   const lockPath = projectLockPath(root);
-  // init acquires the lock before it creates .worktrees/, so make sure the
-  // directory exists (init creates it anyway; for add/remove it must exist).
-  // Check both sides of mkdir: a pre-existing symlink/junction must never be
-  // followed, and the second check narrows the race where one is substituted
-  // while the directory is being created.
+  // init locks before .worktrees/ exists. Reject existing symlinks or junctions
+  // before mkdir; checking again afterwards narrows the substitution race.
   assertSafeWorkspacesDirectory(root);
   fs.mkdirSync(path.dirname(lockPath), { recursive: true });
   assertSafeWorkspacesDirectory(root);
@@ -90,9 +81,7 @@ export function acquireProjectLock(root: string, operation: string): ProjectLock
     token: randomUUID(),
   };
 
-  // Two attempts: the first EEXIST may be a stale lock left by a dead
-  // process; after reclaiming it, a second EEXIST means a live process won
-  // the re-acquire race and the contention is real.
+  // After reclaiming a stale lock, a second EEXIST means a live process won.
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const fd = fs.openSync(lockPath, 'wx');
@@ -104,10 +93,8 @@ export function acquireProjectLock(root: string, operation: string): ProjectLock
       return {
         path: lockPath,
         release() {
-          // Never unlink a lock that another process acquired after ours was
-          // externally removed or reclaimed. Ownership is token-based rather
-          // than PID-based so nested processes sharing a PID namespace cannot
-          // be confused.
+          // Never unlink a lock another process took after ours was removed.
+          // A token, not the PID, since PIDs repeat across PID namespaces.
           const current = readLockHolder(lockPath);
           if (current?.token === holder.token) {
             fs.rmSync(lockPath, { force: true });
@@ -139,9 +126,7 @@ export function withProjectLock<T>(root: string, operation: string, fn: () => T)
   }
 }
 
-// Takes several project locks for one operation, outermost first, and
-// releases them in reverse order. A clone inside a project group workspace is
-// guarded by the group's lock as well as its own (see lockRootsOf).
+/** Takes the locks outermost first and releases them in reverse order. */
 export function withProjectLocks<T>(roots: readonly string[], operation: string, fn: () => T): T {
   const first = roots[0];
   if (first === undefined) {
