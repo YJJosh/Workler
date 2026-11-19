@@ -1,0 +1,4 @@
+# Workler local workspace rules
+link node_modules
+# Nothing to link in a fresh main checkout: install instead.
+setup --if-missing node_modules npm ci

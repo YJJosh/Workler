@@ -1,5 +1,5 @@
 .worktrees/
-node_modules/
+node_modules
 dist/
 docs/.vitepress/dist/
 docs/.vitepress/cache/
