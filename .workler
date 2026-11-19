@@ -1,4 +1,4 @@
 # Workler local workspace rules
-link node_modules
-# Nothing to link in a fresh main checkout: install instead.
+# No "link node_modules": an npm ci or npm install in the workspace would
+# write through the link and change the main checkout's node_modules.
 setup --if-missing node_modules npm ci
