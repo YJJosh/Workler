@@ -299,9 +299,15 @@ function configCopyMatches(dir: string, groupRoot: string): boolean {
     if (!fs.lstatSync(copy).isFile()) {
       return false;
     }
+    const group = path.join(groupRoot, CONFIG_FILE);
+    if (fs.readFileSync(copy).equals(fs.readFileSync(group))) {
+      return true;
+    }
+    // Only a copy that still parses may differ in its project lines: an invalid edit is local data.
+    readConfig(dir);
     const withoutProjects = (file: string) =>
       fs.readFileSync(file, 'utf8').split(/\r?\n/).filter((line) => !/^\s*project(\s|$)/.test(line)).join('\n');
-    return withoutProjects(copy) === withoutProjects(path.join(groupRoot, CONFIG_FILE));
+    return withoutProjects(copy) === withoutProjects(group);
   } catch (_) {
     return false;
   }

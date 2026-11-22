@@ -9,6 +9,7 @@ import {
   requireDeclaredProject,
   sourceBrokenReason,
   splitWorkspaceAddress,
+  workspaceProjects,
 } from '../groups';
 import { runSetupCommands, settleGuards, validateSetupOptions } from '../setup';
 import type { PendingGuard, SetupOptions, SetupOutcome } from '../setup';
@@ -102,7 +103,7 @@ export function runWorkspaceSetup(info: ProjectInfo, workspace: Workspace, optio
   const projects: MemberSetupResult[] = [];
   // Guards are judged at the end: a group line may create a member's guard path.
   const pending: PendingGuard[] = [];
-  for (const project of info.projects) {
+  for (const project of workspaceProjects(workspace.path, info.projects)) {
     const source = memberPath(info.root, project);
     const member = memberPath(workspace.path, project);
     const skipped = memberSkipReason(info.root, workspace.path, project);
@@ -146,7 +147,7 @@ export function setupWorkspace(rootInput: string, name: string, options: Workspa
     return { name: workspace.name, path: workspace.path, root: info.root, ...runWorkspaceSetup(info, workspace, options) };
   }
 
-  const project = requireDeclaredProject(info.projects, address.project);
+  const project = requireDeclaredProject(workspaceProjects(workspace.path, info.projects), address.project);
   const member = memberPath(workspace.path, project);
   const source = memberPath(info.root, project);
   const skipped = memberSkipReason(info.root, workspace.path, project);

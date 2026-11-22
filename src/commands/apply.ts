@@ -4,7 +4,7 @@ import { readRules } from '../config';
 import { MAIN_WORKSPACE_NAME, PACKAGE_NAME } from '../constants';
 import { inspectProject, lockRootsOf, lockRootsWithSourcesOf, mergeLockRoots, requireProject } from '../core/project';
 import type { ProjectInfo } from '../core/project';
-import { inspectMember, memberPath, notACloneReason, requireDeclaredProject, sourceBrokenReason, splitWorkspaceAddress } from '../groups';
+import { inspectMember, memberPath, notACloneReason, requireDeclaredProject, sourceBrokenReason, splitWorkspaceAddress, workspaceProjects } from '../groups';
 import { withProjectLocks } from '../lock';
 import { applyRules } from '../rules';
 import type { Workspace } from '../types';
@@ -59,7 +59,7 @@ function applyWorkspace(info: ProjectInfo, workspace: Workspace, flags: ApplyFla
   }
 
   const cloned: string[] = [];
-  for (const project of info.projects) {
+  for (const project of workspaceProjects(workspace.path, info.projects)) {
     const member = memberPath(workspace.path, project);
     const check = inspectMember(workspace.path, project);
     if (check.state !== 'clone') {
@@ -194,7 +194,7 @@ export function applyCommand(args: string[]): void {
       applyWorkspace(info, workspace, flags);
       return;
     }
-    const project = requireDeclaredProject(info.projects, address.project);
+    const project = requireDeclaredProject(workspaceProjects(workspace.path, info.projects), address.project);
     const member = memberPath(workspace.path, project);
     const check = inspectMember(workspace.path, project);
     if (check.state !== 'clone') {

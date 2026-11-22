@@ -2116,3 +2116,20 @@ test('removal still checks a repository the group declared after a setup command
   assert.throws(() => api.removeWorkspace(root, 'before'), { code: 'WORKSPACE_DIRTY' });
   assert.ok(fs.existsSync(path.join(clone, 'draft.txt')));
 });
+
+test('setup still reaches a member the group dropped after the workspace was made', (t) => {
+  const root = makeGroup(t, { projects: ['api', 'web'], rules: { web: 'setup touch web-ready\n' } });
+  api.createWorkspace(root, { name: 'before' });
+  api.removeGroupProject(root, 'web');
+  fs.rmSync(path.join(workspaceDir(root, 'before'), 'web', 'web-ready'), { force: true });
+  const result = api.setupWorkspace(root, 'before/web');
+  assert.strictEqual(result.path, path.join(workspaceDir(root, 'before'), 'web'));
+  assert.ok(fs.existsSync(path.join(workspaceDir(root, 'before'), 'web', 'web-ready')));
+});
+
+test('a workspace copy edited into an invalid .workler is local data, not an older member list', (t) => {
+  const root = makeGroup(t, { projects: ['api'] });
+  api.createWorkspace(root, { name: 'edited' });
+  fs.appendFileSync(path.join(workspaceDir(root, 'edited'), '.workler'), 'project ../outside\n');
+  assert.throws(() => api.removeWorkspace(root, 'edited'), { code: 'WORKSPACE_DIRTY' });
+});
