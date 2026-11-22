@@ -3,7 +3,7 @@ import path from 'node:path';
 import { MAIN_WORKSPACE_NAME, WORKSPACES_DIR } from '../constants';
 import { managedWorkspacePaths } from '../config';
 import { gitMaybe, isGitWorkTreeFreeOfLocalData } from '../git';
-import { groupWorkspaceExtras, memberPath, requireDeclaredProject, splitWorkspaceAddress } from '../groups';
+import { groupWorkspaceExtras, memberPath, requireDeclaredProject, splitWorkspaceAddress, workspaceProjects } from '../groups';
 import { listSyncTargets } from '../multi-git';
 import { recordedSetupOutputs } from '../setup';
 import type { SyncTarget } from '../multi-git';
@@ -114,7 +114,7 @@ export function listWorkspaceInfos(rootInput: string, options: ListWorkspacesOpt
     const usable = projects.length > 0 && projects.every((project) => !project.broken);
     const branches = new Set(projects.map((project) => (project.detached ? undefined : project.branch)));
     const sameBranch = usable && branches.size === 1 && !projects[0].detached;
-    const extras = isMain || !usable ? [] : groupWorkspaceExtras(workspacePath, info.root, info.projects, groupManaged);
+    const extras = isMain || !usable ? [] : groupWorkspaceExtras(workspacePath, info.root, workspaceProjects(workspacePath, info.projects), groupManaged);
     const strayClone = projects.length === 0 && fs.existsSync(path.join(workspacePath, '.git'));
 
     return {
@@ -163,5 +163,6 @@ export function resolveWorkspacePath(rootInput: string, name: string): string {
   if (address.project === undefined) {
     return base;
   }
-  return memberPath(base, requireDeclaredProject(info.projects, address.project));
+  const projects = address.workspace === MAIN_WORKSPACE_NAME ? info.projects : workspaceProjects(base, info.projects);
+  return memberPath(base, requireDeclaredProject(projects, address.project));
 }

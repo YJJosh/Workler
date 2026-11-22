@@ -2076,3 +2076,26 @@ test('a workspace still refuses removal while a member the group dropped has loc
   fs.writeFileSync(path.join(workspaceDir(root, 'before'), 'web', 'draft.txt'), 'unsaved\n');
   assert.throws(() => api.removeWorkspace(root, 'before'), { code: 'WORKSPACE_DIRTY' });
 });
+
+test('adding refuses a symlinked folder and a linked worktree, which new workspaces could not clone', (t) => {
+  const root = makeGroup(t, { projects: ['api'] });
+  const outside = makeRepoAt(path.join(makeTempDir(t, 'workler-outside-'), 'shared'));
+  fs.symlinkSync(outside, path.join(root, 'shared'), 'junction');
+  assert.throws(() => api.addGroupProject(root, 'shared'), { code: 'NOT_A_GIT_REPO' });
+  git(member(root, 'api'), 'worktree', 'add', '-q', '-b', 'side', path.join(root, 'side'));
+  assert.throws(() => api.addGroupProject(root, 'side'), { code: 'NOT_A_GIT_REPO' });
+  assert.deepStrictEqual(api.inspectProject(root).projects, ['api']);
+});
+
+test('a workspace made before a membership change keeps listing and resolving its own members', (t) => {
+  const root = makeGroup(t, { projects: ['api', 'web'] });
+  makeRepoAt(member(root, 'docs'));
+  api.createWorkspace(root, { name: 'before' });
+  api.removeGroupProject(root, 'web');
+  api.addGroupProject(root, 'docs');
+  const before = api.listWorkspaces(root).find((workspace) => workspace.name === 'before');
+  assert.deepStrictEqual(before.projects.map((project) => project.project), ['api', 'web']);
+  assert.strictEqual(before.broken, undefined);
+  assert.strictEqual(before.branch, 'before');
+  assert.strictEqual(api.resolveWorkspacePath(root, 'before/web'), path.join(workspaceDir(root, 'before'), 'web'));
+});

@@ -307,17 +307,20 @@ function configCopyMatches(dir: string, groupRoot: string): boolean {
   }
 }
 
-/** The group's members and those the workspace's own .workler copy still declares. */
+/**
+ * The members a group workspace was made with, from its own .workler copy: the group's list may
+ * have changed since. Falls back to the group's list when the copy is missing or unreadable.
+ */
 export function workspaceProjects(dir: string, groupProjects: string[]): string[] {
-  let own: string[] = [];
   try {
     if (fs.lstatSync(path.join(dir, CONFIG_FILE)).isFile()) {
-      own = readConfig(dir).projects.map((entry) => entry.path);
+      const own = readConfig(dir).projects.map((entry) => entry.path);
+      if (own.length > 0) return own;
     }
   } catch (_) {
-    // A missing or broken copy declares nothing; removal reports it as local data.
+    // Removal reports a broken copy as local data.
   }
-  return [...groupProjects, ...own.filter((project) => !groupProjects.includes(project))];
+  return groupProjects;
 }
 
 /**

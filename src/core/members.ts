@@ -3,8 +3,8 @@ import path from 'node:path';
 import { canWriteConfigPath, pathsOverlap, quoteConfigPath, readConfig } from '../config';
 import { CONFIG_FILE } from '../constants';
 import { WorklerError } from '../errors';
-import { isGitTopLevel } from '../git';
-import { memberPath } from '../groups';
+import { hasIndependentGitDirectory } from '../git';
+import { memberPath, sourceBrokenReason } from '../groups';
 import { withProjectLocks } from '../lock';
 import { inspectProject, lockRootsOf } from './project';
 
@@ -63,8 +63,12 @@ export function addGroupProject(rootInput: string, project: string): GroupProjec
     if (overlaps !== undefined) {
       throw new WorklerError('INVALID_OPTIONS', `"${project}" overlaps "${overlaps}" in ${CONFIG_FILE}`, { project, overlaps });
     }
-    if (!isGitTopLevel(memberPath(info.root, project))) {
-      throw new WorklerError('NOT_A_GIT_REPO', `not a Git repository top level: ${memberPath(info.root, project)}`, { project });
+    // The checks `add` makes before cloning, so a declared member never blocks new workspaces.
+    const unusable =
+      sourceBrokenReason(info.root, project) ??
+      (hasIndependentGitDirectory(memberPath(info.root, project)) ? undefined : 'a linked worktree, not a repository of its own');
+    if (unusable !== undefined) {
+      throw new WorklerError('NOT_A_GIT_REPO', `cannot declare "${project}": ${unusable}`, { project, reason: unusable });
     }
     const projects = writeConfigLines(info.root, (lines) => {
       const last = lines.reduce((found, line, index) => (isProjectLine(line) ? index : found), -1);
