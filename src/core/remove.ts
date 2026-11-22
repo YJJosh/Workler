@@ -51,7 +51,10 @@ export function removeWorkspace(
 
   return withProjectLocks(lockRootsOf(info), `remove ${name}`, () => {
     const workspace = findWorkspace(info.root, name);
-    const projects = info.isGroup ? workspaceProjects(workspace.path, info.projects) : [];
+    // Both lists: the workspace's own members, and any repository the group lists now that
+    // sits in the workspace, such as one its setup cloned before it was declared.
+    const own = info.isGroup ? workspaceProjects(workspace.path, info.projects) : [];
+    const projects = [...own, ...info.projects.filter((project) => !own.includes(project))];
 
     if (options.force !== true) {
       if (info.isGroup) {

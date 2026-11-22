@@ -2099,3 +2099,20 @@ test('a workspace made before a membership change keeps listing and resolving it
   assert.strictEqual(before.branch, 'before');
   assert.strictEqual(api.resolveWorkspacePath(root, 'before/web'), path.join(workspaceDir(root, 'before'), 'web'));
 });
+
+test('removal still checks a repository the group declared after a setup command cloned it', (t) => {
+  const source = makeRepoAt(path.join(makeTempDir(t, 'workler-docs-'), 'docs'));
+  const root = makeGroup(t, {
+    projects: ['api'],
+    groupRules: `setup --if-missing docs git clone -q "${source}" docs\n`,
+  });
+  api.createWorkspace(root, { name: 'before' });
+  const clone = path.join(workspaceDir(root, 'before'), 'docs');
+  assert.ok(fs.existsSync(path.join(clone, '.git')), 'setup cloned docs');
+  fs.writeFileSync(path.join(clone, 'draft.txt'), 'unsaved\n');
+  // docs joins the group; the workspace's copy still lists only api.
+  fs.renameSync(source, member(root, 'docs'));
+  api.addGroupProject(root, 'docs');
+  assert.throws(() => api.removeWorkspace(root, 'before'), { code: 'WORKSPACE_DIRTY' });
+  assert.ok(fs.existsSync(path.join(clone, 'draft.txt')));
+});
