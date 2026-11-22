@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { MAIN_WORKSPACE_NAME, WORKSPACES_DIR } from './constants';
 import { git, gitMaybe } from './git';
-import { groupProjects, isGroupWorkspaceDirectory, memberBrokenReason, memberPath, sourceBrokenReason } from './groups';
+import { groupProjects, isGroupWorkspaceDirectory, memberBrokenReason, memberPath, sourceBrokenReason, workspaceProjects } from './groups';
 import { listWorkspaces } from './workspaces';
 import type { Workspace } from './types';
 
@@ -86,11 +86,12 @@ function listGroupSyncTargets(root: string, projects: string[]): SyncTarget[] {
     .sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0));
   for (const entry of entries) {
     const workspacePath = path.join(workspacesPath, entry.name);
-    if (!isGroupWorkspaceDirectory(workspacePath, projects)) {
+    const members = workspaceProjects(workspacePath, projects);
+    if (!isGroupWorkspaceDirectory(workspacePath, members)) {
       targets.push({ name: entry.name, path: workspacePath, broken: 'not a group workspace (no declared project is cloned here)' });
       continue;
     }
-    for (const project of projects) {
+    for (const project of members) {
       const member = memberPath(workspacePath, project);
       targets.push({
         name: entry.name,

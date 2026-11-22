@@ -5,7 +5,7 @@ import { WorklerError } from '../errors';
 import { assertInside } from '../fs-utils';
 import { managedWorkspacePaths, pathBelow } from '../config';
 import { describeLocalData, displayPath, gitWorkTreeLocalData, LOCAL_DATA_SHOWN, type LocalDataEntry } from '../git';
-import { ancestorReason, foreignMemberReason, groupWorkspaceExtras, inspectMember, memberPath, sourceBrokenReason } from '../groups';
+import { ancestorReason, foreignMemberReason, groupWorkspaceExtras, inspectMember, memberPath, sourceBrokenReason, workspaceProjects } from '../groups';
 import { assessHistory, describeHistory, historyAdvice, historyLabel } from '../history';
 import { withProjectLocks } from '../lock';
 import { recordedSetupOutputs } from '../setup';
@@ -51,10 +51,14 @@ export function removeWorkspace(
 
   return withProjectLocks(lockRootsOf(info), `remove ${name}`, () => {
     const workspace = findWorkspace(info.root, name);
+    // Both lists: the workspace's own members, and any repository the group lists now that
+    // sits in the workspace, such as one its setup cloned before it was declared.
+    const own = info.isGroup ? workspaceProjects(workspace.path, info.projects) : [];
+    const projects = [...own, ...info.projects.filter((project) => !own.includes(project))];
 
     if (options.force !== true) {
       if (info.isGroup) {
-        const found = groupLocalData(workspace.path, info.root, info.projects);
+        const found = groupLocalData(workspace.path, info.root, projects);
         if (found.length > 0) {
           const lines = found.flatMap((item) => [`  ${item.reason}`, ...('entries' in item ? describeLocalData(item.entries).map((line) => `    ${line}`) : [])]);
           throw new WorklerError(
@@ -79,7 +83,7 @@ export function removeWorkspace(
       // Preflight ALL group members before deleting anything. Never count a
       // mirror in the source (branch-sync prunes those after removal).
       const repositories = info.isGroup
-        ? info.projects.filter((project) => inspectMember(workspace.path, project).state !== 'missing')
+        ? projects.filter((project) => inspectMember(workspace.path, project).state !== 'missing')
             .map((project) => ({ source: memberPath(info.root, project), clone: memberPath(workspace.path, project), project }))
         : [{ source: info.root, clone: workspace.path, project: undefined }];
       const history = repositories.map((repo) => ({ ...repo, assessment:

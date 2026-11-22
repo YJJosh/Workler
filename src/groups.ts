@@ -291,17 +291,42 @@ export function groupWorkspaceExtras(dir: string, groupRoot: string, projects: s
   return extras;
 }
 
-// A symlink in its place is the user's, even when it points at the group's file.
+// A symlink in its place is the user's, even when it points at the group's file. Project lines
+// may differ: a workspace keeps the members it was created with while the group's list changes.
 function configCopyMatches(dir: string, groupRoot: string): boolean {
   try {
     const copy = path.join(dir, CONFIG_FILE);
     if (!fs.lstatSync(copy).isFile()) {
       return false;
     }
-    return fs.readFileSync(copy).equals(fs.readFileSync(path.join(groupRoot, CONFIG_FILE)));
+    const group = path.join(groupRoot, CONFIG_FILE);
+    if (fs.readFileSync(copy).equals(fs.readFileSync(group))) {
+      return true;
+    }
+    // Only a copy that still parses may differ in its project lines: an invalid edit is local data.
+    readConfig(dir);
+    const withoutProjects = (file: string) =>
+      fs.readFileSync(file, 'utf8').split(/\r?\n/).filter((line) => !/^\s*project(\s|$)/.test(line)).join('\n');
+    return withoutProjects(copy) === withoutProjects(group);
   } catch (_) {
     return false;
   }
+}
+
+/**
+ * The members a group workspace was made with, from its own .workler copy: the group's list may
+ * have changed since. Falls back to the group's list when the copy is missing or unreadable.
+ */
+export function workspaceProjects(dir: string, groupProjects: string[]): string[] {
+  try {
+    if (fs.lstatSync(path.join(dir, CONFIG_FILE)).isFile()) {
+      const own = readConfig(dir).projects.map((entry) => entry.path);
+      if (own.length > 0) return own;
+    }
+  } catch (_) {
+    // Removal reports a broken copy as local data.
+  }
+  return groupProjects;
 }
 
 /**

@@ -2032,3 +2032,104 @@ test('a group refusal prints an extra entry whose name holds a newline as one qu
   );
   assert.ok(fs.existsSync(feat));
 });
+
+// --- membership --------------------------------------------------------------
+
+test('adding a project appends its line and keeps the rest of the file as written', (t) => {
+  const root = makeGroup(t, { projects: ['api'], groupRules: '# shared env\ncopy .env.shared\n' });
+  makeRepoAt(member(root, 'web'));
+  assert.deepStrictEqual(api.addGroupProject(root, 'web').projects, ['api', 'web']);
+  assert.strictEqual(
+    fs.readFileSync(path.join(root, '.workler'), 'utf8'),
+    'project api\nproject web\n# shared env\ncopy .env.shared\n',
+  );
+  assert.throws(() => api.addGroupProject(root, 'WEB'), { code: 'INVALID_OPTIONS' });
+  fs.mkdirSync(path.join(root, 'notes'));
+  assert.throws(() => api.addGroupProject(root, 'notes'), { code: 'NOT_A_GIT_REPO' });
+  assert.throws(() => api.addGroupProject(root, '../outside'), { code: 'INVALID_OPTIONS' });
+});
+
+test('removing a project drops only its line and refuses the last one', (t) => {
+  const root = makeGroup(t, { projects: ['api', 'web'] });
+  assert.deepStrictEqual(api.removeGroupProject(root, 'api').projects, ['web']);
+  assert.strictEqual(fs.readFileSync(path.join(root, '.workler'), 'utf8'), 'project web\n');
+  assert.ok(fs.existsSync(path.join(root, 'api', 'README.md')), 'the folder stays');
+  assert.throws(() => api.removeGroupProject(root, 'web'), { code: 'INVALID_OPTIONS' });
+  assert.throws(() => api.removeGroupProject(root, 'api'), { code: 'INVALID_OPTIONS' });
+});
+
+test('a workspace made before a membership change is still removed without force', (t) => {
+  const root = makeGroup(t, { projects: ['api', 'web'] });
+  makeRepoAt(member(root, 'docs'));
+  api.createWorkspace(root, { name: 'before' });
+  api.removeGroupProject(root, 'web');
+  api.addGroupProject(root, 'docs');
+  assert.deepStrictEqual(api.inspectProject(workspaceDir(root, 'before')).projects, ['api', 'web']);
+  api.removeWorkspace(root, 'before');
+  assert.ok(!fs.existsSync(workspaceDir(root, 'before')));
+});
+
+test('a workspace still refuses removal while a member the group dropped has local changes', (t) => {
+  const root = makeGroup(t, { projects: ['api', 'web'] });
+  api.createWorkspace(root, { name: 'before' });
+  api.removeGroupProject(root, 'web');
+  fs.writeFileSync(path.join(workspaceDir(root, 'before'), 'web', 'draft.txt'), 'unsaved\n');
+  assert.throws(() => api.removeWorkspace(root, 'before'), { code: 'WORKSPACE_DIRTY' });
+});
+
+test('adding refuses a symlinked folder and a linked worktree, which new workspaces could not clone', (t) => {
+  const root = makeGroup(t, { projects: ['api'] });
+  const outside = makeRepoAt(path.join(makeTempDir(t, 'workler-outside-'), 'shared'));
+  fs.symlinkSync(outside, path.join(root, 'shared'), 'junction');
+  assert.throws(() => api.addGroupProject(root, 'shared'), { code: 'NOT_A_GIT_REPO' });
+  git(member(root, 'api'), 'worktree', 'add', '-q', '-b', 'side', path.join(root, 'side'));
+  assert.throws(() => api.addGroupProject(root, 'side'), { code: 'NOT_A_GIT_REPO' });
+  assert.deepStrictEqual(api.inspectProject(root).projects, ['api']);
+});
+
+test('a workspace made before a membership change keeps listing and resolving its own members', (t) => {
+  const root = makeGroup(t, { projects: ['api', 'web'] });
+  makeRepoAt(member(root, 'docs'));
+  api.createWorkspace(root, { name: 'before' });
+  api.removeGroupProject(root, 'web');
+  api.addGroupProject(root, 'docs');
+  const before = api.listWorkspaces(root).find((workspace) => workspace.name === 'before');
+  assert.deepStrictEqual(before.projects.map((project) => project.project), ['api', 'web']);
+  assert.strictEqual(before.broken, undefined);
+  assert.strictEqual(before.branch, 'before');
+  assert.strictEqual(api.resolveWorkspacePath(root, 'before/web'), path.join(workspaceDir(root, 'before'), 'web'));
+});
+
+test('removal still checks a repository the group declared after a setup command cloned it', (t) => {
+  const source = makeRepoAt(path.join(makeTempDir(t, 'workler-docs-'), 'docs'));
+  const root = makeGroup(t, {
+    projects: ['api'],
+    groupRules: `setup --if-missing docs git clone -q "${source}" docs\n`,
+  });
+  api.createWorkspace(root, { name: 'before' });
+  const clone = path.join(workspaceDir(root, 'before'), 'docs');
+  assert.ok(fs.existsSync(path.join(clone, '.git')), 'setup cloned docs');
+  fs.writeFileSync(path.join(clone, 'draft.txt'), 'unsaved\n');
+  // docs joins the group; the workspace's copy still lists only api.
+  fs.renameSync(source, member(root, 'docs'));
+  api.addGroupProject(root, 'docs');
+  assert.throws(() => api.removeWorkspace(root, 'before'), { code: 'WORKSPACE_DIRTY' });
+  assert.ok(fs.existsSync(path.join(clone, 'draft.txt')));
+});
+
+test('setup still reaches a member the group dropped after the workspace was made', (t) => {
+  const root = makeGroup(t, { projects: ['api', 'web'], rules: { web: 'setup touch web-ready\n' } });
+  api.createWorkspace(root, { name: 'before' });
+  api.removeGroupProject(root, 'web');
+  fs.rmSync(path.join(workspaceDir(root, 'before'), 'web', 'web-ready'), { force: true });
+  const result = api.setupWorkspace(root, 'before/web');
+  assert.strictEqual(result.path, path.join(workspaceDir(root, 'before'), 'web'));
+  assert.ok(fs.existsSync(path.join(workspaceDir(root, 'before'), 'web', 'web-ready')));
+});
+
+test('a workspace copy edited into an invalid .workler is local data, not an older member list', (t) => {
+  const root = makeGroup(t, { projects: ['api'] });
+  api.createWorkspace(root, { name: 'edited' });
+  fs.appendFileSync(path.join(workspaceDir(root, 'edited'), '.workler'), 'project ../outside\n');
+  assert.throws(() => api.removeWorkspace(root, 'edited'), { code: 'WORKSPACE_DIRTY' });
+});
