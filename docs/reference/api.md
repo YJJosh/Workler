@@ -97,6 +97,25 @@ relative paths in sorted order — what `initProject` declares in a non-Git
 folder. Hidden directories, `node_modules`, and linked `git worktree`
 checkouts are skipped.
 
+### `addGroupProject(root, project): GroupProjectsResult`
+
+Declares the repository at `root/project` as a member of the project group at
+`root` by adding a `project` line after the last one; every other line stays
+as written. Throws `NOT_INITIALIZED` when `root` is not a group,
+`NOT_A_GIT_REPO` when the path is not a repository's top level, and
+`INVALID_OPTIONS` for a path that cannot be written or overlaps another
+entry. Returns `{ projects }`, the group's members afterwards.
+
+### `removeGroupProject(root, project): GroupProjectsResult`
+
+Removes the member's `project` line. Its folder stays where it is. Throws
+`INVALID_OPTIONS` for a path that is not a member and for the group's only
+member.
+
+Workspaces created before either change keep the members they were created
+with: their own copy of `.workler` still lists them, and `removeWorkspace`
+checks those members too, without asking for `force`.
+
 ### `createWorkspace(root, options): CreateWorkspaceResult`
 
 Same semantics as [`workler add`](/reference/cli/add). `options`:

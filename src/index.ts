@@ -8,6 +8,9 @@ export type { WorklerErrorCode, LockHolder } from './errors';
 export { discoverProjects, initProject, inspectProject } from './core/project';
 export type { InitResult, ProjectInfo } from './core/project';
 
+export { addGroupProject, removeGroupProject } from './core/members';
+export type { GroupProjectsResult } from './core/members';
+
 export { createWorkspace, planWorkspaceCreation } from './core/create';
 export type {
   CheckoutPlan,
