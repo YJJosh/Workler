@@ -5,61 +5,61 @@ description: Create isolated workspaces (full local clones) of a git repository,
 
 # Workler
 
-Workler creates normal local clones under `.worktrees/<name>` (not `git worktree`: each has its own HEAD, index, and local branches). An optional `.workler` file at the project root holds copy/link rules (e.g. `link node_modules`, `copy .env`; quote paths containing spaces or `#`) and `setup` commands that run in every new workspace (e.g. `setup --if-missing node_modules pnpm install`). Neither `workler init` nor a `.workler` file is required.
+Workler creates full local clones under `.worktrees/<name>` — **not** `git worktree`. Each clone has its own `HEAD`, index, local branches, and fetch state (multiple workspaces can sit on the same branch via `--checkout`), and with Portler its dev `@` volumes are isolated per clone rather than shared like linked git worktrees.
+
+An optional `.workler` at the project root holds `copy`/`link` rules (quote paths with spaces or `#`) and `setup` commands (e.g. `setup --if-missing node_modules pnpm install`); neither `workler init` nor `.workler` is required.
 
 ```
 workler add <name> [base] [--branch <b>] [--checkout <ref>] [--no-setup] [--copy-links] [--force] [--dry-run]
-workler path <name>                             # print a workspace's path
-workler list                                    # every workspace with branch and path
+workler path <name>                                  # print workspace path
+workler list                                         # workspaces with branch and path
 workler apply [name] [--all] [--force] [--dry-run]   # re-apply copy/link rules
-workler setup [name]                            # re-run the setup commands
-workler remove <name> [--force]                 # refuses local files and unpreserved/unknown history
-workler status | fetch | sync | branch-sync     # main project + every workspace
-workler init                                    # optional: write a starter .workler
-workler shell-init                              # eval output to get `wcd <name>`
+workler setup [name]                                 # re-run setup commands
+workler remove <name> [--force]                      # refuses local files and unpreserved/unknown history
+workler status | fetch | sync | branch-sync          # main project + every workspace
+workler init                                         # optional: write a starter .workler
+workler shell-init                                   # eval output to get `wcd <name>`
 ```
 
-`add` branch behavior:
-- `add <name>`: new branch `<name>` from the main project's HEAD
-- `add <name> <base>`: new branch starting at `<base>` (branch, tag, or commit; `origin/x` also sets upstream)
-- `add <name> --branch <b>`: workspace on branch `<b>`; created from HEAD if it doesn't exist
-- `add <name> --checkout <ref>`: no new branch: existing branch, or tag/commit on detached HEAD
+`add` branches:
+- `add <name> [base]`: new branch `<name>` from `HEAD` or `<base>` (`origin/x` sets upstream)
+- `add <name> --branch <b>`: workspace on `<b>` (created from `HEAD` if missing; add `[base]` for a new branch from it)
+- `add <name> --checkout <ref>`: no new branch (existing branch, or tag/commit on detached `HEAD`)
 
-Multi-workspace commands: `status` shows branch, ahead/behind, tracked-file clean/dirty and a separate HISTORY assessment everywhere; `fetch` runs `git fetch --prune origin` everywhere; `sync` fetches then fast-forward-only pulls (dirty or diverged workspaces are never touched); `branch-sync` fast-forwards the root's branches into every workspace and mirrors workspace branches back into the root as read-only `refs/workler/<workspace>/<branch>`. In a project group it works per member against that member's source repository, and the mirrors land there under `refs/workler-group/<group>/<workspace>/<branch>`. Mirrors of removed workspaces are pruned.
+Multi-workspace commands (main project + every workspace):
+- `status`: branch, ahead/behind, tracked clean/dirty, and offline `HISTORY` preservation proof
+- `fetch` / `sync`: `git fetch --prune origin` everywhere; `sync` also fast-forwards clean, non-diverged current branches with an upstream
+- `branch-sync`: fast-forwards root branches into workspaces, mirrors workspace branches back as read-only `refs/workler/<workspace>/<branch>` (`refs/workler-group/<group>/<workspace>/<branch>` in groups), and prunes mirrors of removed workspaces
 
 ## Working in a workspace
 
-- Typical flow: `workler add my-task`, `cd "$(workler path my-task)"`, work there, commit locally. Review with `git diff <base>` inside the clone. Never push from a workspace unless the user asks.
-- Use one workspace per task or agent. `add` only clones committed work; uncommitted changes in the main project stay there.
-- Workspaces nest: `workler add` inside a workspace creates one under that workspace's own `.worktrees/` (one per subagent, say).
-- `add` runs the `setup` lines of `.workler` through the shell. In a repository you do not know, read `.workler` first (in a project group, every member repository's too: `add` runs each member's lines, then the group's), or add with `--no-setup` and run `workler setup <name>` once you have checked them all. If a setup command fails, the workspace is kept: fix the cause and run `workler setup <name>`.
-- Copy/link rules never replace an existing, different destination without `--force`, and `--dry-run` prints the plan first. Setup commands are not covered by this: they run as written, without `--force`, and can change any file they reach (through a `link`, even files in the main checkout); `--dry-run` only lists them.
+- Flow: `workler add my-task`, `cd "$(workler path my-task)"`, commit locally, review with `git diff <base>`. Never push unless asked.
+- One workspace per task or agent; `add` clones committed work only. `workler add` inside a workspace nests one under its own `.worktrees/`.
+- Unfamiliar repos: inspect `.workler` (and every member's in a group) before `setup` shell commands run, or add with `--no-setup`, inspect them, then run `workler setup <name>`. Failed setup keeps the workspace — fix and re-run `workler setup <name>`.
+- Copy/link rules never overwrite a differing destination without `--force` (`--dry-run` previews). Setup commands aren't covered by this and can edit any file they reach (through a `link`, even files in the main checkout); `--dry-run` only lists them.
 
 ## Removing a workspace
 
-- `remove` deletes the folder for good. It refuses while the workspace holds local data (uncommitted, staged, untracked or ignored files, apart from what `.workler` produces; that includes anything written inside a `setup --if-missing` folder, so check what such a folder holds) and lists what it found. Deal with each entry instead of passing `--force`, unless the user asks for it.
-- Run `workler status` at the source project/group root. Its HISTORY column uses the same offline proof as `remove`: every workspace ref, HEAD and reflog is checked, including noncurrent branches, tags, detached commits, old stash entries and their parents, and reflog-only commits after amend/reset. A commit must be reachable from a direct local source branch/tag or detached source HEAD. Mirrors, remote-tracking refs, source stash/reflogs and loose objects are not proof. Even pushed work blocks until imported into durable source refs.
-- Review unpreserved commits and ask before discarding intentionally rewritten/dropped work. Status/refusal gives a specific full ID and a copyable, escaped **Bash / Git Bash** `git -C <source> fetch --no-tags -- <workspace> <commit>:refs/heads/keep-<id>` command. Choose an unused destination source branch (never force-fetch over one), import the exact commit deliberately, then rerun status for remaining IDs. Do not rely on a workspace branch name: it may not contain the old commit. Importing a stash commit retains its parents/trees without recreating a stash slot or changing the working tree. Never auto-restore rewritten work. On PowerShell/cmd use their own literal-argument quoting or switch to Git Bash for the generated example.
-- `preserved in source` is not permission to delete: separately save dirty, staged, untracked and ignored files, including data inside rule/setup outputs. Importing history does **not** back them up. `clean` in status checks only tracked files. Normal `remove` checks more and reassesses history.
-- Unknown history blocks normal removal; repair the inspection rather than treating it as safe. Missing/broken/linked sources, shallow/replace/graft/alternate/partial histories, missing objects, Git warnings/errors and 30s/32-MiB per-command limits (or 30s / one million Git metadata entries) are conservative unknowns. Expired reflogs and dangling objects no longer named by refs/HEAD/reflogs are outside the proof. Avoid concurrent Git edits/GC during checks. Workler never fetches during assessment or auto-stashes, commits, rewrites history or creates a rescue archive.
-- `branch-sync` mirrors are not enough: they cover branches only and are pruned once the workspace is gone. In groups, every existing member must pass against its own source before any deletion. A nonempty nested `.worktrees/` still blocks: remove children from their own level after importing their history into the parent, then import needed parent history into its source. `--force` destroys the whole directory, including nested workspaces, without saving anything; use it only when explicitly authorized to discard the data.
-- Remove only workspaces you created.
+Remove only workspaces you created. Never pass `--force` without asking — it deletes everything (including nested workspaces) with no backup.
 
-## Project groups
+1. **Stop Portler** (if used): inside the workspace (or affected group members), run `portler down`, then `portler clean` (`.portler/` is local data; `workler remove --force` would delete the folder while services keep running).
+2. **Remove nested workspaces first**: nonempty `.worktrees/` blocks removal; remove children at their own level after importing their history into the parent.
+3. **Check `workler status`** at the source/group root: `HISTORY` runs `remove`'s offline proof — every ref, `HEAD`, and reflog commit must be reachable from a direct local source branch/tag or detached source `HEAD` (mirrors, remote-tracking refs, loose objects, and pushed commits do not count; `unknown` blocks — fix inspection instead of forcing).
+4. **Import unpreserved commits deliberately**: review listed commits and ask before discarding rewritten/dropped work (never auto-restore). Run the exact-commit Bash/Git Bash fetch command `status`/refusal prints into an unused source branch (never force-fetch over one or rely on a workspace branch name; in groups, import into that member's source), then rerun `status`.
+5. **Save local files separately**: `clean` (tracked only) and `preserved in source` are not permission to delete; importing history does **not** back up dirty, staged, untracked, or ignored files. `remove` neither refuses nor lists `.workler` outputs, so check what `setup --if-missing` folders hold.
+6. **Run `workler remove <name>`**: deal with each listed entry instead of `--force`. In groups, every existing member must pass against its own source.
 
-A plain folder whose `.workler` lists repositories with `project <path>` lines is a project group. `workler add feat` there clones every listed repository into `.worktrees/feat/` in the same layout, all on branch `feat`. `<name>/<project path>` addresses one member: `workler path feat/projects/api`. Each member keeps its own `.workler`.
+Full removal rules, limits, and PowerShell/cmd quoting notes: `reference/cli/remove` and `guide/safety`.
 
-## With Portler
+## Project groups & Portler
 
-Each workspace is its own Portler project: `portler up -d` inside it gets its own ports, and in development its Portler-managed `@` volumes are separate from the main checkout's, so they start empty. Under `--prod`, a project with a top-level `name:` shares its volumes across every clone, so use a separate `--volume-set` there before changing data. Before removing a workspace, run `portler down` and then `portler clean` in it: `.portler/` counts as local data, and `remove --force` would delete the folder while its services keep running. A `setup portler setup` line in `.workler` prepares Portler's setup steps in every new workspace.
+- **Project groups:** a plain folder whose `.workler` lists `project <path>` lines. `workler add feat` clones every member into `.worktrees/feat/` in the same layout on branch `feat`; address one member as `<name>/<project path>` (e.g. `workler path feat/projects/api`). Each member keeps its own `.workler`.
+- **Portler:** each workspace gets its own ports (and isolated dev `@` volumes, above). Under `--prod`, a top-level `name:` shares volumes across all clones — pass a separate `--volume-set` before changing data. Add `setup portler setup` in `.workler` to run Portler setup in new workspaces.
 
 ## Documentation
 
-Read the docs for the version that is installed; Workler changes between releases. `workler --version` prints it (e.g. `0.2.2`).
-
-- **Markdown, pinned to that release:** `https://raw.githubusercontent.com/YJJosh/Workler/v<version>/docs/<page>.md`, e.g. `.../v0.2.2/docs/reference/cli/add.md`. The `v<version>` tag is the commit the release was built from, so these pages describe exactly the CLI you have. To read many pages, `git clone --depth 1 --branch v<version> https://github.com/YJJosh/Workler` and open `docs/`.
-- **Website, latest release only:** https://yjjosh.github.io/Workler/. A page such as `guide/rules` is `docs/guide/rules.md`; `reference/cli/` is `docs/reference/cli/index.md`.
-
-Pages: `guide/` getting-started, workspaces, rules, setup, safety, sync, nested-workspaces, project-groups, shell-helper; `reference/` configuration (the `.workler` file), generated-files, api, and `cli/<command>` for each command.
-
-A page that returns 404 at your tag, or a command or flag the CLI rejects, does not exist in your version. Follow the docs at your tag over this file, and ask the user before upgrading Workler.
+Read docs matching `workler --version` (e.g. `0.4.0`):
+- **Pinned Markdown:** `https://raw.githubusercontent.com/YJJosh/Workler/v<version>/docs/<page>.md` (e.g. `.../v0.4.0/docs/reference/cli/remove.md`, `.../v0.4.0/docs/guide/safety.md`). For many pages: `git clone --depth 1 --branch v<version> https://github.com/YJJosh/Workler`.
+- **Website (latest only):** https://yjjosh.github.io/Workler/ (`guide/rules` → `docs/guide/rules.md`; `reference/cli/` → `docs/reference/cli/index.md`).
+- **Pages:** `guide/` getting-started, workspaces, rules, setup, safety, sync, nested-workspaces, project-groups, shell-helper; `reference/` configuration, generated-files, api, `cli/<command>`.
+- A 404 at your tag or a rejected flag means it does not exist in your version. Follow your tag's docs over this file, and ask before upgrading Workler.
