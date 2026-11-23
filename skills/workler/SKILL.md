@@ -5,9 +5,11 @@ description: Create isolated workspaces (full local clones) of a git repository,
 
 # Workler
 
-Workler creates full local clones under `.worktrees/<name>` — **not** `git worktree`. Each clone has its own `HEAD`, index, local branches, and fetch state (multiple workspaces can share a branch via `--checkout`), and with Portler its dev `@` volumes are isolated per clone (starting empty) rather than shared like linked git worktrees. An optional `.workler` at the project root holds `copy`/`link` rules (quote paths with spaces or `#`) and `setup` commands (e.g. `setup --if-missing node_modules pnpm install`); neither `workler init` nor `.workler` is required.
+Workler creates full local clones under `.worktrees/<name>` — **not** `git worktree`. Each clone has its own `HEAD`, index, local branches, and fetch state (multiple workspaces can sit on the same branch via `--checkout`), and with Portler its dev `@` volumes are isolated per clone rather than shared like linked git worktrees.
 
-```bash
+An optional `.workler` at the project root holds `copy`/`link` rules (quote paths with spaces or `#`) and `setup` commands (e.g. `setup --if-missing node_modules pnpm install`); neither `workler init` nor `.workler` is required.
+
+```
 workler add <name> [base] [--branch <b>] [--checkout <ref>] [--no-setup] [--copy-links] [--force] [--dry-run]
 workler path <name>                                  # print workspace path
 workler list                                         # workspaces with branch and path
@@ -15,7 +17,8 @@ workler apply [name] [--all] [--force] [--dry-run]   # re-apply copy/link rules
 workler setup [name]                                 # re-run setup commands
 workler remove <name> [--force]                      # refuses local files and unpreserved/unknown history
 workler status | fetch | sync | branch-sync          # main project + every workspace
-workler init | shell-init                            # starter .workler | eval for `wcd <name>`
+workler init                                         # optional: write a starter .workler
+workler shell-init                                   # eval output to get `wcd <name>`
 ```
 
 `add` branches:
@@ -25,28 +28,28 @@ workler init | shell-init                            # starter .workler | eval f
 
 Multi-workspace commands (main project + every workspace):
 - `status`: branch, ahead/behind, tracked clean/dirty, and offline `HISTORY` preservation proof
-- `fetch` / `sync`: `git fetch --prune origin` everywhere; `sync` also fast-forwards clean, non-diverged branches
-- `branch-sync`: fast-forwards root branches into workspaces and mirrors workspace branches back as read-only `refs/workler/<workspace>/<branch>` (`refs/workler-group/<group>/<workspace>/<branch>` in groups); mirrors prune on removal
+- `fetch` / `sync`: `git fetch --prune origin` everywhere; `sync` also fast-forwards clean, non-diverged current branches with an upstream
+- `branch-sync`: fast-forwards root branches into workspaces, mirrors workspace branches back as read-only `refs/workler/<workspace>/<branch>` (`refs/workler-group/<group>/<workspace>/<branch>` in groups), and prunes mirrors of removed workspaces
 
 ## Working in a workspace
 
 - Flow: `workler add my-task`, `cd "$(workler path my-task)"`, commit locally, review with `git diff <base>`. Never push unless asked.
-- One workspace per task or agent; `add` clones committed work only. Workspaces nest under their own `.worktrees/`.
-- Unfamiliar repos: inspect `.workler` (and every member's in a group) before `setup` shell commands run, or pass `--no-setup` then run `workler setup <name>`. Failed setup keeps the workspace — fix and re-run `workler setup <name>`.
-- Copy/link rules never overwrite a differing destination without `--force` (`--dry-run` previews). Setup commands are unguarded and can edit any file they reach (even through a `link`); `--dry-run` only lists them.
+- One workspace per task or agent; `add` clones committed work only. `workler add` inside a workspace nests one under its own `.worktrees/`.
+- Unfamiliar repos: inspect `.workler` (and every member's in a group) before `setup` shell commands run, or add with `--no-setup`, inspect them, then run `workler setup <name>`. Failed setup keeps the workspace — fix and re-run `workler setup <name>`.
+- Copy/link rules never overwrite a differing destination without `--force` (`--dry-run` previews). Setup commands aren't covered by this and can edit any file they reach (through a `link`, even files in the main checkout); `--dry-run` only lists them.
 
 ## Removing a workspace
 
 Remove only workspaces you created. Never pass `--force` without asking — it deletes everything (including nested workspaces) with no backup.
 
-1. **Stop Portler** (if used): `portler down`, then `portler clean` (`.portler/` is local data; `--force` leaves services running).
+1. **Stop Portler** (if used): inside the workspace (or affected group members), run `portler down`, then `portler clean` (`.portler/` is local data; `workler remove --force` would delete the folder while services keep running).
 2. **Remove nested workspaces first**: nonempty `.worktrees/` blocks removal; remove children at their own level after importing their history into the parent.
 3. **Check `workler status`** at the source/group root: `HISTORY` runs `remove`'s offline proof — every ref, `HEAD`, and reflog commit must be reachable from a direct local source branch/tag or detached source `HEAD` (mirrors, remote-tracking refs, loose objects, and pushed commits do not count; `unknown` blocks — fix inspection instead of forcing).
-4. **Import unpreserved commits deliberately**: review listed commits and ask before discarding rewritten/dropped work (never auto-restore). Fetch exact full IDs from `status`/refusal into an unused source branch (never force-fetch over one or rely on a workspace branch name; in groups, import into that member's source), then rerun `status`.
-5. **Save local files separately**: `clean` (tracked only) and `preserved in source` are not permission to delete; importing history does **not** back up dirty, staged, untracked, or ignored files (including data inside rule or `setup --if-missing` folders).
+4. **Import unpreserved commits deliberately**: review listed commits and ask before discarding rewritten/dropped work (never auto-restore). Run the exact-commit Bash/Git Bash fetch command `status`/refusal prints into an unused source branch (never force-fetch over one or rely on a workspace branch name; in groups, import into that member's source), then rerun `status`.
+5. **Save local files separately**: `clean` (tracked only) and `preserved in source` are not permission to delete; importing history does **not** back up dirty, staged, untracked, or ignored files. `remove` neither refuses nor lists `.workler` outputs, so check what `setup --if-missing` folders hold.
 6. **Run `workler remove <name>`**: deal with each listed entry instead of `--force`. In groups, every existing member must pass against its own source.
 
-Full removal rules, limits, and shell-quoting notes: `reference/cli/remove` and `guide/safety`.
+Full removal rules, limits, and PowerShell/cmd quoting notes: `reference/cli/remove` and `guide/safety`.
 
 ## Project groups & Portler
 
